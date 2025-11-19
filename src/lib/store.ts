@@ -28,15 +28,25 @@ export type Settings = {
   companyAddress?: string
   companyLogoDataUrl?: string
 
-  // NEW: Invoice config
+  // Invoice config
   invoicePrefix?: string
   invoiceStartNumber?: number // default 1000
   bankDetails?: string
+
+  /**
+   * @deprecated Use vatNumber instead. Kept for backward compatibility during migration.
+   */
   taxNumber?: string
+
   paymentTermsDays?: number   // default 14
   invoiceFooterNote?: string
 
-  // NEW: AI/backdrops
+  // NEW: Tax fields used by invoice totals/PDFs
+  taxRatePct?: number   // e.g. 15
+  taxLabel?: string     // e.g. "VAT" or "GST"
+  vatNumber?: string    // e.g. "ZA1234567890"
+
+  // AI/backdrops
   enableAIBackdrops?: boolean
 }
 
@@ -103,9 +113,14 @@ const defaultCatalog: Catalog = {
     invoicePrefix: 'INV-',
     invoiceStartNumber: 1000,
     bankDetails: '',
-    taxNumber: '',
+    taxNumber: '',            // deprecated; kept for migration
     paymentTermsDays: 14,
     invoiceFooterNote: 'Thank you for your business.',
+
+    // NEW: Tax defaults
+    taxRatePct: 15,
+    taxLabel: 'VAT',
+    vatNumber: '',
 
     // Backdrops
     enableAIBackdrops: false,
@@ -130,27 +145,42 @@ function migrateCatalog(oldCat: Partial<Catalog> | null): Catalog {
     Array.isArray(oldCat.printingMaterials) && oldCat.printingMaterials.length
       ? oldCat.printingMaterials
       : defaultCatalog.printingMaterials
+
+  // Merge settings with defaults, then apply migrations/back-compat
   const settings: Settings = { ...defaultCatalog.settings, ...(oldCat.settings as Settings) }
+
+  // Ensure numeric defaults
   if (typeof settings.foamBackerPerSqM !== 'number') settings.foamBackerPerSqM = 0
   if (typeof settings.invoiceStartNumber !== 'number') settings.invoiceStartNumber = 1000
   if (typeof settings.paymentTermsDays !== 'number') settings.paymentTermsDays = 14
+
+  // NEW: tax defaults + back-compat mapping taxNumber -> vatNumber
+  if (typeof settings.taxRatePct !== 'number') settings.taxRatePct = defaultCatalog.settings.taxRatePct
+  if (!settings.taxLabel) settings.taxLabel = defaultCatalog.settings.taxLabel
+  if (!settings.vatNumber && settings.taxNumber) settings.vatNumber = settings.taxNumber // migrate old field
+
   const stock = {
     frames: oldCat.stock?.frames ?? defaultCatalog.stock?.frames ?? [],
     sheets: oldCat.stock?.sheets ?? defaultCatalog.stock?.sheets ?? [],
     rolls: oldCat.stock?.rolls ?? defaultCatalog.stock?.rolls ?? [],
   }
+
+  // Basic sanity on a few key fields
   settings.currencySymbol = settings.currencySymbol || defaultCatalog.settings.currencySymbol
   settings.currencyCode = settings.currencyCode || defaultCatalog.settings.currencyCode
   settings.unit = (settings.unit as any) === 'imperial' ? 'imperial' : 'metric'
+
   return { frames, mats, glazing, printingMaterials, settings, stock }
 }
 
 export function useCatalog() {
   const [catalog, _setCatalog] = useState<Catalog>(() => migrateCatalog(loadCatalog()))
   useEffect(() => { saveCatalog(catalog) }, [catalog])
+
   const setCatalog = (updater: Catalog | ((prev: Catalog) => Catalog)) => {
     _setCatalog(prev => migrateCatalog(typeof updater === 'function' ? (updater as any)(prev) : updater))
   }
+
   const exportJSON = () => {
     const blob = new Blob([JSON.stringify(catalog, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -158,13 +188,16 @@ export function useCatalog() {
     a.download = `frameit-catalog-${new Date().toISOString().slice(0,10)}.json`
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
   }
+
   const importJSON = async (file: File) => {
     const text = await file.text()
     const parsed = safeParse<Catalog>(text)
     if (!parsed) throw new Error('Invalid JSON')
     setCatalog(migrateCatalog(parsed))
   }
+
   const resetCatalog = () => setCatalog(defaultCatalog)
+
   const maps = useMemo(() => {
     const frameMap = new Map(catalog.frames.map(f => [f.id, f]))
     const matMap = new Map(catalog.mats.map(m => [m.id, m]))
@@ -172,6 +205,7 @@ export function useCatalog() {
     const printMap = new Map((catalog.printingMaterials || []).map(pm => [pm.id, pm]))
     return { frameMap, matMap, glazingMap, printMap }
   }, [catalog])
+
   return { catalog, setCatalog, exportJSON, importJSON, resetCatalog, maps }
 }
 
