@@ -7,6 +7,7 @@ import { useQuotes }    from "@/lib/quotes";
 import { useCustomers } from "@/lib/customers";
 import { useInvoices }  from "@/lib/invoices";
 import { useJobs }      from "@/lib/jobs";
+import { useLayout } from "@/lib/layout";
 
 // PDF
 import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
@@ -169,7 +170,14 @@ export default function VisualizerApp() {
   const qStore        = useQuotes() as any;
   const jobsStore     = useJobs() as any;
   const invoicesStore = useInvoices() as any;
+
   const { customers, add: addCustomer, update: updateCustomer } = useCustomers();
+  const { layoutMode } = useLayout();
+
+  const containerClass =
+    layoutMode === "fixed"
+      ? "max-w-[1440px] mx-auto"
+      : "max-w-none w-full";
 
   const addJob = (job: any) =>
     jobsStore?.add?.(job) ?? jobsStore?.create?.(job) ?? jobsStore?.push?.(job);
@@ -197,6 +205,7 @@ export default function VisualizerApp() {
 
   // ---------- UI state ----------
   const [activeTab, setActiveTab] = useState<"build" | "room">("build");
+  const [showDimensions, setShowDimensions] = useState(true);
   const [mode, setMode]           = useState<"basic" | "pro">("basic");
   const [unit, setUnit]           = useState<"metric" | "imperial">("metric");
 
@@ -683,7 +692,7 @@ export default function VisualizerApp() {
       case "living":  return { background: "linear-gradient(180deg, #fefcf5 0%, #f8efe2 100%)" };
       case "gallery": return { background: "linear-gradient(180deg, #fdfdfd 0%, #f3f4f6 100%)" };
       case "office":  return { background: "linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 100%)" };
-      default:        return { background: "#ddd" };
+      default:        return { background: "transparent" };
     }
   }, [backdrop]);
 
@@ -1024,6 +1033,7 @@ export default function VisualizerApp() {
     try {
       addInvoice?.(invoiceObj as any);
 
+      // Still generate the PDF, but stay on the Visualizer
       exportInvoicePDF?.({
         invoice: invoiceObj,
         customer: customerObj
@@ -1056,14 +1066,15 @@ export default function VisualizerApp() {
         },
       } as any);
 
-      alert("Invoice created, added to Invoices, and PDF generated.");
-      try { location.hash = "#/invoices"; } catch {}
+      alert("Invoice created and added to Invoices.");
+      // ⬆️ No navigation: we stay on the Visualizer
     } catch (err) {
       console.error(err);
       alert("Invoice creation or PDF export failed. See console for details.");
     }
   }
 
+  
   const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
     <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-2">
@@ -1327,7 +1338,12 @@ export default function VisualizerApp() {
   // ---------- RENDER ----------
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-emerald-50/40 to-slate-50">
-      <main className="w-full p-4 grid gap-4 sm:grid-cols-1 lg:grid-cols-[auto_minmax(0,1fr)_auto] max-w-7xl mx-auto">
+            <main
+          className={`${containerClass} p-4 grid gap-4 
+            lg:grid-cols-[320px_1fr_320px] 
+            xl:grid-cols-[360px_1fr_360px]`}
+        >
+
         {/* LEFT */}
         <section className="w-full md:w-[300px] flex-none space-y-3">
           {/* Artwork / Image */}
@@ -1972,11 +1988,11 @@ export default function VisualizerApp() {
                     width: Math.max(1, Math.round(px(outerWcm))),
                     height: Math.max(1, Math.round(px(outerHcm))),
                     ...backdropStyle,
-                    boxShadow: "0 12px 40px rgba(15, 23, 42, 0.35)",
                     borderRadius: 0,
                     transition: "width 120ms, height 120ms",
                   }}
                 >
+                  
                   {/* Frame band */}
                   <div
                     style={{
@@ -2243,12 +2259,22 @@ export default function VisualizerApp() {
             )}
 
             {/* Dimensions & Cost */}
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="bg-emerald-50/70 rounded-xl border border-emerald-100 p-4 text-sm">
-                <div className="font-semibold text-base mb-2 text-emerald-900">
-                  Dimensions
-                </div>
-                <div className="divide-y divide-emerald-100">
+            <div className="grid gap-4 grid-cols-1">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70">
+              {/* Header */}
+              <button
+                onClick={() => setShowDimensions((s) => !s)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-emerald-900"
+              >
+                <span>Dimensions</span>
+                <span className="text-xs text-emerald-800">
+                  {showDimensions ? "Hide ▲" : "Show ▼"}
+                </span>
+              </button>
+
+              {/* Collapsible Body */}
+              {showDimensions && (
+                <div className="px-4 pb-4 text-sm divide-y divide-emerald-100">
                   <div className="py-1.5 flex justify-between">
                     <span className="text-slate-700">Image</span>
                     <span className="text-slate-900">
@@ -2257,30 +2283,28 @@ export default function VisualizerApp() {
                         : `${artWcm.toFixed(1)} × ${artHcm.toFixed(1)} cm`}
                     </span>
                   </div>
+
                   <div className="py-1.5 flex justify-between">
                     <span className="text-slate-700">Visible (mats)</span>
                     <span className="text-slate-900">
                       {unit === "imperial"
-                        ? `${cmToIn(visibleWcm).toFixed(2)} × ${cmToIn(
-                            visibleHcm
-                          ).toFixed(2)} in`
+                        ? `${cmToIn(visibleWcm).toFixed(2)} × ${cmToIn(visibleHcm).toFixed(2)} in`
                         : `${visibleWcm.toFixed(1)} × ${visibleHcm.toFixed(1)} cm`}
                     </span>
                   </div>
+
                   <div className="py-1.5 flex justify-between">
                     <span className="text-slate-700">Frame outside</span>
                     <span className="text-slate-900">
                       {unit === "imperial"
-                        ? `${cmToIn(outerWcm).toFixed(2)} × ${cmToIn(
-                            outerHcm
-                          ).toFixed(2)} in`
+                        ? `${cmToIn(outerWcm).toFixed(2)} × ${cmToIn(outerHcm).toFixed(2)} in`
                         : `${outerWcm.toFixed(1)} × ${outerHcm.toFixed(1)} cm`}
                     </span>
                   </div>
                 </div>
-              </div>
-
-              <div className="bg-slate-900 text-slate-50 rounded-xl border border-slate-800 p-4 text-sm">
+              )}
+            </div>
+              <div className="bg-slate-900 text-slate-50 rounded-xl border border-slate-800 p-4 text-sm mt-2">
                 <div className="font-semibold text-base mb-2 flex items-center justify-between">
                   <span>Cost</span>
                   <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">
@@ -2432,7 +2456,7 @@ export default function VisualizerApp() {
               value={selectedCustomerId}
               onChange={(e) => setSelectedCustomerId(e.target.value)}
             >
-              <option value="__new__">— New customer —</option>
+              <option value="__new__">— Select —</option>
               {sortedCustomers.map((c: any) => (
                 <option key={c.id} value={c.id}>
                   {`${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() ||
@@ -2444,6 +2468,9 @@ export default function VisualizerApp() {
             </select>
 
             <div className="grid gap-2">
+              <p className="text-sm font-semibold text-slate-700 mb-1">
+                New customer
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className="rounded-lg border p-2 text-sm bg-white/95"
@@ -2562,7 +2589,7 @@ export default function VisualizerApp() {
                 onClick={invoiceNow}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white hover:bg-slate-900 hover:text-white transition"
               >
-                Invoice now
+                Add to Invoices
               </button>
             </div>
           </div>

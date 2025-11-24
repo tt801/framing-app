@@ -7,7 +7,9 @@ import Quotes from "./pages/Quotes";
 import InvoicesPage from "./pages/Invoices";
 import MarketingPage from "./pages/Marketing";
 import StockPage from "./pages/Stock";
-import JobsPage from "./pages/Jobs"; // ✅ Proper import
+import JobsPage from "./pages/Jobs";
+import CalendarPage from "./pages/Calendar"; // 👈 use same style as others
+import { useLayout } from "@/lib/layout";
 
 // ---------- Hash Router ----------
 function useHashRoute() {
@@ -59,14 +61,16 @@ function ErrorCatcher({
 // ---------- Main App ----------
 function App() {
   const route = useHashRoute();
+  const { layoutMode, toggleLayoutMode } = useLayout();
 
   const isAdmin = route.startsWith("/admin");
   const isCustomers = route.startsWith("/customers");
   const isQuotes = route.startsWith("/quotes");
   const isInvoices = route.startsWith("/invoices");
-  const isJobs = route.startsWith("/jobs"); // ✅ Added jobs route
+  const isJobs = route.startsWith("/jobs");
   const isMarketing = route.startsWith("/marketing");
   const isStock = route.startsWith("/stock");
+  const isCalendar = route.startsWith("/calendar"); // 👈 NEW
   const isHome =
     !isAdmin &&
     !isCustomers &&
@@ -74,13 +78,20 @@ function App() {
     !isInvoices &&
     !isJobs &&
     !isMarketing &&
-    !isStock;
+    !isStock &&
+    !isCalendar; // 👈 exclude calendar from "home"
 
   return (
     <div className="min-h-dvh w-full bg-neutral-50 text-neutral-900">
       {/* ---------- Header ---------- */}
       <header className="sticky top-0 z-40 w-full border-b border-neutral-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto w-full px-3 sm:px-4">
+        <div
+          className={
+            layoutMode === "fixed"
+              ? "max-w-[1440px] mx-auto w-full px-3 sm:px-4"
+              : "w-full px-3 sm:px-4"
+          }
+        >
           <div className="flex h-14 items-center gap-2">
             <a
               href="#/"
@@ -117,6 +128,12 @@ function App() {
                 Jobs
               </a>
               <a
+                href="#/calendar"
+                className="rounded px-2 py-1 hover:bg-neutral-100"
+              >
+                Calendar
+              </a>
+              <a
                 href="#/marketing"
                 className="rounded px-2 py-1 hover:bg-neutral-100"
               >
@@ -134,6 +151,27 @@ function App() {
               >
                 Admin
               </a>
+
+              {/* Page layout toggle */}
+              <button
+                type="button"
+                onClick={toggleLayoutMode}
+                className="ml-3 inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-1 text-xs bg-white hover:bg-slate-100"
+              >
+                <span className="text-[11px] text-slate-500">
+                  Page layout
+                </span>
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{
+                    backgroundColor:
+                      layoutMode === "fixed" ? "#0f766e" : "#6b7280",
+                  }}
+                />
+                <span className="font-medium">
+                  {layoutMode === "fixed" ? "1440px" : "Full width"}
+                </span>
+              </button>
             </nav>
           </div>
         </div>
@@ -142,10 +180,16 @@ function App() {
       {/* ---------- Main Body ---------- */}
       <main className="w-full">
         <ErrorBoundary>
-          {/* Fixed-width wrapper on every page EXCEPT Visualizer */}
+          {/* Wrapper:
+              - Visualizer (home): lets VisualizerApp control its own layout.
+              - Other pages: use layoutMode to choose fixed vs full width. */}
           <div
             className={
-              isHome ? "p-3 sm:p-4" : "max-w-5xl mx-auto p-3 sm:p-4"
+              isHome
+                ? "p-3 sm:p-4"
+                : layoutMode === "fixed"
+                ? "max-w-[1440px] mx-auto p-3 sm:p-4"
+                : "w-full px-3 sm:px-4"
             }
           >
             {isAdmin ? (
@@ -157,7 +201,9 @@ function App() {
             ) : isInvoices ? (
               <InvoicesPage />
             ) : isJobs ? (
-              <JobsPage /> // ✅ Correct render
+              <JobsPage />
+            ) : isCalendar ? (
+              <CalendarPage />
             ) : isMarketing ? (
               <MarketingPage />
             ) : isStock ? (
@@ -172,5 +218,4 @@ function App() {
   );
 }
 
-// ✅ Make sure this export exists (this was the missing piece!)
 export default App;

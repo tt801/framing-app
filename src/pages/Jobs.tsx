@@ -1,5 +1,5 @@
 // src/pages/Jobs.tsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useJobs } from "@/lib/jobs";
 import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
@@ -156,10 +156,24 @@ export default function JobsPage() {
     jobsStore ??
     []) as Job[];
 
+  // Default selection (first job)
   const [selectedId, setSelectedId] = useState<string | null>(
     jobs?.[0]?.id ?? null
   );
 
+  // If we navigated here from the calendar, auto-select that job
+  useEffect(() => {
+    try {
+      const pending = sessionStorage.getItem("frameit_select_job");
+      if (pending) {
+        setSelectedId(pending);
+        sessionStorage.removeItem("frameit_select_job");
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+  
   // --- Safe store helpers (support different store shapes) ---
   const upsert = (patch: Partial<Job> & { id: string }) =>
     jobsStore?.update?.(patch) ??
