@@ -34,6 +34,19 @@ export function loadRoomPreview(): RoomPreviewState {
   }
 }
 
-export function saveRoomPreview(s: RoomPreviewState) {
-  localStorage.setItem(KEY, JSON.stringify(s))
+export function saveRoomPreview(state: RoomPreviewState) {
+  try {
+    // Clone and strip large data URLs before saving
+    const safe: RoomPreviewState = { ...state }
+
+    if (safe.bgDataUrl && safe.bgDataUrl.startsWith('data:')) {
+      console.warn('roomPreview: skipping bgDataUrl (too large for localStorage)')
+      delete safe.bgDataUrl
+    }
+
+    localStorage.setItem(KEY, JSON.stringify(safe))
+  } catch (err) {
+    console.warn('roomPreview: failed to save state', err)
+  }
 }
+

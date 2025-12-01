@@ -8,7 +8,8 @@ import InvoicesPage from "./pages/Invoices";
 import MarketingPage from "./pages/Marketing";
 import StockPage from "./pages/Stock";
 import JobsPage from "./pages/Jobs";
-import CalendarPage from "./pages/Calendar"; // 👈 use same style as others
+import CalendarPage from "./pages/Calendar";
+import DashboardPage from "./pages/Dashboard";
 import { useLayout } from "@/lib/layout";
 
 // ---------- Hash Router ----------
@@ -70,8 +71,12 @@ function App() {
   const isJobs = route.startsWith("/jobs");
   const isMarketing = route.startsWith("/marketing");
   const isStock = route.startsWith("/stock");
-  const isCalendar = route.startsWith("/calendar"); // 👈 NEW
-  const isHome =
+  const isCalendar = route.startsWith("/calendar");
+  const isVisualizer =
+    route.startsWith("/app") || route.startsWith("/visualizer");
+
+  // Dashboard = default home when no other route matches
+  const isDashboard =
     !isAdmin &&
     !isCustomers &&
     !isQuotes &&
@@ -79,7 +84,8 @@ function App() {
     !isJobs &&
     !isMarketing &&
     !isStock &&
-    !isCalendar; // 👈 exclude calendar from "home"
+    !isCalendar &&
+    !isVisualizer;
 
   return (
     <div className="min-h-dvh w-full bg-neutral-50 text-neutral-900">
@@ -92,75 +98,82 @@ function App() {
               : "w-full px-3 sm:px-4"
           }
         >
-          <div className="flex h-14 items-center gap-2">
-            <a
-              href="#/"
-              className="rounded px-2 py-1 text-sm font-semibold hover:bg-neutral-100"
-            >
-              Home
-            </a>
-            <nav className="ml-1 flex items-center gap-1 text-sm">
-              <a href="#/" className="rounded px-2 py-1 hover:bg-neutral-100">
-                App
-              </a>
+          <div className="flex h-14 items-center justify-between gap-2">
+            {/* LEFT: Home + main nav (Dashboard is home) */}
+            <div className="flex items-center gap-2">
               <a
-                href="#/customers"
-                className="rounded px-2 py-1 hover:bg-neutral-100"
+                href="#/"
+                className="rounded px-2 py-1 text-sm font-semibold hover:bg-neutral-100"
               >
-                Customers
+                Home
               </a>
-              <a
-                href="#/quotes"
-                className="rounded px-2 py-1 hover:bg-neutral-100"
-              >
-                Quotes
-              </a>
-              <a
-                href="#/invoices"
-                className="rounded px-2 py-1 hover:bg-neutral-100"
-              >
-                Invoices
-              </a>
-              <a
-                href="#/jobs"
-                className="rounded px-2 py-1 hover:bg-neutral-100"
-              >
-                Jobs
-              </a>
-              <a
-                href="#/calendar"
-                className="rounded px-2 py-1 hover:bg-neutral-100"
-              >
-                Calendar
-              </a>
-              <a
-                href="#/marketing"
-                className="rounded px-2 py-1 hover:bg-neutral-100"
-              >
-                Marketing
-              </a>
-              <a
-                href="#/stock"
-                className="rounded px-2 py-1 hover:bg-neutral-100"
-              >
-                Stock
-              </a>
-              <a
-                href="#/admin"
-                className="rounded px-2 py-1 hover:bg-neutral-100"
-              >
-                Admin
-              </a>
+              <nav className="ml-1 flex items-center gap-1 text-sm">
+                {/* App = visualizer */}
+                <a
+                  href="#/app"
+                  className="rounded px-2 py-1 hover:bg-neutral-100"
+                >
+                  App
+                </a>
+                <a
+                  href="#/customers"
+                  className="rounded px-2 py-1 hover:bg-neutral-100"
+                >
+                  Customers
+                </a>
+                <a
+                  href="#/quotes"
+                  className="rounded px-2 py-1 hover:bg-neutral-100"
+                >
+                  Quotes
+                </a>
+                <a
+                  href="#/invoices"
+                  className="rounded px-2 py-1 hover:bg-neutral-100"
+                >
+                  Invoices
+                </a>
+                <a
+                  href="#/jobs"
+                  className="rounded px-2 py-1 hover:bg-neutral-100"
+                >
+                  Jobs
+                </a>
+                <a
+                  href="#/calendar"
+                  className="rounded px-2 py-1 hover:bg-neutral-100"
+                >
+                  Calendar
+                </a>
+                <a
+                  href="#/marketing"
+                  className="rounded px-2 py-1 hover:bg-neutral-100"
+                >
+                  Marketing
+                </a>
+                <a
+                  href="#/stock"
+                  className="rounded px-2 py-1 hover:bg-neutral-100"
+                >
+                  Stock
+                </a>
+                <a
+                  href="#/admin"
+                  className="rounded px-2 py-1 hover:bg-neutral-100"
+                >
+                  Admin
+                </a>
+              </nav>
+            </div>
 
-              {/* Page layout toggle */}
+            {/* RIGHT: Page layout control */}
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={toggleLayoutMode}
-                className="ml-3 inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-1 text-xs bg-white hover:bg-slate-100"
+                className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-100"
               >
-                <span className="text-[11px] text-slate-500">
-                  Page layout
-                </span>
+                <span className="text-[11px] text-slate-500">Page layout</span>
                 <span
                   className="h-2 w-2 rounded-full"
                   style={{
@@ -169,10 +182,10 @@ function App() {
                   }}
                 />
                 <span className="font-medium">
-                  {layoutMode === "fixed" ? "1440px" : "Full width"}
+                  {layoutMode === "fixed" ? "Fixed width" : "Full width"}
                 </span>
               </button>
-            </nav>
+            </div>
           </div>
         </div>
       </header>
@@ -181,12 +194,12 @@ function App() {
       <main className="w-full">
         <ErrorBoundary>
           {/* Wrapper:
-              - Visualizer (home): lets VisualizerApp control its own layout.
+              - Dashboard: no outer padding, it owns its dark full-bleed background.
               - Other pages: use layoutMode to choose fixed vs full width. */}
           <div
             className={
-              isHome
-                ? "p-3 sm:p-4"
+              isDashboard
+                ? ""
                 : layoutMode === "fixed"
                 ? "max-w-[1440px] mx-auto p-3 sm:p-4"
                 : "w-full px-3 sm:px-4"
@@ -208,8 +221,10 @@ function App() {
               <MarketingPage />
             ) : isStock ? (
               <StockPage />
-            ) : (
+            ) : isVisualizer ? (
               <VisualizerApp />
+            ) : (
+              <DashboardPage />
             )}
           </div>
         </ErrorBoundary>

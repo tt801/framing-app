@@ -2,22 +2,28 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 
 // STORES / LIBS
-import { useCatalog }   from "@/lib/store";
-import { useQuotes }    from "@/lib/quotes";
+import { useCatalog } from "@/lib/store";
+import { useQuotes } from "@/lib/quotes";
 import { useCustomers } from "@/lib/customers";
-import { useInvoices }  from "@/lib/invoices";
-import { useJobs }      from "@/lib/jobs";
+import { useInvoices } from "@/lib/invoices";
+import { useJobs } from "@/lib/jobs";
 import { useLayout } from "@/lib/layout";
+import * as htmlToImage from "html-to-image";
+window.__FRAMEIT = { useCatalog };
 
 // PDF
 import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
 
 // COMPONENTS
 import RoomMockup from "@/components/RoomMockup";
-import { Tabs }    from "@/components/Tabs";
+import { Tabs } from "@/components/Tabs";
 
 // EXPORT HELPERS & PRESETS
-import { exportNodeAsJpeg, exportNodeAsPdf, exportNodeAsPng } from "@/lib/exporters";
+import {
+  exportNodeAsJpeg,
+  exportNodeAsPdf,
+  exportNodeAsPng,
+} from "@/lib/exporters";
 import { listPresets, savePreset, deletePreset } from "@/lib/presets";
 import type { VisualizerPreset } from "@/lib/presets";
 
@@ -48,7 +54,11 @@ const SNAP_MAGNET_CM = 1.5;
 const snapToGrid = (valueCm: number, step = SNAP_STEP_CM) =>
   step > 0 ? Math.round(valueCm / step) * step : valueCm;
 
-const snapWithMagnet = (valueCm: number, targetsCm: number[], thresholdCm = SNAP_MAGNET_CM) => {
+const snapWithMagnet = (
+  valueCm: number,
+  targetsCm: number[],
+  thresholdCm = SNAP_MAGNET_CM
+) => {
   for (const t of targetsCm) {
     if (Math.abs(valueCm - t) <= thresholdCm) return t;
   }
@@ -79,13 +89,18 @@ const readQuotesFromAnyLS = (): any[] => {
 
 const writeQuotesToAllLS = (quotes: any[]) => {
   for (const k of LS_KEYS) {
-    try { localStorage.setItem(k, JSON.stringify(quotes)); } catch {}
+    try {
+      localStorage.setItem(k, JSON.stringify(quotes));
+    } catch {}
   }
-  try { window.dispatchEvent(new CustomEvent("quotes:changed")); } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent("quotes:changed"));
+  } catch {}
 };
 
 const mergeQuote = (arr: any[], q: any) => {
-  const keyQ = (x: any) => (x?.id ?? x?.number ?? x?.quoteNumber ?? x?.quoteNo);
+  const keyQ = (x: any) =>
+    x?.id ?? x?.number ?? x?.quoteNumber ?? x?.quoteNo ?? undefined;
   const idx = arr.findIndex((x) => keyQ(x) === keyQ(q));
   if (idx >= 0) {
     const copy = arr.slice();
@@ -100,7 +115,9 @@ const writeQuoteToAnyStore = (qStore: any, payload: any) => {
   const hit = (label: string, fn: (p: any) => void) => {
     fn(payload);
     wrote = true;
-    try { console.debug("quotes: wrote via", label, payload); } catch {}
+    try {
+      console.debug("quotes: wrote via", label, payload);
+    } catch {}
   };
 
   try {
@@ -117,22 +134,33 @@ const writeQuoteToAnyStore = (qStore: any, payload: any) => {
     } else if (typeof qStore?.setQuotes === "function") {
       qStore.setQuotes((rows: any[] = []) => mergeQuote(rows, payload));
       wrote = true;
-      try { console.debug("quotes: wrote via setQuotes", payload); } catch {}
+      try {
+        console.debug("quotes: wrote via setQuotes", payload);
+      } catch {}
     } else if (typeof qStore?.setItems === "function") {
       qStore.setItems((rows: any[] = []) => mergeQuote(rows, payload));
       wrote = true;
-      try { console.debug("quotes: wrote via setItems", payload); } catch {}
+      try {
+        console.debug("quotes: wrote via setItems", payload);
+      } catch {}
     } else if (typeof qStore?.set === "function" && typeof qStore?.getState === "function") {
       const curr = (qStore.getState()?.quotes ?? []) as any[];
       qStore.set({ quotes: mergeQuote(curr, payload) });
       wrote = true;
-      try { console.debug("quotes: wrote via zustand.set", payload); } catch {}
+      try {
+        console.debug("quotes: wrote via zustand.set", payload);
+      } catch {}
     }
   } catch (e) {
     console.warn("quotes store write failed:", e);
   }
   if (!wrote) {
-    try { console.warn("quotes: no known store API; keys:", Object.keys(qStore || {})); } catch {}
+    try {
+      console.warn(
+        "quotes: no known store API; keys:",
+        Object.keys(qStore || {})
+      );
+    } catch {}
   }
   return wrote;
 };
@@ -140,8 +168,21 @@ const writeQuoteToAnyStore = (qStore: any, payload: any) => {
 /* --------- Currency helpers --------- */
 const symbolFor = (code?: string) => {
   const m: Record<string, string> = {
-    USD: "$", EUR: "€", GBP: "£", ZAR: "R ", AUD: "A$", CAD: "C$", NZD: "NZ$", JPY: "¥",
-    CHF: "CHF ", SEK: "kr", NOK: "kr", DKK: "kr", INR: "₹", CNY: "¥", HKD: "HK$",
+    USD: "$",
+    EUR: "€",
+    GBP: "£",
+    ZAR: "R ",
+    AUD: "A$",
+    CAD: "C$",
+    NZD: "NZ$",
+    JPY: "¥",
+    CHF: "CHF ",
+    SEK: "kr",
+    NOK: "kr",
+    DKK: "kr",
+    INR: "₹",
+    CNY: "¥",
+    HKD: "HK$",
   };
   return code ? m[code.toUpperCase()] : undefined;
 };
@@ -167,28 +208,41 @@ function makeJobChecklist() {
 
 export default function VisualizerApp() {
   const { catalog } = useCatalog();
-  const qStore        = useQuotes() as any;
-  const jobsStore     = useJobs() as any;
+  const qStore = useQuotes() as any;
+  const jobsStore = useJobs() as any;
   const invoicesStore = useInvoices() as any;
 
-  const { customers, add: addCustomer, update: updateCustomer } = useCustomers();
+  const { customers, add: addCustomer, update: updateCustomer } =
+    useCustomers();
   const { layoutMode } = useLayout();
 
+  // 🔍 DEBUG: expose state on window for console inspection
+  if (typeof window !== "undefined") {
+    (window as any).__FRAMEIT = {
+      ...(window as any).__FRAMEIT,
+      catalog,
+      quotesState: qStore,
+      jobsState: jobsStore,
+      invoicesState: invoicesStore,
+      customersState: customers,
+    };
+  }
+
   const containerClass =
-    layoutMode === "fixed"
-      ? "max-w-[1440px] mx-auto"
-      : "max-w-none w-full";
+    layoutMode === "fixed" ? "max-w-[1440px] mx-auto" : "max-w-none w-full";
 
   const addJob = (job: any) =>
-    jobsStore?.add?.(job) ?? jobsStore?.create?.(job) ?? jobsStore?.push?.(job);
+    jobsStore?.add?.(job) ??
+    jobsStore?.create?.(job) ??
+    jobsStore?.push?.(job);
   const addInvoice = (inv: any) =>
     invoicesStore?.add?.(inv) ??
     invoicesStore?.addFromQuote?.(inv) ??
     invoicesStore?.create?.(inv) ??
     invoicesStore?.push?.(inv);
 
-  const settings      = catalog?.settings || {};
-  const currencyCode  = getSettingsCurrency(settings);
+  const settings = catalog?.settings || {};
+  const currencyCode = getSettingsCurrency(settings);
   const currencySymbol =
     settings?.currencySymbol || symbolFor(currencyCode) || "R ";
 
@@ -206,19 +260,21 @@ export default function VisualizerApp() {
   // ---------- UI state ----------
   const [activeTab, setActiveTab] = useState<"build" | "room">("build");
   const [showDimensions, setShowDimensions] = useState(true);
-  const [mode, setMode]           = useState<"basic" | "pro">("basic");
-  const [unit, setUnit]           = useState<"metric" | "imperial">("metric");
+  const [mode, setMode] = useState<"basic" | "pro">("basic");
+  const [unit, setUnit] = useState<"metric" | "imperial">("metric");
 
   const [sizeMode, setSizeMode] = useState<"image" | "frame">("image");
 
   const [artWcm, setArtWcm] = useState(40);
   const [artHcm, setArtHcm] = useState(30);
   const [artworkUrl, setArtworkUrl] = useState<string>("");
+  // Composite framed preview for RoomMockup
+  const [roomArtworkUrl, setRoomArtworkUrl] = useState<string>("");
 
   // Frame + mats
   const [selectedFrame, setSelectedFrame] = useState<string>("frame1");
-  const [faceAuto, setFaceAuto]          = useState<boolean>(true);
-  const [faceWidthCm, setFaceWidthCm]    = useState(2.0);
+  const [faceAuto, setFaceAuto] = useState<boolean>(true);
+  const [faceWidthCm, setFaceWidthCm] = useState(2.0);
 
   const [selectedMat1, setSelectedMat1] = useState<string>("mat0");
   const [selectedMat2, setSelectedMat2] = useState<string>("mat0");
@@ -241,41 +297,51 @@ export default function VisualizerApp() {
     (hasMat2 ? mat2BorderCm : 0) +
     (hasMat3 ? mat3BorderCm : 0);
 
-  const topVisibleBorderCm =
-    hasMat1 ? mat1BorderCm :
-    hasMat2 ? mat2BorderCm :
-    hasMat3 ? mat3BorderCm :
-    0;
+  const topVisibleBorderCm = hasMat1
+    ? mat1BorderCm
+    : hasMat2
+    ? mat2BorderCm
+    : hasMat3
+    ? mat3BorderCm
+    : 0;
 
   // Pro mode openings
   const [openings, setOpenings] = useState<MatOpening[]>([]);
-  const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null);
-  const [hoveredOpeningId, setHoveredOpeningId]   = useState<string | null>(null);
+  const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(
+    null
+  );
+  const [hoveredOpeningId, setHoveredOpeningId] = useState<string | null>(null);
 
   const [selectedGlazingId, setSelectedGlazingId] = useState<string>("");
-  const [useFrameTexture, setUseFrameTexture]     = useState<boolean>(true);
-  const [textureScalePct, setTextureScalePct]     = useState<number>(100);
+  const [useFrameTexture, setUseFrameTexture] = useState<boolean>(true);
+  const [textureScalePct, setTextureScalePct] = useState<number>(100);
 
   // Printing and backer
-  const PRINT_MATS = (catalog?.printMaterials || (catalog as any)?.printingMaterials || []) as any[];
-  const [includePrint, setIncludePrint]           = useState(false);
-  const [printMaterialId, setPrintMaterialId]     = useState<string>("");
-  const [includeBacker, setIncludeBacker]         = useState(false);
+  const PRINT_MATS = (catalog?.printMaterials ||
+    (catalog as any)?.printingMaterials ||
+    []) as any[];
+  const [includePrint, setIncludePrint] = useState(false);
+  const [printMaterialId, setPrintMaterialId] = useState<string>("");
+  const [includeBacker, setIncludeBacker] = useState(false);
 
-  const foamBackerPerSqM =
-    Number((catalog?.settings as any)?.foamBackerPerSqM ?? (catalog as any)?.backer?.pricePerSqM ?? 0);
+  const foamBackerPerSqM = Number(
+    (catalog?.settings as any)?.foamBackerPerSqM ??
+      (catalog as any)?.backer?.pricePerSqM ??
+      0
+  );
 
   // Catalog lookups
-  const frameProfile = catalog?.frames?.find?.((f: any) => f.id === selectedFrame);
-  const glazingList  = (catalog?.glazing || []) as any[];
+  const frameProfile = catalog?.frames?.find?.(
+    (f: any) => f.id === selectedFrame
+  );
+  const glazingList = (catalog?.glazing || []) as any[];
   const glazing =
     glazingList.find((g: any) => g.id === selectedGlazingId) ||
-    glazingList[0] ||
-    { pricePerSqM: 0, name: "Glazing" };
+    glazingList[0] || { pricePerSqM: 0, name: "Glazing" };
 
-  const mat1       = catalog?.mats?.find?.((m: any) => m.id === selectedMat1);
-  const mat2       = catalog?.mats?.find?.((m: any) => m.id === selectedMat2);
-  const mat3       = catalog?.mats?.find?.((m: any) => m.id === selectedMat3);
+  const mat1 = catalog?.mats?.find?.((m: any) => m.id === selectedMat1);
+  const mat2 = catalog?.mats?.find?.((m: any) => m.id === selectedMat2);
+  const mat3 = catalog?.mats?.find?.((m: any) => m.id === selectedMat3);
   const selectedPM = PRINT_MATS.find((p: any) => p.id === printMaterialId);
 
   useEffect(() => {
@@ -285,7 +351,13 @@ export default function VisualizerApp() {
   }, [glazingList, selectedGlazingId]);
 
   const getProfileFaceWidth = (fp: any | undefined) => {
-    const v = fp && (fp.faceWidthCm ?? fp.faceWidth ?? fp.lipWidthCm ?? fp.lipWidth);
+    const v =
+      fp &&
+      (fp.faceWidthCm ??
+        fp.faceWidth ??
+        fp.lipWidthCm ??
+        fp.lipWidth ??
+        undefined);
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : undefined;
   };
@@ -307,7 +379,9 @@ export default function VisualizerApp() {
 
   const framePreviewColor =
     (frameProfile?.previewColor as string) ||
-    (frameProfile?.color as string) ||
+    (frameProfile?.previewColour as string) || // if you ever store it like this
+    (frameProfile as any)?.colour ||
+    (frameProfile as any)?.color ||
     "#333";
 
   const frameTextureUrl =
@@ -316,8 +390,8 @@ export default function VisualizerApp() {
     "";
 
   // Derived dimensions
-  const outerWcm   = artWcm + 2 * (totalBorder + faceWidthCm);
-  const outerHcm   = artHcm + 2 * (totalBorder + faceWidthCm);
+  const outerWcm = artWcm + 2 * (totalBorder + faceWidthCm);
+  const outerHcm = artHcm + 2 * (totalBorder + faceWidthCm);
   const visibleWcm = artWcm + 2 * totalBorder;
   const visibleHcm = artHcm + 2 * totalBorder;
 
@@ -362,17 +436,19 @@ export default function VisualizerApp() {
   }
 
   // ---------- Pricing ----------
-  const pricePerMeter    = Number(frameProfile?.pricePerMeter ?? 0);
-  const glazingPerSqM    = Number(glazing?.pricePerSqM ?? 0);
-  const mat1PerSqM       = Number(mat1?.pricePerSqM ?? 0);
-  const mat2PerSqM       = Number(mat2?.pricePerSqM ?? 0);
-  const mat3PerSqM       = Number(mat3?.pricePerSqM ?? 0);
+  const pricePerMeter = Number(frameProfile?.pricePerMeter ?? 0);
+  const glazingPerSqM = Number(glazing?.pricePerSqM ?? 0);
+  const mat1PerSqM = Number(mat1?.pricePerSqM ?? 0);
+  const mat2PerSqM = Number(mat2?.pricePerSqM ?? 0);
+  const mat3PerSqM = Number(mat3?.pricePerSqM ?? 0);
   const fallbackPrintSqM = Number(catalog?.settings?.printingPerSqM ?? 0);
-  const printingPerSqM   = Number((selectedPM?.pricePerSqM ?? fallbackPrintSqM) ?? 0);
+  const printingPerSqM = Number(
+    (selectedPM?.pricePerSqM ?? fallbackPrintSqM) ?? 0
+  );
 
   const framePerimeterM = perimeterMeters(visibleWcm, visibleHcm);
-  const areaArt         = areaSqM(artWcm, artHcm);
-  const glazedAreaSqM   = areaSqM(visibleWcm, visibleHcm);
+  const areaArt = areaSqM(artWcm, artHcm);
+  const glazedAreaSqM = areaSqM(visibleWcm, visibleHcm);
 
   const matBoardArea = areaSqM(visibleWcm, visibleHcm);
 
@@ -380,30 +456,98 @@ export default function VisualizerApp() {
   const mat2Area = hasMat2 ? matBoardArea : 0;
   const mat3Area = hasMat3 ? matBoardArea : 0;
 
-  const frameCost    = pricePerMeter * framePerimeterM;
-  const glazingCost  = glazingPerSqM * glazedAreaSqM;
-  const mat1Cost     = mat1PerSqM * mat1Area;
-  const mat2Cost     = mat2PerSqM * mat2Area;
-  const mat3Cost     = mat3PerSqM * mat3Area;
+  const frameCost = pricePerMeter * framePerimeterM;
+  const glazingCost = glazingPerSqM * glazedAreaSqM;
+  const mat1Cost = mat1PerSqM * mat1Area;
+  const mat2Cost = mat2PerSqM * mat2Area;
+  const mat3Cost = mat3PerSqM * mat3Area;
   const printingCost = includePrint ? printingPerSqM * areaArt : 0;
-  const backerCost   = includeBacker ? foamBackerPerSqM * glazedAreaSqM : 0;
+  const backerCost = includeBacker ? foamBackerPerSqM * glazedAreaSqM : 0;
 
-  const labourBase       = Number(catalog?.settings?.labourBase ?? 0);
-  const marginMultiplier = Number(catalog?.settings?.marginMultiplier ?? 1);
-  const taxRate          = Number(catalog?.settings?.taxRate ?? 0);
+  const labourBase = Number(catalog?.settings?.labourBase ?? 0);
+  const marginMultiplier = Number(
+    catalog?.settings?.marginMultiplier ?? 1
+  );
+  const taxRate = Number(catalog?.settings?.taxRate ?? 0);
 
-  const subtotalRaw = frameCost + glazingCost + mat1Cost + mat2Cost + mat3Cost + printingCost + backerCost + labourBase;
-  const subtotal    = subtotalRaw * marginMultiplier;
-  const total       = subtotal * (1 + taxRate);
+  const subtotalRaw =
+    frameCost +
+    glazingCost +
+    mat1Cost +
+    mat2Cost +
+    mat3Cost +
+    printingCost +
+    backerCost +
+    labourBase;
+  const subtotal = subtotalRaw * marginMultiplier;
+  const total = subtotal * (1 + taxRate);
 
   // ---------- Responsive preview ----------
   const [maxPx, setMaxPx] = useState(760);
-  const MAX_PREVIEW_PX    = 1200;
-  const previewHostRef    = useRef<HTMLDivElement | null>(null);
-  const previewRef        = useRef<HTMLDivElement | null>(null);
+  const MAX_PREVIEW_PX = 1200;
+  const previewHostRef = useRef<HTMLDivElement | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep a dataURL of the framed preview for the room mockup
+  useEffect(() => {
+    // If there's no artwork at all, clear the room preview too
+    if (!artworkUrl) {
+      setRoomArtworkUrl("");
+      return;
+    }
+    if (!previewRef.current) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const dataUrl = await htmlToImage.toPng(previewRef.current!, {
+          cacheBust: true,
+        });
+        if (!cancelled) {
+          setRoomArtworkUrl(dataUrl);
+        }
+      } catch (err) {
+        console.error(
+          "[Visualizer] Failed to capture preview for room mockup",
+          err
+        );
+        if (!cancelled) {
+          setRoomArtworkUrl("");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Include the things that visually change the frame/mats/openings
+  }, [
+    artworkUrl,
+    selectedFrame,
+    framePreviewColor,
+    faceWidthCm,
+    frameTextureUrl,
+    useFrameTexture,
+    textureScalePct,
+    hasMat1,
+    hasMat2,
+    hasMat3,
+    selectedMat1,
+    selectedMat2,
+    selectedMat3,
+    mat1BorderCm,
+    mat2BorderCm,
+    mat3BorderCm,
+    mode,
+    openings,
+    outerWcm,
+    outerHcm,
+  ]);
 
   // Pro-mode: per-opening image picker
-  const [openingImageTargetId, setOpeningImageTargetId] = useState<string | null>(null);
+  const [openingImageTargetId, setOpeningImageTargetId] =
+    useState<string | null>(null);
   const openingImageInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -411,20 +555,27 @@ export default function VisualizerApp() {
     if (!el) return;
     const update = () => {
       const w = el.clientWidth || el.getBoundingClientRect().width || 760;
-      setMaxPx(Math.min(MAX_PREVIEW_PX, Math.max(320, Math.floor(w - 24))));
+      setMaxPx(
+        Math.min(MAX_PREVIEW_PX, Math.max(320, Math.floor(w - 24)))
+      );
     };
     update();
     let ro: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => update());
-      try { ro.observe(el); } catch {}
+      try {
+        ro.observe(el);
+      } catch {}
     } else {
       window.addEventListener("resize", update);
     }
     window.addEventListener("resize", update);
     return () => {
       window.removeEventListener("resize", update);
-      if (ro) try { ro.disconnect(); } catch {}
+      if (ro)
+        try {
+          ro.disconnect();
+        } catch {}
     };
   }, [previewHostRef]);
 
@@ -500,7 +651,10 @@ export default function VisualizerApp() {
 
         const snapLeft = snapWithMagnet(x, [leftTarget]);
         const snapRight = snapWithMagnet(x, [rightTarget]);
-        if (snapLeft !== x && Math.abs(snapLeft - x) <= Math.abs(snapRight - x)) {
+        if (
+          snapLeft !== x &&
+          Math.abs(snapLeft - x) <= Math.abs(snapRight - x)
+        ) {
           x = snapLeft;
         } else if (snapRight !== x) {
           x = snapRight;
@@ -508,7 +662,10 @@ export default function VisualizerApp() {
 
         const snapTop = snapWithMagnet(y, [topTarget]);
         const snapBottom = snapWithMagnet(y, [bottomTarget]);
-        if (snapTop !== y && Math.abs(snapTop - y) <= Math.abs(snapBottom - y)) {
+        if (
+          snapTop !== y &&
+          Math.abs(snapTop - y) <= Math.abs(snapBottom - y)
+        ) {
           y = snapTop;
         } else if (snapBottom !== y) {
           y = snapBottom;
@@ -517,7 +674,11 @@ export default function VisualizerApp() {
         x = Math.max(0, Math.min(x, visibleWcm - baseW));
         y = Math.max(0, Math.min(y, visibleHcm - baseH));
 
-        setOpenings((arr) => arr.map((o) => (o.id === id ? { ...o, xCm: x, yCm: y } : o)));
+        setOpenings((arr) =>
+          arr.map((o) =>
+            o.id === id ? { ...o, xCm: x, yCm: y } : o
+          )
+        );
       } else if (drag.kind === "resize") {
         const id = drag.id;
         const handle = drag.handle!;
@@ -535,27 +696,48 @@ export default function VisualizerApp() {
             const MIN_H_CM = 2;
 
             if (handle.includes("e")) {
-              w = Math.max(MIN_W_CM, Math.min((drag.ow ?? 0) + dx, visibleWcm - x));
+              w = Math.max(
+                MIN_W_CM,
+                Math.min((drag.ow ?? 0) + dx, visibleWcm - x)
+              );
             }
             if (handle.includes("w")) {
-              const newX = Math.max(0, Math.min(visibleWcm, (drag.ox ?? 0) + dx));
-              const owCalc = (drag.ow ?? 0) + (drag.ox ?? 0) - newX;
-              w = Math.max(MIN_W_CM, Math.min(owCalc, visibleWcm - newX));
+              const newX = Math.max(
+                0,
+                Math.min(visibleWcm, (drag.ox ?? 0) + dx)
+              );
+              const owCalc =
+                (drag.ow ?? 0) + (drag.ox ?? 0) - newX;
+              w = Math.max(
+                MIN_W_CM,
+                Math.min(owCalc, visibleWcm - newX)
+              );
               x = newX;
             }
             if (handle.includes("s")) {
-              h = Math.max(MIN_H_CM, Math.min((drag.oh ?? 0) + dy, visibleHcm - y));
+              h = Math.max(
+                MIN_H_CM,
+                Math.min((drag.oh ?? 0) + dy, visibleHcm - y)
+              );
             }
             if (handle.includes("n")) {
-              const newY = Math.max(0, Math.min(visibleHcm, (drag.oy ?? 0) + dy));
-              const ohCalc = (drag.oh ?? 0) + (drag.oy ?? 0) - newY;
-              h = Math.max(MIN_H_CM, Math.min(ohCalc, visibleHcm - newY));
+              const newY = Math.max(
+                0,
+                Math.min(visibleHcm, (drag.oy ?? 0) + dy)
+              );
+              const ohCalc =
+                (drag.oh ?? 0) + (drag.oy ?? 0) - newY;
+              h = Math.max(
+                MIN_H_CM,
+                Math.min(ohCalc, visibleHcm - newY)
+              );
               y = newY;
             }
 
             if (shape === "circle") {
               const s = Math.max(MIN_W_CM, Math.max(w, h));
-              w = s; h = s;
+              w = s;
+              h = s;
             } else if (shape === "oval") {
               const ratio = (drag.ow ?? 1) / (drag.oh ?? 1);
               if (ratio > 1.5) h = Math.max(h, w / 1.5);
@@ -572,13 +754,21 @@ export default function VisualizerApp() {
             w = Math.max(MIN_W_CM, Math.min(w, visibleWcm - x));
             h = Math.max(MIN_H_CM, Math.min(h, visibleHcm - y));
 
-            return { ...o, xCm: x, yCm: y, widthCm: w, heightCm: h };
+            return {
+              ...o,
+              xCm: x,
+              yCm: y,
+              widthCm: w,
+              heightCm: h,
+            };
           })
         );
       }
     }
 
-    function onUp() { setDrag(null); }
+    function onUp() {
+      setDrag(null);
+    }
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -603,7 +793,11 @@ export default function VisualizerApp() {
     });
   };
 
-  const startResize = (e: React.MouseEvent, o: MatOpening, handle: HandleKey) => {
+  const startResize = (
+    e: React.MouseEvent,
+    o: MatOpening,
+    handle: HandleKey
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     setSelectedOpeningId(o.id);
@@ -622,8 +816,14 @@ export default function VisualizerApp() {
   };
 
   const Handle = ({
-    o, handle, style,
-  }: { o: MatOpening; handle: HandleKey; style: React.CSSProperties }) => (
+    o,
+    handle,
+    style,
+  }: {
+    o: MatOpening;
+    handle: HandleKey;
+    style: React.CSSProperties;
+  }) => (
     <div
       onMouseDown={(e) => startResize(e, o, handle)}
       className="absolute bg-white border border-slate-400 rounded shadow-sm cursor-pointer"
@@ -633,11 +833,48 @@ export default function VisualizerApp() {
   );
 
   // ---------- Customer panel ----------
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("__new__");
+  const [selectedCustomerId, setSelectedCustomerId] =
+    useState<string>("__new__");
   const [cust, setCust] = useState({
-    firstName: "", lastName: "", company: "", email: "", phone: "",
-    address1: "", address2: "", city: "", postcode: "", country: "", notes: "",
+    firstName: "",
+    lastName: "",
+    company: "",
+    email: "",
+    phone: "",
+    address1: "",
+    address2: "",
+    city: "",
+    postcode: "",
+    country: "",
+    notes: "",
   });
+
+  // ---------- Backdrop ----------
+  type Backdrop = "studio" | "living" | "gallery" | "office";
+
+  const [backdrop, setBackdrop] = useState<Backdrop>("studio");
+
+  const backdropStyle: React.CSSProperties = useMemo(() => {
+    switch (backdrop) {
+      case "living":
+        return {
+          background:
+            "linear-gradient(180deg, #fefcf5 0%, #f8efe2 100%)",
+        };
+      case "gallery":
+        return {
+          background:
+            "linear-gradient(180deg, #fdfdfd 0%, #f3f4f6 100%)",
+        };
+      case "office":
+        return {
+          background:
+            "linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 100%)",
+        };
+      default: // studio
+        return { background: "transparent" };
+    }
+  }, [backdrop]);
 
   const sortedCustomers = useMemo(() => {
     const arr = [...(customers || [])] as any[];
@@ -651,50 +888,58 @@ export default function VisualizerApp() {
   useEffect(() => {
     if (!selectedCustomerId || selectedCustomerId === "__new__") {
       setCust({
-        firstName: "", lastName: "", company: "", email: "", phone: "",
-        address1: "", address2: "", city: "", postcode: "", country: "", notes: "",
+        firstName: "",
+        lastName: "",
+        company: "",
+        email: "",
+        phone: "",
+        address1: "",
+        address2: "",
+        city: "",
+        postcode: "",
+        country: "",
+        notes: "",
       });
       return;
     }
-    const c: any = sortedCustomers.find((x) => x.id === selectedCustomerId);
+    const c: any = sortedCustomers.find(
+      (x) => x.id === selectedCustomerId
+    );
     if (c) {
       setCust({
         firstName: c.firstName || "",
-        lastName:  c.lastName  || "",
-        company:   c.company   || "",
-        email:     c.email     || "",
-        phone:     c.phone     || "",
-        address1:  c.address1  || "",
-        address2:  c.address2  || "",
-        city:      c.city      || "",
-        postcode:  c.postcode || c.postalCode || "",
-        country:   c.country   || "",
-        notes:     c.notes     || "",
+        lastName: c.lastName || "",
+        company: c.company || "",
+        email: c.email || "",
+        phone: c.phone || "",
+        address1: c.address1 || "",
+        address2: c.address2 || "",
+        city: c.city || "",
+        postcode: c.postcode || c.postalCode || "",
+        country: c.country || "",
+        notes: c.notes || "",
       });
     }
   }, [selectedCustomerId, sortedCustomers]);
 
   function ensureCustomerId(): string | "" {
-    if (selectedCustomerId && selectedCustomerId !== "__new__") return selectedCustomerId;
-    const hasCore = !!(cust.firstName?.trim() || cust.lastName?.trim() || cust.email?.trim());
+    if (selectedCustomerId && selectedCustomerId !== "__new__")
+      return selectedCustomerId;
+    const hasCore = !!(
+      cust.firstName?.trim() ||
+      cust.lastName?.trim() ||
+      cust.email?.trim()
+    );
     if (!hasCore) return "";
     const id = rid();
-    addCustomer?.({ id, ...cust, createdAt: new Date().toISOString() } as any);
+    addCustomer?.({
+      id,
+      ...cust,
+      createdAt: new Date().toISOString(),
+    } as any);
     setSelectedCustomerId(id);
     return id;
   }
-
-  // ---------- Backdrop ----------
-  type Backdrop = "studio" | "living" | "gallery" | "office";
-  const [backdrop, setBackdrop] = useState<Backdrop>("studio");
-  const backdropStyle: React.CSSProperties = useMemo(() => {
-    switch (backdrop) {
-      case "living":  return { background: "linear-gradient(180deg, #fefcf5 0%, #f8efe2 100%)" };
-      case "gallery": return { background: "linear-gradient(180deg, #fdfdfd 0%, #f3f4f6 100%)" };
-      case "office":  return { background: "linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 100%)" };
-      default:        return { background: "transparent" };
-    }
-  }, [backdrop]);
 
   // ---------- Image upload ----------
   function onPickImage(file?: File | null) {
@@ -717,7 +962,9 @@ export default function VisualizerApp() {
     reader.onload = () => {
       const url = String(reader.result || "");
       setOpenings((arr) =>
-        arr.map((o) => (o.id === openingImageTargetId ? { ...o, imageUrl: url } : o))
+        arr.map((o) =>
+          o.id === openingImageTargetId ? { ...o, imageUrl: url } : o
+        )
       );
       setOpeningImageTargetId(null);
     };
@@ -726,7 +973,9 @@ export default function VisualizerApp() {
 
   function clearOpeningImage(id: string) {
     setOpenings((arr) =>
-      arr.map((o) => (o.id === id ? { ...o, imageUrl: "" } : o))
+      arr.map((o) =>
+        o.id === id ? { ...o, imageUrl: "" } : o
+      )
     );
   }
 
@@ -734,45 +983,133 @@ export default function VisualizerApp() {
   function saveToCRM() {
     if (!selectedCustomerId || selectedCustomerId === "__new__") {
       const id = rid();
-      addCustomer?.({ id, ...cust, createdAt: new Date().toISOString() } as any);
+      addCustomer?.({
+        id,
+        ...cust,
+        createdAt: new Date().toISOString(),
+      } as any);
       setSelectedCustomerId(id);
       alert("Saved to CRM (created).");
     } else {
-      updateCustomer?.({ id: selectedCustomerId, ...cust } as any);
+      updateCustomer?.({
+        id: selectedCustomerId,
+        ...cust,
+      } as any);
       alert("Saved to CRM (updated).");
     }
   }
 
   function addQuoteNow() {
-    const customerId  = ensureCustomerId();
-    const customerObj = customerId ? (customers || []).find((c: any) => c.id === customerId) : undefined;
+    const customerId = ensureCustomerId();
+    const customerObj = customerId
+      ? (customers || []).find((c: any) => c.id === customerId)
+      : undefined;
 
     const items = [
-      { name: `Frame (${frameProfile?.name ?? "frame"})`, qty: 1, unitPrice: Number(frameCost), total: Number(frameCost) },
-      { name: `Glazing (${glazing?.name ?? "glazing"})`, qty: 1, unitPrice: Number(glazingCost), total: Number(glazingCost) },
-      ...(hasMat1 ? [{ name: `Mat 1 (${mat1?.name ?? "mat"})`, qty: 1, unitPrice: Number(mat1Cost), total: Number(mat1Cost) }] : []),
-      ...(hasMat2 ? [{ name: `Mat 2 (${mat2?.name ?? "mat"})`, qty: 1, unitPrice: Number(mat2Cost), total: Number(mat2Cost) }] : []),
-      ...(hasMat3 ? [{ name: `Mat 3 (${mat3?.name ?? "mat"})`, qty: 1, unitPrice: Number(mat3Cost), total: Number(mat3Cost) }] : []),
-      ...(includePrint ? [{ name: selectedPM ? `Printing (${selectedPM.name})` : "Printing", qty: 1, unitPrice: Number(printingCost), total: Number(printingCost) }] : []),
-      ...(includeBacker ? [{ name: "Foam board backer", qty: 1, unitPrice: Number(backerCost), total: Number(backerCost) }] : []),
-      { name: "Labour & overhead", qty: 1, unitPrice: Number(labourBase), total: Number(labourBase) },
+      {
+        name: `Frame (${frameProfile?.name ?? "frame"})`,
+        qty: 1,
+        unitPrice: Number(frameCost),
+        total: Number(frameCost),
+      },
+      {
+        name: `Glazing (${glazing?.name ?? "glazing"})`,
+        qty: 1,
+        unitPrice: Number(glazingCost),
+        total: Number(glazingCost),
+      },
+      ...(hasMat1
+        ? [
+            {
+              name: `Mat 1 (${mat1?.name ?? "mat"})`,
+              qty: 1,
+              unitPrice: Number(mat1Cost),
+              total: Number(mat1Cost),
+            },
+          ]
+        : []),
+      ...(hasMat2
+        ? [
+            {
+              name: `Mat 2 (${mat2?.name ?? "mat"})`,
+              qty: 1,
+              unitPrice: Number(mat2Cost),
+              total: Number(mat2Cost),
+            },
+          ]
+        : []),
+      ...(hasMat3
+        ? [
+            {
+              name: `Mat 3 (${mat3?.name ?? "mat"})`,
+              qty: 1,
+              unitPrice: Number(mat3Cost),
+              total: Number(mat3Cost),
+            },
+          ]
+        : []),
+      ...(includePrint
+        ? [
+            {
+              name: selectedPM
+                ? `Printing (${selectedPM.name})`
+                : "Printing",
+              qty: 1,
+              unitPrice: Number(printingCost),
+              total: Number(printingCost),
+            },
+          ]
+        : []),
+      ...(includeBacker
+        ? [
+            {
+              name: "Foam board backer",
+              qty: 1,
+              unitPrice: Number(backerCost),
+              total: Number(backerCost),
+            },
+          ]
+        : []),
+      {
+        name: "Labour & overhead",
+        qty: 1,
+        unitPrice: Number(labourBase),
+        total: Number(labourBase),
+      },
     ];
 
-    const subtotalItems = items.reduce((s, i) => s + Number(i.total || 0), 0);
+    const subtotalItems = items.reduce(
+      (s, i) => s + Number(i.total || 0),
+      0
+    );
     const tax = subtotalItems * taxRate;
     const totalAll = subtotalItems + tax;
 
     const existingInStore = (qStore?.quotes ?? qStore?.items ?? []) as any[];
-    const existingInLS    = readQuotesFromAnyLS();
-    const allExisting     = [...existingInStore, ...existingInLS];
+    const existingInLS = readQuotesFromAnyLS();
+    const allExisting = [...existingInStore, ...existingInLS];
 
-    const prefix: string = (catalog?.settings?.quoteNumberPrefix ?? catalog?.settings?.quotePrefix ?? "Q-");
-    const pad: number    = Number(catalog?.settings?.quoteNumberPad ?? catalog?.settings?.quotePad ?? 3);
-    const start: number  = Number(catalog?.settings?.quoteNumberStart ?? 1);
+    const prefix: string =
+      catalog?.settings?.quoteNumberPrefix ??
+      catalog?.settings?.quotePrefix ??
+      "Q-";
+    const pad: number = Number(
+      catalog?.settings?.quoteNumberPad ??
+        catalog?.settings?.quotePad ??
+        3
+    );
+    const start: number = Number(
+      catalog?.settings?.quoteNumberStart ?? 1
+    );
 
     let maxN = 0;
     for (const q of allExisting) {
-      const raw = q?.number ?? q?.quoteNo ?? q?.quoteNumber ?? q?.id ?? "";
+      const raw =
+        q?.number ??
+        q?.quoteNo ??
+        q?.quoteNumber ??
+        q?.id ??
+        "";
       const m = String(raw).match(/(\d+)\s*$/);
       if (m && m[1]) {
         const v = Number(m[1]);
@@ -780,7 +1117,10 @@ export default function VisualizerApp() {
       }
     }
     const nextN = Math.max(start, maxN + 1);
-    const displayNumber = `${prefix}${String(nextN).padStart(Math.max(0, pad), "0")}`;
+    const displayNumber = `${prefix}${String(nextN).padStart(
+      Math.max(0, pad),
+      "0"
+    )}`;
 
     const payload = {
       id: `q_${Date.now()}`,
@@ -789,7 +1129,12 @@ export default function VisualizerApp() {
       createdAt: new Date().toISOString(),
       customerId: customerId || null,
       customerName:
-        (customerObj && (`${customerObj.firstName ?? ""} ${customerObj.lastName ?? ""}`.trim() || customerObj.company || customerObj.email)) ||
+        (customerObj &&
+          (`${customerObj.firstName ?? ""} ${
+            customerObj.lastName ?? ""
+          }`.trim() ||
+            customerObj.company ||
+            customerObj.email)) ||
         undefined,
 
       items,
@@ -798,69 +1143,135 @@ export default function VisualizerApp() {
       tax,
       total: totalAll,
 
-      currency: (catalog?.settings?.currencyCode ?? "ZAR"),
-      currencyCode: (catalog?.settings?.currencyCode ?? "ZAR"),
-      currencySymbol: (catalog?.settings?.currencySymbol ?? "R "),
+      currency: catalog?.settings?.currencyCode ?? "ZAR",
+      currencyCode: catalog?.settings?.currencyCode ?? "ZAR",
+      currencySymbol: catalog?.settings?.currencySymbol ?? "R ",
     };
 
     const wroteStore = writeQuoteToAnyStore(qStore, payload);
 
-    const ls      = readQuotesFromAnyLS();
-    const merged  = mergeQuote(ls, payload);
+    const ls = readQuotesFromAnyLS();
+    const merged = mergeQuote(ls, payload);
     writeQuotesToAllLS(merged);
 
-    try { console.debug("Quote upserted:", payload.number, { wroteStore, quotesCountLS: merged.length }); } catch {}
+    try {
+      console.debug("Quote upserted:", payload.number, {
+        wroteStore,
+        quotesCountLS: merged.length,
+      });
+    } catch {}
     alert(`Quote ${payload.number} created.`);
   }
 
   function addJobNow() {
     const customerId = ensureCustomerId();
 
-    const frameName  = frameProfile?.name || selectedFrame || "Frame";
-    const mat1Name   = hasMat1 ? (mat1?.name || selectedMat1) : "";
-    const mat2Name   = hasMat2 ? (mat2?.name || selectedMat2) : "";
-    const mat3Name   = hasMat3 ? (mat3?.name || selectedMat3) : "";
-    const glazingName= glazing?.name || selectedGlazingId || "Glazing";
-    const printName  = includePrint ? (selectedPM?.name ? `Printing (${selectedPM.name})` : "Printing") : "";
+    const frameName = frameProfile?.name || selectedFrame || "Frame";
+    const mat1Name = hasMat1 ? mat1?.name || selectedMat1 : "";
+    const mat2Name = hasMat2 ? mat2?.name || selectedMat2 : "";
+    const mat3Name = hasMat3 ? mat3?.name || selectedMat3 : "";
+    const glazingName =
+      glazing?.name || selectedGlazingId || "Glazing";
+    const printName = includePrint
+      ? selectedPM?.name
+        ? `Printing (${selectedPM.name})`
+        : "Printing"
+      : "";
 
-    const customerObj = customerId ? (customers || []).find((c: any) => c.id === customerId) : undefined;
-    const customerSnapshot =
-      customerObj
-        ? {
-            id: customerObj.id,
-            firstName: customerObj.firstName || "",
-            lastName:  customerObj.lastName  || "",
-            company:   customerObj.company   || "",
-            email:     customerObj.email     || "",
-            phone:     customerObj.phone     || "",
-          }
-        : (cust.firstName || cust.lastName || cust.email)
-          ? {
-              id: "",
-              firstName: cust.firstName || "",
-              lastName:  cust.lastName  || "",
-              company:   cust.company   || "",
-              email:     cust.email     || "",
-              phone:     cust.phone     || "",
-            }
-          : undefined;
+    const customerObj = customerId
+      ? (customers || []).find((c: any) => c.id === customerId)
+      : undefined;
+    const customerSnapshot = customerObj
+      ? {
+          id: customerObj.id,
+          firstName: customerObj.firstName || "",
+          lastName: customerObj.lastName || "",
+          company: customerObj.company || "",
+          email: customerObj.email || "",
+          phone: customerObj.phone || "",
+        }
+      : cust.firstName || cust.lastName || cust.email
+      ? {
+          id: "",
+          firstName: cust.firstName || "",
+          lastName: cust.lastName || "",
+          company: cust.company || "",
+          email: cust.email || "",
+          phone: cust.phone || "",
+        }
+      : undefined;
 
     const dimsNested = {
       unit,
-      art:     { widthCm: Number(artWcm),     heightCm: Number(artHcm) },
-      visible: { widthCm: Number(visibleWcm), heightCm: Number(visibleHcm) },
+      art: { widthCm: Number(artWcm), heightCm: Number(artHcm) },
+      visible: {
+        widthCm: Number(visibleWcm),
+        heightCm: Number(visibleHcm),
+      },
       frameFaceWidthCm: Number(faceWidthCm),
     };
 
     const lineItems = [
-      { k: "frame",   label: `Frame — ${frameName}`,     amount: Number(frameCost) },
-      { k: "glazing", label: `Glazing — ${glazingName}`, amount: Number(glazingCost) },
-      ...(hasMat1 ? [{ k: "mat1", label: `Mat 1 — ${mat1Name}`, amount: Number(mat1Cost) }] : []),
-      ...(hasMat2 ? [{ k: "mat2", label: `Mat 2 — ${mat2Name}`, amount: Number(mat2Cost) }] : []),
-      ...(hasMat3 ? [{ k: "mat3", label: `Mat 3 — ${mat3Name}`, amount: Number(mat3Cost) }] : []),
-      ...(includePrint ? [{ k: "print", label: printName, amount: Number(printingCost) }] : []),
-      ...(includeBacker ? [{ k: "backer", label: "Foam board backer", amount: Number(backerCost) }] : []),
-      { k: "labour", label: "Labour & overhead", amount: Number(labourBase) },
+      {
+        k: "frame",
+        label: `Frame — ${frameName}`,
+        amount: Number(frameCost),
+      },
+      {
+        k: "glazing",
+        label: `Glazing — ${glazingName}`,
+        amount: Number(glazingCost),
+      },
+      ...(hasMat1
+        ? [
+            {
+              k: "mat1",
+              label: `Mat 1 — ${mat1Name}`,
+              amount: Number(mat1Cost),
+            },
+          ]
+        : []),
+      ...(hasMat2
+        ? [
+            {
+              k: "mat2",
+              label: `Mat 2 — ${mat2Name}`,
+              amount: Number(mat2Cost),
+            },
+          ]
+        : []),
+      ...(hasMat3
+        ? [
+            {
+              k: "mat3",
+              label: `Mat 3 — ${mat3Name}`,
+              amount: Number(mat3Cost),
+            },
+          ]
+        : []),
+      ...(includePrint
+        ? [
+            {
+              k: "print",
+              label: printName,
+              amount: Number(printingCost),
+            },
+          ]
+        : []),
+      ...(includeBacker
+        ? [
+            {
+              k: "backer",
+              label: "Foam board backer",
+              amount: Number(backerCost),
+            },
+          ]
+        : []),
+      {
+        k: "labour",
+        label: "Labour & overhead",
+        amount: Number(labourBase),
+      },
     ];
 
     const detailsSnapshot = {
@@ -870,21 +1281,44 @@ export default function VisualizerApp() {
         hasMat1,
         hasMat2,
         hasMat3,
-        mat1: hasMat1 ? { id: selectedMat1, name: mat1Name, borderCm: Number(mat1BorderCm) } : null,
-        mat2: hasMat2 ? { id: selectedMat2, name: mat2Name, borderCm: Number(mat2BorderCm) } : null,
-        mat3: hasMat3 ? { id: selectedMat3, name: mat3Name, borderCm: Number(mat3BorderCm) } : null,
+        mat1: hasMat1
+          ? {
+              id: selectedMat1,
+              name: mat1Name,
+              borderCm: Number(mat1BorderCm),
+            }
+          : null,
+        mat2: hasMat2
+          ? {
+              id: selectedMat2,
+              name: mat2Name,
+              borderCm: Number(mat2BorderCm),
+            }
+          : null,
+        mat3: hasMat3
+          ? {
+              id: selectedMat3,
+              name: mat3Name,
+              borderCm: Number(mat3BorderCm),
+            }
+          : null,
         openings: mode === "pro" ? openings : [],
         mode,
       },
       frame: {
-        id: selectedFrame, name: frameName,
+        id: selectedFrame,
+        name: frameName,
         faceWidthCm: Number(faceWidthCm),
         previewColor: framePreviewColor || undefined,
         textureUrl: frameTextureUrl || undefined,
       },
       glazing: { id: selectedGlazingId || "", name: glazingName },
       printing: includePrint
-        ? { include: true, materialId: selectedPM?.id || "", materialName: selectedPM?.name || "" }
+        ? {
+            include: true,
+            materialId: selectedPM?.id || "",
+            materialName: selectedPM?.name || "",
+          }
         : { include: false },
       backer: { include: Boolean(includeBacker) },
       costs: {
@@ -925,9 +1359,27 @@ export default function VisualizerApp() {
         hasMat1,
         hasMat2,
         hasMat3,
-        mat1: hasMat1 ? { id: selectedMat1, name: mat1Name, borderCm: Number(mat1BorderCm) } : null,
-        mat2: hasMat2 ? { id: selectedMat2, name: mat2Name, borderCm: Number(mat2BorderCm) } : null,
-        mat3: hasMat3 ? { id: selectedMat3, name: mat3Name, borderCm: Number(mat3BorderCm) } : null,
+        mat1: hasMat1
+          ? {
+              id: selectedMat1,
+              name: mat1Name,
+              borderCm: Number(mat1BorderCm),
+            }
+          : null,
+        mat2: hasMat2
+          ? {
+              id: selectedMat2,
+              name: mat2Name,
+              borderCm: Number(mat2BorderCm),
+            }
+          : null,
+        mat3: hasMat3
+          ? {
+              id: selectedMat3,
+              name: mat3Name,
+              borderCm: Number(mat3BorderCm),
+            }
+          : null,
         mode,
         openings: mode === "pro" ? openings : [],
       },
@@ -982,26 +1434,102 @@ export default function VisualizerApp() {
   }
 
   function invoiceNow() {
-    const customerId  = ensureCustomerId();
-    const customerObj = customerId ? (customers || []).find((c: any) => c.id === customerId) : undefined;
+    const customerId = ensureCustomerId();
+    const customerObj = customerId
+      ? (customers || []).find((c: any) => c.id === customerId)
+      : undefined;
 
-    const invId    = rid();
+    const invId = rid();
     const todayISO = new Date().toISOString();
 
     const items = [
-      { id: rid(), name: `Frame (${frameProfile?.name ?? "frame"})`, description: `Frame (${frameProfile?.name ?? "frame"})`, qty: 1, unitPrice: frameCost },
-      { id: rid(), name: `Glazing (${glazing?.name ?? "glazing"})`, description: `Glazing (${glazing?.name ?? "glazing"})`, qty: 1, unitPrice: glazingCost },
-      ...(hasMat1 ? [{ id: rid(), name: `Mat 1 (${mat1?.name ?? "mat"})`, description: `Mat 1 (${mat1?.name ?? "mat"})`, qty: 1, unitPrice: mat1Cost }] : []),
-      ...(hasMat2 ? [{ id: rid(), name: `Mat 2 (${mat2?.name ?? "mat"})`, description: `Mat 2 (${mat2?.name ?? "mat"})`, qty: 1, unitPrice: mat2Cost }] : []),
-      ...(hasMat3 ? [{ id: rid(), name: `Mat 3 (${mat3?.name ?? "mat"})`, description: `Mat 3 (${mat3?.name ?? "mat"})`, qty: 1, unitPrice: mat3Cost }] : []),
-      ...(includePrint ? [{ id: rid(), name: selectedPM ? `Printing (${selectedPM.name})` : "Printing", description: selectedPM ? `Printing (${selectedPM.name})` : "Printing", qty: 1, unitPrice: printingCost }] : []),
-      ...(includeBacker ? [{ id: rid(), name: "Foam board backer", description: "Foam board backer", qty: 1, unitPrice: backerCost }] : []),
-      { id: rid(), name: "Labour & overhead", description: "Labour & overhead", qty: 1, unitPrice: labourBase },
+      {
+        id: rid(),
+        name: `Frame (${frameProfile?.name ?? "frame"})`,
+        description: `Frame (${frameProfile?.name ?? "frame"})`,
+        qty: 1,
+        unitPrice: frameCost,
+      },
+      {
+        id: rid(),
+        name: `Glazing (${glazing?.name ?? "glazing"})`,
+        description: `Glazing (${glazing?.name ?? "glazing"})`,
+        qty: 1,
+        unitPrice: glazingCost,
+      },
+      ...(hasMat1
+        ? [
+            {
+              id: rid(),
+              name: `Mat 1 (${mat1?.name ?? "mat"})`,
+              description: `Mat 1 (${mat1?.name ?? "mat"})`,
+              qty: 1,
+              unitPrice: mat1Cost,
+            },
+          ]
+        : []),
+      ...(hasMat2
+        ? [
+            {
+              id: rid(),
+              name: `Mat 2 (${mat2?.name ?? "mat"})`,
+              description: `Mat 2 (${mat2?.name ?? "mat"})`,
+              qty: 1,
+              unitPrice: mat2Cost,
+            },
+          ]
+        : []),
+      ...(hasMat3
+        ? [
+            {
+              id: rid(),
+              name: `Mat 3 (${mat3?.name ?? "mat"})`,
+              description: `Mat 3 (${mat3?.name ?? "mat"})`,
+              qty: 1,
+              unitPrice: mat3Cost,
+            },
+          ]
+        : []),
+      ...(includePrint
+        ? [
+            {
+              id: rid(),
+              name: selectedPM
+                ? `Printing (${selectedPM.name})`
+                : "Printing",
+              description: selectedPM
+                ? `Printing (${selectedPM.name})`
+                : "Printing",
+              qty: 1,
+              unitPrice: printingCost,
+            },
+          ]
+        : []),
+      ...(includeBacker
+        ? [
+            {
+              id: rid(),
+              name: "Foam board backer",
+              description: "Foam board backer",
+              qty: 1,
+              unitPrice: backerCost,
+            },
+          ]
+        : []),
+      {
+        id: rid(),
+        name: "Labour & overhead",
+        description: "Labour & overhead",
+        qty: 1,
+        unitPrice: labourBase,
+      },
     ];
 
     const invoiceObj = {
       id: invId,
-      number: `INV-${new Date().getFullYear()}-${invId.slice(0, 4).toUpperCase()}`,
+      number: `INV-${new Date().getFullYear()}-${invId
+        .slice(0, 4)
+        .toUpperCase()}`,
       customerId: customerId || undefined,
       dateISO: todayISO,
       dueDateISO: undefined,
@@ -1047,7 +1575,8 @@ export default function VisualizerApp() {
               address1: customerObj.address1,
               address2: customerObj.address2,
               city: customerObj.city,
-              postcode: customerObj.postcode || customerObj.postalCode,
+              postcode:
+                customerObj.postcode || customerObj.postalCode,
               country: customerObj.country,
             }
           : undefined,
@@ -1070,12 +1599,29 @@ export default function VisualizerApp() {
       // ⬆️ No navigation: we stay on the Visualizer
     } catch (err) {
       console.error(err);
-      alert("Invoice creation or PDF export failed. See console for details.");
+      alert(
+        "Invoice creation or PDF export failed. See console for details."
+      );
     }
   }
 
-  
-  const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  function handleCreateQuoteInvoiceJob() {
+    try {
+      addQuoteNow();
+      addJobNow();
+      invoiceNow();
+    } catch (e) {
+      console.error("Failed to create Quote + Invoice + Job", e);
+      alert(
+        "Could not create Quote + Invoice + Job. Please check the console for details."
+      );
+    }
+  }
+
+  const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({
+    title,
+    children,
+  }) => (
     <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-2">
         {title}
@@ -1089,8 +1635,10 @@ export default function VisualizerApp() {
     selectedCustomerId && selectedCustomerId !== "__new__"
       ? selectedCustomerId
       : "anonymous";
-  const [presets, setPresets] = useState<VisualizerPreset[]>([]);
 
+  const [presets, setPresets] = useState<VisualizerPreset[]>([]);
+  const [presetMenuOpen, setPresetMenuOpen] = useState(false);
+  const presetMenuRef = useRef<HTMLDivElement | null>(null);
   const currentState = useMemo(
     () => ({
       unit,
@@ -1153,11 +1701,38 @@ export default function VisualizerApp() {
     setPresets(listPresets(customerKey));
   }, [customerKey]);
 
-  function handleSavePreset() {
-    const name = prompt("Preset name (e.g. 'Double mat walnut AR glass')");
-    if (!name) return;
-    const created = savePreset(customerKey, { name, state: currentState });
-    setPresets((prev) => [created, ...prev]);
+  // Close preset menu on outside click
+  type PresetScope = "me" | "shared";
+
+  function handleSavePreset(scope: PresetScope = "shared") {
+    const label =
+      scope === "me"
+        ? "Preset name (for your use)?"
+        : "Preset name (for everyone to use)?";
+
+    const baseName = window.prompt(label);
+    if (!baseName || !baseName.trim()) return;
+
+    const prefix = scope === "me" ? "👤 " : "🌐 ";
+    const name = prefix + baseName.trim();
+
+    try {
+      const created = savePreset(customerKey, { name, state: currentState });
+      setPresets((prev) => [created, ...prev]);
+    } catch (e: any) {
+      console.error("Failed to save preset", e);
+
+      const message =
+        e && (e.name === "QuotaExceededError" || e.code === 22)
+          ? "Preset storage is full in this browser. Please delete some older presets or clear FrameIT data and try again."
+          : "Could not save this preset. Please try again.";
+
+      alert(message);
+    }
+  }
+
+  function closePresetMenu() {
+    setPresetMenuOpen(false);
   }
 
   function applyPreset(p: VisualizerPreset) {
@@ -1170,7 +1745,10 @@ export default function VisualizerApp() {
       setArtworkUrl(String(s?.art?.imageUrl || ""));
       setSelectedFrame(String(s?.frame?.id || "frame1"));
       setFaceAuto(Boolean(s?.frame?.faceAuto));
-      if (!Boolean(s?.frame?.faceAuto) && Number.isFinite(s?.frame?.faceWidthCm)) {
+      if (
+        !Boolean(s?.frame?.faceAuto) &&
+        Number.isFinite(s?.frame?.faceWidthCm)
+      ) {
         setFaceWidthCm(Number(s?.frame?.faceWidthCm));
       }
       setUseFrameTexture(Boolean(s?.frame?.useFrameTexture));
@@ -1181,28 +1759,48 @@ export default function VisualizerApp() {
       setSelectedMat1(String(s?.mats?.selectedMat1 || "mat0"));
       setSelectedMat2(String(s?.mats?.selectedMat2 || "mat0"));
       setSelectedMat3(String(s?.mats?.selectedMat3 || "mat0"));
-      if (Number.isFinite(s?.mats?.mat1BorderCm)) setMat1BorderCm(Number(s.mats.mat1BorderCm));
-      if (Number.isFinite(s?.mats?.mat2BorderCm)) setMat2BorderCm(Number(s.mats.mat2BorderCm));
-      if (Number.isFinite(s?.mats?.mat3BorderCm)) setMat3BorderCm(Number(s.mats.mat3BorderCm));
+      if (Number.isFinite(s?.mats?.mat1BorderCm))
+        setMat1BorderCm(Number(s.mats.mat1BorderCm));
+      if (Number.isFinite(s?.mats?.mat2BorderCm))
+        setMat2BorderCm(Number(s.mats.mat2BorderCm));
+      if (Number.isFinite(s?.mats?.mat3BorderCm))
+        setMat3BorderCm(Number(s.mats.mat3BorderCm));
 
-      setOpenings(Array.isArray(s?.mats?.openings) ? s.mats.openings : []);
+      setOpenings(
+        Array.isArray(s?.mats?.openings) ? s.mats.openings : []
+      );
       setMode(s?.mats?.mode === "pro" ? "pro" : "basic");
 
-      setShowMat2(Boolean(s?.mats?.selectedMat2 && s.mats.selectedMat2 !== "mat0"));
-      setShowMat3(Boolean(s?.mats?.selectedMat3 && s.mats.selectedMat3 !== "mat0"));
+      setShowMat2(
+        Boolean(
+          s?.mats?.selectedMat2 && s.mats.selectedMat2 !== "mat0"
+        )
+      );
+      setShowMat3(
+        Boolean(
+          s?.mats?.selectedMat3 && s.mats.selectedMat3 !== "mat0"
+        )
+      );
 
-      if (s?.glazing?.id) setSelectedGlazingId(String(s.glazing.id));
+      if (s?.glazing?.id)
+        setSelectedGlazingId(String(s.glazing.id));
       setIncludePrint(Boolean(s?.printing?.includePrint));
-      setPrintMaterialId(String(s?.printing?.printMaterialId || ""));
+      setPrintMaterialId(
+        String(s?.printing?.printMaterialId || "")
+      ); // note: we store id here
       setIncludeBacker(Boolean(s?.backer?.includeBacker));
       setBackdrop(
-        (["studio", "living", "gallery", "office"] as const).includes(s?.backdrop)
+        (
+          ["studio", "living", "gallery", "office"] as const
+        ).includes(s?.backdrop)
           ? s.backdrop
           : "studio"
       );
     } catch (e) {
       console.error("Failed to apply preset", e);
-      alert("Could not apply this preset. It may be from an older version.");
+      alert(
+        "Could not apply this preset. It may be from an older version."
+      );
     }
   }
 
@@ -1228,11 +1826,18 @@ export default function VisualizerApp() {
   }, [exportMenuOpen]);
 
   // ---------- Colours for mats ----------
-  const matColor = (m: any): string => {
-    if (!m) return "#EEE";
-    if (m.color === "transparent") return "#EEE";
-    return (m.color as string) || "#EEE";
-  };
+      const matColor = (m: any): string => {
+      if (!m) return "#EEE";
+
+      const raw =
+        (m as any).colour ??
+        (m as any).color ??
+        "";
+
+      if (raw === "transparent") return "#EEE";
+      return raw || "#EEE";
+    };
+
   const mat1Color = matColor(mat1);
   const mat2Color = matColor(mat2);
   const mat3Color = matColor(mat3);
@@ -1242,9 +1847,12 @@ export default function VisualizerApp() {
     if (mode !== "basic") return null;
 
     const matsStack: { color: string; borderCm: number }[] = [];
-    if (hasMat1) matsStack.push({ color: mat1Color, borderCm: mat1BorderCm });
-    if (hasMat2) matsStack.push({ color: mat2Color, borderCm: mat2BorderCm });
-    if (hasMat3) matsStack.push({ color: mat3Color, borderCm: mat3BorderCm });
+    if (hasMat1)
+      matsStack.push({ color: mat1Color, borderCm: mat1BorderCm });
+    if (hasMat2)
+      matsStack.push({ color: mat2Color, borderCm: mat2BorderCm });
+    if (hasMat3)
+      matsStack.push({ color: mat3Color, borderCm: mat3BorderCm });
 
     const renderArtwork = () => (
       <div
@@ -1338,19 +1946,20 @@ export default function VisualizerApp() {
   // ---------- RENDER ----------
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-emerald-50/40 to-slate-50">
-            <main
-          className={`${containerClass} p-4 grid gap-4 
+      <main
+        className={`${containerClass} p-4 grid gap-4 
             lg:grid-cols-[320px_1fr_320px] 
             xl:grid-cols-[360px_1fr_360px]`}
-        >
-
+      >
         {/* LEFT */}
-        <section className="w-full md:w-[300px] flex-none space-y-3">
+        <section className="space-y-3">
           {/* Artwork / Image */}
           <Panel title="Artwork / Image">
             <div className="flex items-center justify-between mb-3 gap-2">
               <div className="flex flex-col">
-                <span className="text-xs text-slate-600 mb-1">Measurement mode</span>
+                <span className="text-xs text-slate-600 mb-1">
+                  Measurement mode
+                </span>
                 <div className="flex gap-3 text-xs">
                   <label className="inline-flex items-center gap-1">
                     <input
@@ -1373,11 +1982,15 @@ export default function VisualizerApp() {
                 </div>
               </div>
               <div>
-                <span className="block text-xs text-slate-600 mb-1">Units</span>
+                <span className="block text-xs text-slate-600 mb-1">
+                  Units
+                </span>
                 <select
                   className="rounded border p-1 text-xs bg-white"
                   value={unit}
-                  onChange={(e) => setUnit(e.target.value as "metric" | "imperial")}
+                  onChange={(e) =>
+                    setUnit(e.target.value as "metric" | "imperial")
+                  }
                 >
                   <option value="metric">cm</option>
                   <option value="imperial">inches</option>
@@ -1401,18 +2014,15 @@ export default function VisualizerApp() {
                       ? artWcm
                       : artHcm
                     : isWidth
-                      ? outerWcm
-                      : outerHcm;
+                    ? outerWcm
+                    : outerHcm;
 
                 const dimDisplay =
                   unit === "imperial"
                     ? cmToIn(dimCm).toFixed(2)
                     : dimCm.toFixed(1);
 
-                const keySeed =
-                  sizeMode === "image"
-                    ? dimCm
-                    : dimCm; // just to refresh on big changes
+                const keySeed = dimCm;
 
                 return (
                   <div key={axis}>
@@ -1420,21 +2030,29 @@ export default function VisualizerApp() {
                       {labelText} ({unit === "imperial" ? "in" : "cm"})
                     </label>
                     <input
-                      key={`dim-${axis}-${unit}-${sizeMode}-${Math.round(keySeed * 10)}`}
+                      key={`dim-${axis}-${unit}-${sizeMode}-${Math.round(
+                        keySeed * 10
+                      )}`}
                       type="number"
                       step="0.1"
                       defaultValue={dimDisplay}
-                      onBlur={(e) => handleDimensionChange(axis, e.target.value)}
+                      onBlur={(e) =>
+                        handleDimensionChange(axis, e.target.value)
+                      }
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
-                          const val = (e.target as HTMLInputElement).value;
+                          const val = (
+                            e.target as HTMLInputElement
+                          ).value;
                           handleDimensionChange(axis, val);
                           (e.target as HTMLInputElement).blur();
                         }
                       }}
                       className="w-full rounded-lg border p-2 text-sm bg-white/90"
                     />
-                    <p className="mt-1 text-[11px] text-slate-500">{helperText}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {helperText}
+                    </p>
                   </div>
                 );
               })}
@@ -1452,7 +2070,9 @@ export default function VisualizerApp() {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => onPickImage(e.target.files?.[0] || null)}
+                onChange={(e) =>
+                  onPickImage(e.target.files?.[0] || null)
+                }
               />
               {artworkUrl && (
                 <>
@@ -1476,7 +2096,9 @@ export default function VisualizerApp() {
           {/* Frame Profile */}
           <Panel title="Frame Profile">
             <div className="grid gap-2">
-              <label className="block text-sm font-medium text-slate-700">Frame</label>
+              <label className="block text-sm font-medium text-slate-700">
+                Frame
+              </label>
               <select
                 className="w-full rounded-lg border p-2 bg-white text-sm"
                 value={selectedFrame}
@@ -1495,7 +2117,9 @@ export default function VisualizerApp() {
                     type="checkbox"
                     className="h-4 w-4"
                     checked={faceAuto}
-                    onChange={(e) => setFaceAuto(e.target.checked)}
+                    onChange={(e) =>
+                      setFaceAuto(e.target.checked)
+                    }
                   />
                   Auto face width from profile
                 </label>
@@ -1508,7 +2132,9 @@ export default function VisualizerApp() {
                 type="number"
                 step="0.1"
                 value={faceWidthCm}
-                onChange={(e) => setFaceWidthCm(parseFloat(e.target.value))}
+                onChange={(e) =>
+                  setFaceWidthCm(parseFloat(e.target.value))
+                }
                 className="w-full rounded-lg border p-2 text-sm bg-white/90 disabled:opacity-60"
                 disabled={faceAuto}
               />
@@ -1520,7 +2146,9 @@ export default function VisualizerApp() {
                       type="checkbox"
                       className="h-4 w-4"
                       checked={useFrameTexture}
-                      onChange={(e) => setUseFrameTexture(e.target.checked)}
+                      onChange={(e) =>
+                        setUseFrameTexture(e.target.checked)
+                      }
                     />
                     Use wood texture
                   </label>
@@ -1535,7 +2163,12 @@ export default function VisualizerApp() {
                       step={10}
                       value={textureScalePct}
                       onChange={(e) =>
-                        setTextureScalePct(parseInt(e.target.value || "100", 10))
+                        setTextureScalePct(
+                          parseInt(
+                            e.target.value || "100",
+                            10
+                          )
+                        )
                       }
                       className="w-full"
                     />
@@ -1555,11 +2188,15 @@ export default function VisualizerApp() {
           {/* Mat & Backer */}
           <Panel title="Mat & Backer">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs text-slate-600">Mode</span>
+              <span className="text-xs text-slate-600">
+                Mode
+              </span>
               <select
                 className="rounded border p-1 text-xs bg-white"
                 value={mode}
-                onChange={(e) => setMode(e.target.value as "basic" | "pro")}
+                onChange={(e) =>
+                  setMode(e.target.value as "basic" | "pro")
+                }
               >
                 <option value="basic">Basic</option>
                 <option value="pro">Pro (multi-opening)</option>
@@ -1593,10 +2230,14 @@ export default function VisualizerApp() {
                     type="number"
                     step="0.1"
                     defaultValue={mat1BorderCm.toFixed(1)}
-                    onBlur={(e) => handleMatBorderChange(1, e.target.value)}
+                    onBlur={(e) =>
+                      handleMatBorderChange(1, e.target.value)
+                    }
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
-                        const val = (e.target as HTMLInputElement).value;
+                        const val = (
+                          e.target as HTMLInputElement
+                        ).value;
                         handleMatBorderChange(1, val);
                         (e.target as HTMLInputElement).blur();
                       }
@@ -1635,7 +2276,9 @@ export default function VisualizerApp() {
                 <select
                   className="w-full rounded-lg border p-2 bg-white text-sm"
                   value={selectedMat2}
-                  onChange={(e) => setSelectedMat2(e.target.value)}
+                  onChange={(e) =>
+                    setSelectedMat2(e.target.value)
+                  }
                 >
                   <option value="mat0">None</option>
                   {(catalog?.mats || []).map((m: any) => (
@@ -1653,10 +2296,14 @@ export default function VisualizerApp() {
                       type="number"
                       step="0.1"
                       defaultValue={mat2BorderCm.toFixed(1)}
-                      onBlur={(e) => handleMatBorderChange(2, e.target.value)}
+                      onBlur={(e) =>
+                        handleMatBorderChange(2, e.target.value)
+                      }
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
-                          const val = (e.target as HTMLInputElement).value;
+                          const val = (
+                            e.target as HTMLInputElement
+                          ).value;
                           handleMatBorderChange(2, val);
                           (e.target as HTMLInputElement).blur();
                         }
@@ -1687,7 +2334,9 @@ export default function VisualizerApp() {
                     <select
                       className="w-full rounded-lg border p-2 bg-white text-sm"
                       value={selectedMat3}
-                      onChange={(e) => setSelectedMat3(e.target.value)}
+                      onChange={(e) =>
+                        setSelectedMat3(e.target.value)
+                      }
                     >
                       <option value="mat0">None</option>
                       {(catalog?.mats || []).map((m: any) => (
@@ -1706,12 +2355,21 @@ export default function VisualizerApp() {
                           type="number"
                           step="0.1"
                           defaultValue={mat3BorderCm.toFixed(1)}
-                          onBlur={(e) => handleMatBorderChange(3, e.target.value)}
+                          onBlur={(e) =>
+                            handleMatBorderChange(
+                              3,
+                              e.target.value
+                            )
+                          }
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
-                              const val = (e.target as HTMLInputElement).value;
+                              const val = (
+                                e.target as HTMLInputElement
+                              ).value;
                               handleMatBorderChange(3, val);
-                              (e.target as HTMLInputElement).blur();
+                              (
+                                e.target as HTMLInputElement
+                              ).blur();
                             }
                           }}
                           className="w-full rounded-lg border p-2 text-sm bg-white/90"
@@ -1800,10 +2458,14 @@ export default function VisualizerApp() {
                       }`}
                     >
                       <div className="truncate">
-                        <span className="font-medium">{o.shape}</span>{" "}
+                        <span className="font-medium">
+                          {o.shape}
+                        </span>{" "}
                         <span className="text-slate-600">
-                          {Math.round(o.widthCm)}×{Math.round(o.heightCm)}cm @{" "}
-                          {Math.round(o.xCm)},{Math.round(o.yCm)}
+                          {Math.round(o.widthCm)}×
+                          {Math.round(o.heightCm)}cm @{" "}
+                          {Math.round(o.xCm)},
+                          {Math.round(o.yCm)}
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
@@ -1812,7 +2474,9 @@ export default function VisualizerApp() {
                             type="button"
                             title="Change image"
                             className="rounded border px-1 py-0.5 bg-white hover:bg-slate-100"
-                            onClick={() => requestOpeningImage(o.id)}
+                            onClick={() =>
+                              requestOpeningImage(o.id)
+                            }
                           >
                             Img
                           </button>
@@ -1822,7 +2486,11 @@ export default function VisualizerApp() {
                           title="Delete"
                           className="rounded border px-1 py-0.5 bg-white hover:bg-rose-50"
                           onClick={() =>
-                            setOpenings((arr) => arr.filter((x) => x.id !== o.id))
+                            setOpenings((arr) =>
+                              arr.filter(
+                                (x) => x.id !== o.id
+                              )
+                            )
                           }
                         >
                           ×
@@ -1846,7 +2514,9 @@ export default function VisualizerApp() {
                   type="checkbox"
                   className="h-4 w-4"
                   checked={includeBacker}
-                  onChange={(e) => setIncludeBacker(e.target.checked)}
+                  onChange={(e) =>
+                    setIncludeBacker(e.target.checked)
+                  }
                 />
                 Foam board backer{" "}
                 {foamBackerPerSqM ? (
@@ -1866,11 +2536,14 @@ export default function VisualizerApp() {
             <select
               className="w-full rounded-lg border p-2 bg-white text-sm mt-1"
               value={selectedGlazingId}
-              onChange={(e) => setSelectedGlazingId(e.target.value)}
+              onChange={(e) =>
+                setSelectedGlazingId(e.target.value)
+              }
             >
               {glazingList.map((g: any) => (
                 <option key={g.id} value={g.id}>
-                  {g.name} — {moneyIntl(Number(g.pricePerSqM))}/m²
+                  {g.name} — {moneyIntl(Number(g.pricePerSqM))}
+                  /m²
                 </option>
               ))}
             </select>
@@ -1883,7 +2556,9 @@ export default function VisualizerApp() {
                 type="checkbox"
                 className="h-4 w-4"
                 checked={includePrint}
-                onChange={(e) => setIncludePrint(e.target.checked)}
+                onChange={(e) =>
+                  setIncludePrint(e.target.checked)
+                }
               />
               Include printing
             </label>
@@ -1896,14 +2571,19 @@ export default function VisualizerApp() {
                 <select
                   className="w-full rounded-lg border p-2 bg-white text-sm mt-1"
                   value={printMaterialId}
-                  onChange={(e) => setPrintMaterialId(e.target.value)}
+                  onChange={(e) =>
+                    setPrintMaterialId(e.target.value)
+                  }
                 >
                   <option value="">
-                    Use fallback — {moneyIntl(fallbackPrintSqM)}/m²
+                    Use fallback — {moneyIntl(fallbackPrintSqM)}
+                    /m²
                   </option>
                   {PRINT_MATS.map((pm: any) => (
                     <option key={pm.id} value={pm.id}>
-                      {pm.name} — {moneyIntl(Number(pm.pricePerSqM))}/m²
+                      {pm.name} —{" "}
+                      {moneyIntl(Number(pm.pricePerSqM))}
+                      /m²
                     </option>
                   ))}
                 </select>
@@ -1921,10 +2601,12 @@ export default function VisualizerApp() {
                 <Tabs
                   tabs={[
                     { key: "build", label: "Build" },
-                    { key: "room",  label: "Room preview" },
+                    { key: "room", label: "Room preview" },
                   ]}
                   active={activeTab}
-                  onChange={(k) => setActiveTab(k as "build" | "room")}
+                  onChange={(k) =>
+                    setActiveTab(k as "build" | "room")
+                  }
                 />
               </div>
 
@@ -1933,7 +2615,9 @@ export default function VisualizerApp() {
                   <button
                     type="button"
                     className="rounded-lg px-3 py-1.5 text-xs bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
-                    onClick={() => setExportMenuOpen((o) => !o)}
+                    onClick={() =>
+                      setExportMenuOpen((o) => !o)
+                    }
                   >
                     Export image ▾
                   </button>
@@ -1944,7 +2628,8 @@ export default function VisualizerApp() {
                         className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
                         onClick={() => {
                           setExportMenuOpen(false);
-                          if (previewRef.current) exportNodeAsPng(previewRef.current);
+                          if (previewRef.current)
+                            exportNodeAsPng(previewRef.current);
                         }}
                       >
                         PNG
@@ -1954,7 +2639,8 @@ export default function VisualizerApp() {
                         className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
                         onClick={() => {
                           setExportMenuOpen(false);
-                          if (previewRef.current) exportNodeAsJpeg(previewRef.current);
+                          if (previewRef.current)
+                            exportNodeAsJpeg(previewRef.current);
                         }}
                       >
                         JPG
@@ -1964,7 +2650,8 @@ export default function VisualizerApp() {
                         className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
                         onClick={() => {
                           setExportMenuOpen(false);
-                          if (previewRef.current) exportNodeAsPdf(previewRef.current);
+                          if (previewRef.current)
+                            exportNodeAsPdf(previewRef.current);
                         }}
                       >
                         PDF
@@ -1975,24 +2662,27 @@ export default function VisualizerApp() {
               </div>
             </div>
 
-            {/* Preview */}
-            {activeTab === "build" ? (
+            {/* Preview area + Room content */}
+            <div className="mb-6 space-y-3 relative">
+              {/* Always-mounted framed preview for both tabs */}
               <div
-                className="flex items-center justify-center overflow-auto mb-6"
                 ref={previewHostRef}
+                className={`w-full flex justify-center ${
+                  activeTab === "room"
+                    ? "absolute -left-[9999px] -top-[9999px] opacity-0 pointer-events-none"
+                    : ""
+                }`}
               >
                 <div
                   ref={previewRef}
-                  className="relative select-none shrink-0"
+                  className="relative bg-white overflow-hidden shadow-inner ring-1 ring-slate-200"
                   style={{
-                    width: Math.max(1, Math.round(px(outerWcm))),
-                    height: Math.max(1, Math.round(px(outerHcm))),
-                    ...backdropStyle,
-                    borderRadius: 0,
-                    transition: "width 120ms, height 120ms",
+                    width: px(outerWcm),
+                    height: px(outerHcm),
+                    maxWidth: "100%",
+                    maxHeight: "70vh",
                   }}
                 >
-                  
                   {/* Frame band */}
                   <div
                     style={{
@@ -2071,11 +2761,12 @@ export default function VisualizerApp() {
                       background: hasMat3
                         ? mat3Color
                         : hasMat2
-                          ? mat2Color
-                          : hasMat1
-                            ? mat1Color
-                            : "#EEE",
+                        ? mat2Color
+                        : hasMat1
+                        ? mat1Color
+                        : "#EEE",
                       borderRadius: 0,
+                      overflow: "hidden",
                     }}
                   >
                     {/* BASIC MODE stacked mats */}
@@ -2093,8 +2784,8 @@ export default function VisualizerApp() {
                         const borderRadius = isCircle
                           ? "9999px"
                           : isOval
-                            ? "50% / 50%"
-                            : "0px";
+                          ? "50% / 50%"
+                          : "0px";
 
                         const bevelPx = bevelThicknessPx;
                         const bevelColor = "#f5f0e6";
@@ -2102,15 +2793,24 @@ export default function VisualizerApp() {
                         return (
                           <div
                             key={o.id}
-                            onMouseDown={(e) => startMove(e, o)}
-                            onMouseEnter={() => setHoveredOpeningId(o.id)}
-                            onMouseLeave={() => setHoveredOpeningId(null)}
+                            onMouseDown={(e) =>
+                              startMove(e, o)
+                            }
+                            onMouseEnter={() =>
+                              setHoveredOpeningId(o.id)
+                            }
+                            onMouseLeave={() =>
+                              setHoveredOpeningId(null)
+                            }
                             className="absolute cursor-move group"
                             style={{
                               left,
                               top,
                               width: Math.max(8, w),
-                              height: Math.max(8, isCircle ? Math.max(w, h) : h),
+                              height: Math.max(
+                                8,
+                                isCircle ? Math.max(w, h) : h
+                              ),
                               borderRadius,
                               userSelect: "none",
                             }}
@@ -2123,7 +2823,8 @@ export default function VisualizerApp() {
                                 inset: 0,
                                 background: bevelColor,
                                 borderRadius: "inherit",
-                                boxShadow: "inset 0 0 3px rgba(0,0,0,0.35)",
+                                boxShadow:
+                                  "inset 0 0 3px rgba(0,0,0,0.35)",
                                 pointerEvents: "none",
                               }}
                             />
@@ -2149,14 +2850,18 @@ export default function VisualizerApp() {
                                     display: "block",
                                   }}
                                   draggable={false}
-                                  onDoubleClick={() => requestOpeningImage(o.id)}
+                                  onDoubleClick={() =>
+                                    requestOpeningImage(o.id)
+                                  }
                                   title="Double-click to change image"
                                 />
                               ) : (
                                 <button
                                   type="button"
                                   className="flex items-center justify-center h-full w-full text-neutral-700 text-xs hover:bg-slate-100"
-                                  onClick={() => requestOpeningImage(o.id)}
+                                  onClick={() =>
+                                    requestOpeningImage(o.id)
+                                  }
                                 >
                                   Select image for this opening
                                 </button>
@@ -2169,22 +2874,42 @@ export default function VisualizerApp() {
                                 <Handle
                                   o={o}
                                   handle="nw"
-                                  style={{ left: -6, top: -6, cursor: "nwse-resize" }}
+                                  style={{
+                                    left: -6,
+                                    top: -6,
+                                    cursor:
+                                      "nwse-resize",
+                                  }}
                                 />
                                 <Handle
                                   o={o}
                                   handle="ne"
-                                  style={{ right: -6, top: -6, cursor: "nesw-resize" }}
+                                  style={{
+                                    right: -6,
+                                    top: -6,
+                                    cursor:
+                                      "nesw-resize",
+                                  }}
                                 />
                                 <Handle
                                   o={o}
                                   handle="sw"
-                                  style={{ left: -6, bottom: -6, cursor: "nesw-resize" }}
+                                  style={{
+                                    left: -6,
+                                    bottom: -6,
+                                    cursor:
+                                      "nesw-resize",
+                                  }}
                                 />
                                 <Handle
                                   o={o}
                                   handle="se"
-                                  style={{ right: -6, bottom: -6, cursor: "nwse-resize" }}
+                                  style={{
+                                    right: -6,
+                                    bottom: -6,
+                                    cursor:
+                                      "nwse-resize",
+                                  }}
                                 />
                                 <Handle
                                   o={o}
@@ -2192,8 +2917,10 @@ export default function VisualizerApp() {
                                   style={{
                                     left: "50%",
                                     top: -6,
-                                    transform: "translateX(-50%)",
-                                    cursor: "ns-resize",
+                                    transform:
+                                      "translateX(-50%)",
+                                    cursor:
+                                      "ns-resize",
                                   }}
                                 />
                                 <Handle
@@ -2202,8 +2929,10 @@ export default function VisualizerApp() {
                                   style={{
                                     left: "50%",
                                     bottom: -6,
-                                    transform: "translateX(-50%)",
-                                    cursor: "ns-resize",
+                                    transform:
+                                      "translateX(-50%)",
+                                    cursor:
+                                      "ns-resize",
                                   }}
                                 />
                                 <Handle
@@ -2212,8 +2941,10 @@ export default function VisualizerApp() {
                                   style={{
                                     top: "50%",
                                     left: -6,
-                                    transform: "translateY(-50%)",
-                                    cursor: "ew-resize",
+                                    transform:
+                                      "translateY(-50%)",
+                                    cursor:
+                                      "ew-resize",
                                   }}
                                 />
                                 <Handle
@@ -2222,8 +2953,10 @@ export default function VisualizerApp() {
                                   style={{
                                     top: "50%",
                                     right: -6,
-                                    transform: "translateY(-50%)",
-                                    cursor: "ew-resize",
+                                    transform:
+                                      "translateY(-50%)",
+                                    cursor:
+                                      "ew-resize",
                                   }}
                                 />
                               </>
@@ -2234,76 +2967,126 @@ export default function VisualizerApp() {
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="mb-6 space-y-3">
-                <div className="flex items-center justify-end gap-2 mb-1">
-                  <span className="text-xs text-slate-600">Backdrop</span>
-                  <select
-                    className="rounded border p-1 text-xs bg-white"
-                    value={backdrop}
-                    onChange={(e) => setBackdrop(e.target.value as any)}
-                  >
-                    <option value="studio">Studio</option>
-                    <option value="living">Living</option>
-                    <option value="gallery">Gallery</option>
-                    <option value="office">Office</option>
-                  </select>
+
+              {/* Room preview tab content */}
+              {activeTab === "room" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-end gap-2 mb-1">
+                    <span className="text-xs text-slate-600">
+                      Backdrop
+                    </span>
+                    <select
+                      className="rounded border p-1 text-xs bg-white"
+                      value={backdrop}
+                      onChange={(e) =>
+                        setBackdrop(e.target.value as any)
+                      }
+                    >
+                      <option value="studio">Studio</option>
+                      <option value="living">Living</option>
+                      <option value="gallery">
+                        Gallery
+                      </option>
+                      <option value="office">Office</option>
+                    </select>
+                  </div>
+
+                  <RoomMockup
+                    artworkUrl={roomArtworkUrl || artworkUrl}
+                    openings={
+                      mode === "pro" ? openings : undefined
+                    }
+                    artSizeCm={{
+                      widthCm: artWcm,
+                      heightCm: artHcm,
+                    }}
+                    onOpeningsChange={(next) =>
+                      setOpenings(next)
+                    }
+                    backdrop={backdrop}
+                  />
                 </div>
-                <RoomMockup
-                  artworkUrl={artworkUrl}
-                  openings={mode === "pro" ? openings : undefined}
-                  artSizeCm={{ widthCm: artWcm, heightCm: artHcm }}
-                  onOpeningsChange={(next) => setOpenings(next)}
-                />
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Dimensions & Cost */}
             <div className="grid gap-4 grid-cols-1">
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/70">
-              {/* Header */}
-              <button
-                onClick={() => setShowDimensions((s) => !s)}
-                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-emerald-900"
-              >
-                <span>Dimensions</span>
-                <span className="text-xs text-emerald-800">
-                  {showDimensions ? "Hide ▲" : "Show ▼"}
-                </span>
-              </button>
+                {/* Header */}
+                <button
+                  onClick={() =>
+                    setShowDimensions((s) => !s)
+                  }
+                  className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-emerald-900"
+                >
+                  <span>Dimensions</span>
+                  <span className="text-xs text-emerald-800">
+                    {showDimensions ? "Hide ▲" : "Show ▼"}
+                  </span>
+                </button>
 
-              {/* Collapsible Body */}
-              {showDimensions && (
-                <div className="px-4 pb-4 text-sm divide-y divide-emerald-100">
-                  <div className="py-1.5 flex justify-between">
-                    <span className="text-slate-700">Image</span>
-                    <span className="text-slate-900">
-                      {unit === "imperial"
-                        ? `${cmToIn(artWcm).toFixed(2)} × ${cmToIn(artHcm).toFixed(2)} in`
-                        : `${artWcm.toFixed(1)} × ${artHcm.toFixed(1)} cm`}
-                    </span>
-                  </div>
+                {/* Collapsible Body */}
+                {showDimensions && (
+                  <div className="px-4 pb-4 text-sm divide-y divide-emerald-100">
+                    <div className="py-1.5 flex justify-between">
+                      <span className="text-slate-700">
+                        Image
+                      </span>
+                      <span className="text-slate-900">
+                        {unit === "imperial"
+                          ? `${cmToIn(
+                              artWcm
+                            ).toFixed(2)} × ${cmToIn(
+                              artHcm
+                            ).toFixed(2)} in`
+                          : `${artWcm.toFixed(
+                              1
+                            )} × ${artHcm.toFixed(
+                              1
+                            )} cm`}
+                      </span>
+                    </div>
 
-                  <div className="py-1.5 flex justify-between">
-                    <span className="text-slate-700">Visible (mats)</span>
-                    <span className="text-slate-900">
-                      {unit === "imperial"
-                        ? `${cmToIn(visibleWcm).toFixed(2)} × ${cmToIn(visibleHcm).toFixed(2)} in`
-                        : `${visibleWcm.toFixed(1)} × ${visibleHcm.toFixed(1)} cm`}
-                    </span>
-                  </div>
+                    <div className="py-1.5 flex justify-between">
+                      <span className="text-slate-700">
+                        Visible (mats)
+                      </span>
+                      <span className="text-slate-900">
+                        {unit === "imperial"
+                          ? `${cmToIn(
+                              visibleWcm
+                            ).toFixed(2)} × ${cmToIn(
+                              visibleHcm
+                            ).toFixed(2)} in`
+                          : `${visibleWcm.toFixed(
+                              1
+                            )} × ${visibleHcm.toFixed(
+                              1
+                            )} cm`}
+                      </span>
+                    </div>
 
-                  <div className="py-1.5 flex justify-between">
-                    <span className="text-slate-700">Frame outside</span>
-                    <span className="text-slate-900">
-                      {unit === "imperial"
-                        ? `${cmToIn(outerWcm).toFixed(2)} × ${cmToIn(outerHcm).toFixed(2)} in`
-                        : `${outerWcm.toFixed(1)} × ${outerHcm.toFixed(1)} cm`}
-                    </span>
+                    <div className="py-1.5 flex justify-between">
+                      <span className="text-slate-700">
+                        Frame outside
+                      </span>
+                      <span className="text-slate-900">
+                        {unit === "imperial"
+                          ? `${cmToIn(
+                              outerWcm
+                            ).toFixed(2)} × ${cmToIn(
+                              outerHcm
+                            ).toFixed(2)} in`
+                          : `${outerWcm.toFixed(
+                              1
+                            )} × ${outerHcm.toFixed(
+                              1
+                            )} cm`}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
               <div className="bg-slate-900 text-slate-50 rounded-xl border border-slate-800 p-4 text-sm mt-2">
                 <div className="font-semibold text-base mb-2 flex items-center justify-between">
                   <span>Cost</span>
@@ -2370,7 +3153,9 @@ export default function VisualizerApp() {
                   </div>
                   <div className="font-semibold border-t border-slate-700 pt-1 flex justify-between text-lg">
                     <span>Total</span>
-                    <span className="text-emerald-300">{moneyIntl(total)}</span>
+                    <span className="text-emerald-300">
+                      {moneyIntl(total)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2379,23 +3164,57 @@ export default function VisualizerApp() {
         </section>
 
         {/* RIGHT */}
-        <aside className="w-full md:w-[300px] flex-none space-y-3">
+        <aside className="space-y-3">
           {/* Presets */}
           <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="font-semibold text-slate-900">Presets</h3>
+                <h3 className="font-semibold text-slate-900">
+                  Presets
+                </h3>
                 <p className="text-xs text-slate-500">
                   Save this exact setup for reuse.
                 </p>
               </div>
-              <button
-                className="rounded-lg px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
-                onClick={handleSavePreset}
-                title="Save current setup for this customer"
-              >
-                Save
-              </button>
+              <div className="relative" ref={presetMenuRef}>
+                <button
+                  type="button"
+                  className="relative inline-flex items-center justify-between gap-1 rounded-lg px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm whitespace-nowrap"
+                  onClick={() =>
+                    setPresetMenuOpen((o) => !o)
+                  }
+                  title="Save current setup as a preset"
+                >
+                  <span>Save preset</span>
+                  <span className="text-[10px] leading-none">
+                    ▾
+                  </span>
+                </button>
+                {presetMenuOpen && (
+                  <div className="absolute right-0 mt-1 w-40 rounded-lg border bg-white shadow-lg z-20 text-xs">
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
+                      onClick={() => {
+                        closePresetMenu();
+                        handleSavePreset("me");
+                      }}
+                    >
+                      Save for user
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
+                      onClick={() => {
+                        closePresetMenu();
+                        handleSavePreset("shared");
+                      }}
+                    >
+                      Save preset
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {presets.length === 0 ? (
@@ -2414,7 +3233,9 @@ export default function VisualizerApp() {
                         {p.name}
                       </div>
                       <div className="text-xs text-slate-500">
-                        {new Date(p.createdAt).toLocaleString()}
+                        {new Date(
+                          p.createdAt
+                        ).toLocaleString()}
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
@@ -2426,7 +3247,9 @@ export default function VisualizerApp() {
                       </button>
                       <button
                         className="rounded-lg px-2 py-1 text-xs bg-white ring-1 ring-rose-200 text-rose-600 hover:bg-rose-50"
-                        onClick={() => removePreset(p.id)}
+                        onClick={() =>
+                          removePreset(p.id)
+                        }
                       >
                         Delete
                       </button>
@@ -2454,12 +3277,16 @@ export default function VisualizerApp() {
             <select
               className="w-full rounded-lg border p-2 mb-3 bg-white text-sm"
               value={selectedCustomerId}
-              onChange={(e) => setSelectedCustomerId(e.target.value)}
+              onChange={(e) =>
+                setSelectedCustomerId(e.target.value)
+              }
             >
               <option value="__new__">— Select —</option>
               {sortedCustomers.map((c: any) => (
                 <option key={c.id} value={c.id}>
-                  {`${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() ||
+                  {`${c.firstName ?? ""} ${
+                    c.lastName ?? ""
+                  }`.trim() ||
                     c.email ||
                     c.company ||
                     c.id}
@@ -2477,7 +3304,10 @@ export default function VisualizerApp() {
                   placeholder="First name"
                   value={cust.firstName}
                   onChange={(e) =>
-                    setCust((s) => ({ ...s, firstName: e.target.value }))
+                    setCust((s) => ({
+                      ...s,
+                      firstName: e.target.value,
+                    }))
                   }
                 />
                 <input
@@ -2485,7 +3315,10 @@ export default function VisualizerApp() {
                   placeholder="Last name"
                   value={cust.lastName}
                   onChange={(e) =>
-                    setCust((s) => ({ ...s, lastName: e.target.value }))
+                    setCust((s) => ({
+                      ...s,
+                      lastName: e.target.value,
+                    }))
                   }
                 />
               </div>
@@ -2494,7 +3327,10 @@ export default function VisualizerApp() {
                 placeholder="Company"
                 value={cust.company}
                 onChange={(e) =>
-                  setCust((s) => ({ ...s, company: e.target.value }))
+                  setCust((s) => ({
+                    ...s,
+                    company: e.target.value,
+                  }))
                 }
               />
               <input
@@ -2502,7 +3338,10 @@ export default function VisualizerApp() {
                 placeholder="Email"
                 value={cust.email}
                 onChange={(e) =>
-                  setCust((s) => ({ ...s, email: e.target.value }))
+                  setCust((s) => ({
+                    ...s,
+                    email: e.target.value,
+                  }))
                 }
               />
               <input
@@ -2510,7 +3349,10 @@ export default function VisualizerApp() {
                 placeholder="Phone"
                 value={cust.phone}
                 onChange={(e) =>
-                  setCust((s) => ({ ...s, phone: e.target.value }))
+                  setCust((s) => ({
+                    ...s,
+                    phone: e.target.value,
+                  }))
                 }
               />
               <input
@@ -2518,7 +3360,10 @@ export default function VisualizerApp() {
                 placeholder="Address line 1"
                 value={cust.address1}
                 onChange={(e) =>
-                  setCust((s) => ({ ...s, address1: e.target.value }))
+                  setCust((s) => ({
+                    ...s,
+                    address1: e.target.value,
+                  }))
                 }
               />
               <input
@@ -2526,7 +3371,10 @@ export default function VisualizerApp() {
                 placeholder="Address line 2"
                 value={cust.address2}
                 onChange={(e) =>
-                  setCust((s) => ({ ...s, address2: e.target.value }))
+                  setCust((s) => ({
+                    ...s,
+                    address2: e.target.value,
+                  }))
                 }
               />
               <div className="grid grid-cols-2 gap-2">
@@ -2535,7 +3383,10 @@ export default function VisualizerApp() {
                   placeholder="City"
                   value={cust.city}
                   onChange={(e) =>
-                    setCust((s) => ({ ...s, city: e.target.value }))
+                    setCust((s) => ({
+                      ...s,
+                      city: e.target.value,
+                    }))
                   }
                 />
                 <input
@@ -2543,7 +3394,10 @@ export default function VisualizerApp() {
                   placeholder="Postcode"
                   value={cust.postcode}
                   onChange={(e) =>
-                    setCust((s) => ({ ...s, postcode: e.target.value }))
+                    setCust((s) => ({
+                      ...s,
+                      postcode: e.target.value,
+                    }))
                   }
                 />
               </div>
@@ -2552,7 +3406,10 @@ export default function VisualizerApp() {
                 placeholder="Country"
                 value={cust.country}
                 onChange={(e) =>
-                  setCust((s) => ({ ...s, country: e.target.value }))
+                  setCust((s) => ({
+                    ...s,
+                    country: e.target.value,
+                  }))
                 }
               />
               <textarea
@@ -2561,35 +3418,62 @@ export default function VisualizerApp() {
                 placeholder="Notes"
                 value={cust.notes}
                 onChange={(e) =>
-                  setCust((s) => ({ ...s, notes: e.target.value }))
+                  setCust((s) => ({
+                    ...s,
+                    notes: e.target.value,
+                  }))
                 }
               />
             </div>
-
             <div className="grid grid-cols-2 gap-2 mt-3">
+              {/* Save to CRM */}
               <button
                 onClick={saveToCRM}
-                className="rounded-lg border border-emerald-300 px-3 py-2 text-sm bg-white hover:bg-emerald-600 hover:text-white transition"
+                className="rounded-lg border border-emerald-300 px-3 py-2 text-sm bg-white 
+                        hover:bg-emerald-600 hover:text-white transition"
               >
                 Save to CRM
               </button>
+
+              {/* Add to Quotes */}
               <button
                 onClick={addQuoteNow}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white hover:bg-slate-900 hover:text-white transition"
+                className="rounded-lg border border-indigo-300 px-3 py-2 text-sm bg-white 
+                        hover:bg-indigo-600 hover:text-white transition"
               >
                 Add to Quotes
               </button>
+
+              {/* Add to Jobs */}
               <button
-                onClick={addJobNow}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white hover:bg-slate-900 hover:text-white transition"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  addJobNow();
+                }}
+                className="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-white 
+                        hover:bg-blue-600 hover:text-white transition"
               >
                 Add to Jobs
               </button>
+
+              {/* Add to Invoices */}
               <button
                 onClick={invoiceNow}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white hover:bg-slate-900 hover:text-white transition"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white 
+                        hover:bg-slate-700 hover:text-white transition"
               >
                 Add to Invoices
+              </button>
+
+              {/* Create all three */}
+              <button
+                onClick={handleCreateQuoteInvoiceJob}
+                className="col-span-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium 
+                        text-white shadow-sm hover:bg-emerald-700 transition"
+              >
+                Create Quote + Invoice + Job
               </button>
             </div>
           </div>

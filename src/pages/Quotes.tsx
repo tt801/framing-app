@@ -4,6 +4,8 @@ import { useQuotes } from "@/lib/quotes";
 import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
 import { exportQuotePDF } from "@/lib/pdf/quotePdf";
+import { useInvoices } from "@/lib/invoices";
+import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
 
 // -------------------- Types (loose to avoid breaking) --------------------
 type Quote = any;
@@ -72,6 +74,9 @@ const safeDecode = (value: string): string => {
     return value;
   }
 };
+
+// Simple random id for invoices / items
+const rid = () => Math.random().toString(36).slice(2, 9);
 
 /* ---------------- Number / formatting helpers ---------------- */
 
@@ -192,9 +197,7 @@ const resolveCustomerName = (row: any, customersList: any[] | undefined) => {
   const list = customersList && Array.isArray(customersList) ? customersList : [];
   const rawId = row?.customerId ?? row?.customer?.id ?? row?.customerSnapshot?.id;
 
-  const fromId = rawId
-    ? list.find((x: any) => x.id === rawId)
-    : undefined;
+  const fromId = rawId ? list.find((x: any) => x.id === rawId) : undefined;
 
   if (fromId) {
     const full = `${(fromId as any).firstName ?? ""} ${(fromId as any).lastName ?? ""}`.trim();
@@ -232,9 +235,7 @@ const resolveCustomerEmail = (row: any, customersList: any[] | undefined) => {
   const list = customersList && Array.isArray(customersList) ? customersList : [];
   const rawId = row?.customerId ?? row?.customer?.id ?? row?.customerSnapshot?.id;
 
-  const fromId = rawId
-    ? list.find((x: any) => x.id === rawId)
-    : undefined;
+  const fromId = rawId ? list.find((x: any) => x.id === rawId) : undefined;
 
   const emailFromId =
     (fromId as any)?.email ??
@@ -261,9 +262,7 @@ const resolveCustomerPhone = (row: any, customersList: any[] | undefined) => {
   const list = customersList && Array.isArray(customersList) ? customersList : [];
   const rawId = row?.customerId ?? row?.customer?.id ?? row?.customerSnapshot?.id;
 
-  const fromId = rawId
-    ? list.find((x: any) => x.id === rawId)
-    : undefined;
+  const fromId = rawId ? list.find((x: any) => x.id === rawId) : undefined;
 
   const phoneFromId =
     (fromId as any)?.phone ??
@@ -362,6 +361,7 @@ export default function QuotesPage() {
   const qStore = useQuotes() as any;
   const c = useCustomers() as any;
   const s = useCatalog() as any;
+  const invoicesStore = useInvoices() as any;
 
   const settings = s?.settings || {};
   const settingsCurrencyCode: string | undefined =
@@ -630,6 +630,133 @@ export default function QuotesPage() {
     setSelectedId(next ? safeRowId(next) : null);
   };
 
+  // Invoices: add helper
+  const addInvoice = (inv: any) =>
+    invoicesStore?.add?.(inv) ??
+    invoicesStore?.create?.(inv) ??
+    invoicesStore?.push?.(inv);
+
+  const handleCreateInvoiceFromQuote = () => {
+    if (!selected) return;
+
+    const items =
+      selectedItems.map((it, idx) => ({
+        id: rid(),
+        name: it.name,
+        description: it.name,
+        qty: it.qty,
+        unitPrice: it.unitPrice,
+      })) || [];
+
+    const subtotal =
+      selected.subtotal ??
+      items.reduce((sum: number, it: any) => sum + it.qty * it.unitPrice, 0);
+
+    const taxRate =
+      typeof selected.taxRate === "number"
+        ? selected.taxRate
+        : typeof settings.taxRate === "number"
+        ? settings.taxRate
+        : 0;
+
+    const tax = subtotal * taxRate;
+    const total = selected.total ?? subtotal + tax;
+
+    const invId = rid();
+    const todayISO = new Date().toISOString();
+
+    const currencyCode =
+      (selected.currency as string | undefined) || overviewCurrencyCode;
+    const currencySymbolLocal = overviewCurrencySymbol;
+
+    const invoiceObj = {
+      id: invId,
+      number: `INV-${new Date().getFullYear()}-${invId.slice(0, 4).toUpperCase()}`,
+      customerId: selected.customerId || selected.customer?.id || undefined,
+      dateISO: todayISO,
+      dueDateISO: undefined,
+      items,
+      subtotal,
+      taxRate,
+      tax,
+      total,
+      currency: { code: currencyCode, symbol: currencySymbolLocal },
+      currencyCode,
+      currencySymbol: currencySymbolLocal,
+      notes:
+        selected.notes ??
+        selected.internalNotes ??
+        selected.details?.notes ??
+        "",
+      payments: [],
+      createdAt: todayISO,
+      details: {
+        costs: {
+          subtotal,
+          taxRate,
+          tax,
+          total,
+          currency: { code: currencyCode, symbol: currencySymbolLocal },
+        },
+      },
+    };
+
+    try {
+      addInvoice?.(invoiceObj);
+
+      const customer =
+        customersList.find((cx: any) => cx.id === invoiceObj.customerId) ||
+        (selected as any).customerSnapshot ||
+        (selected as any).customer ||
+        undefined;
+
+      const sendNow = window.confirm(
+        `Invoice ${invoiceObj.number} has been created. Would you like to send it now?`
+      );
+
+      if (sendNow) {
+        exportInvoicePDF?.({
+          invoice: invoiceObj,
+          customer: customer
+            ? {
+                id: customer.id,
+                firstName: customer.firstName,
+                lastName: customer.lastName,
+                email: customer.email,
+                phone: customer.phone,
+                company: customer.company,
+                address1: customer.address1,
+                address2: customer.address2,
+                city: customer.city,
+                postcode: customer.postcode || customer.postalCode,
+                country: customer.country,
+              }
+            : undefined,
+          settings: {
+            companyName: settings.companyName,
+            companyEmail: settings.companyEmail,
+            companyPhone: settings.companyPhone,
+            companyAddress: settings.companyAddress,
+            logoDataUrl: (settings as any).companyLogoDataUrl,
+            currencySymbol: currencySymbolLocal,
+            currencyCode,
+            themeColor: settings.themeColor,
+            bankDetails: (settings as any).bankDetails,
+            taxNumber: (settings as any).taxNumber,
+            invoiceFooterNote: (settings as any).invoiceFooterNote,
+          },
+        } as any);
+      } else {
+        alert(
+          `Invoice ${invoiceObj.number} has been created. You can send or edit it from the Invoices page.`
+        );
+      }
+    } catch (e) {
+      console.error("Failed to create invoice from quote", e);
+      alert("Could not create invoice. Please check console for details.");
+    }
+  };
+
   const companyName = settings.companyName || "Our workshop";
 
   const displayName = selected ? resolveCustomerName(selected, customersList) : "—";
@@ -673,6 +800,46 @@ export default function QuotesPage() {
 
   const selStatus: QuoteStatus =
     (selected && (statusOverride[selected.id] ?? normaliseStatus(selected))) || "Draft";
+
+  // Helper to keep status buttons coloured when active
+  const statusButtonClasses = (target: QuoteStatus) => {
+    const base =
+      "rounded-xl px-3 py-1.5 text-sm font-medium border transition";
+    const active = selected && selStatus === target;
+
+    if (!active) {
+      return (
+        base +
+        " border-slate-300 text-slate-700 bg-white hover:bg-slate-50"
+      );
+    }
+
+    switch (target) {
+      case "Sent":
+        return (
+          base +
+          " bg-blue-600 border-blue-600 text-white hover:bg-blue-700"
+        );
+      case "Accepted":
+        return (
+          base +
+          " bg-green-600 border-green-600 text-white hover:bg-green-700"
+        );
+      case "Declined":
+        return (
+          base +
+          " bg-rose-600 border-rose-600 text-white hover:bg-rose-700"
+        );
+      case "Draft":
+      case "Open":
+      case "Expired":
+      default:
+        return (
+          base +
+          " bg-slate-900 border-slate-900 text-white hover:bg-slate-800"
+        );
+    }
+  };
 
   return (
     <div className="p-4 space-y-4">
@@ -878,25 +1045,32 @@ export default function QuotesPage() {
                   </button>
                   <button
                     onClick={() => markStatus("Sent")}
-                    className="rounded-xl border border-blue-300 text-blue-700 px-3 py-1.5 text-sm hover:bg-blue-50"
+                    className={statusButtonClasses("Sent")}
                   >
                     Mark Sent
                   </button>
                   <button
                     onClick={() => markStatus("Accepted")}
-                    className="rounded-xl border border-green-300 text-green-700 px-3 py-1.5 text-sm hover:bg-green-50"
+                    className={statusButtonClasses("Accepted")}
                   >
                     Accept
                   </button>
                   <button
                     onClick={() => markStatus("Declined")}
-                    className="rounded-xl border border-rose-300 text-rose-700 px-3 py-1.5 text-sm hover:bg-rose-50"
+                    className={statusButtonClasses("Declined")}
                   >
                     Decline
                   </button>
                   <button
+                    onClick={handleCreateInvoiceFromQuote}
+                    className="rounded-xl border border-emerald-300 text-emerald-700 px-3 py-1.5 text-sm bg-white hover:bg-emerald-600 hover:text-white"
+                    title="Create invoice from this quote"
+                  >
+                    Create Invoice
+                  </button>
+                  <button
                     onClick={onDelete}
-                    className="rounded-xl border border-slate-300 text-slate-700 px-3 py-1.5 text-sm hover:bg-slate-50"
+                    className="rounded-xl border border-slate-300 text-slate-700 px-3 py-1.5 text-sm bg-white hover:bg-slate-50"
                     title="Delete quote"
                   >
                     Delete

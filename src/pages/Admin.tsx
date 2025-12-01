@@ -6,13 +6,9 @@ import {
   newMat,
   newGlazing,
   newPrintingMaterial,
+  newBacker,      
 } from "@/lib/store";
-import type {
-  Frame,
-  Mat,
-  Glazing,
-  PrintingMaterial,
-} from "@/lib/store";
+import type { Frame, Mat, Glazing, PrintingMaterial } from "@/lib/store";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 
 /* ------------------------------------------------------------------
@@ -66,8 +62,19 @@ const num = (v: any, d = 0) => {
   return Number.isFinite(n) ? n : d;
 };
 
-const money = (v: any, symbol = "£") =>
-  `${symbol}${num(v, 0).toFixed(2)}`;
+const money = (v: any, symbol = "£") => `${symbol}${num(v, 0).toFixed(2)}`;
+
+const rid = () => Math.random().toString(36).slice(2, 10);
+
+/* Backer board type (local to this file) */
+type BackerBoard = {
+  id?: string;
+  name?: string;
+  code?: string;
+  kind?: string; // e.g. MDF / Conservation
+  costPerSqm?: number;
+  markupPercent?: number;
+};
 
 /* ------------------------------------------------------------------
    Main page
@@ -79,52 +86,50 @@ type TabId =
   | "mats"
   | "glazing"
   | "printing"
+  | "backers"
   | "jobs"
   | "integrations";
 
 export default function AdminPage() {
-  const catHook = useCatalog() as any;
-  const catalog = catHook.catalog || catHook || {};
+  // ✅ Match the pattern used in Stock.tsx so catalog + updates are consistent
+  const { catalog, setCatalog } = useCatalog() as any;
+  const safeCatalog = catalog || {};
 
   const saveCatalog = (partial: any) => {
-    if (typeof catHook.update === "function") {
-      catHook.update(partial);
-    } else if (typeof catHook.setCatalog === "function") {
-      catHook.setCatalog((prev: any) => ({ ...prev, ...partial }));
-    } else {
-      console.warn("No update function on useCatalog()", {
-        catHook,
-        partial,
-      });
-    }
+    setCatalog((prev: any) => ({
+      ...(prev || {}),
+      ...partial,
+    }));
   };
 
   const [activeTab, setActiveTab] = useState<TabId>("settings");
 
-  const settings = catalog.settings || {};
-  const frames: Frame[] = catalog.frames || [];
-  const mats: Mat[] = catalog.mats || [];
-  const glazing: Glazing[] = catalog.glazing || [];
+  const settings = safeCatalog.settings || {};
+  const frames: Frame[] = safeCatalog.frames || [];
+  const mats: Mat[] = safeCatalog.mats || [];
+  const glazing: Glazing[] = safeCatalog.glazing || [];
   const printingMaterials: PrintingMaterial[] =
-    catalog.printingMaterials || [];
+    safeCatalog.printingMaterials || [];
+  const backers: BackerBoard[] =
+  safeCatalog.backers || safeCatalog.backerBoards || [];
 
   const currencySymbol =
     settings.currencySymbol ||
     CURRENCIES.find((c) => c.code === settings.currencyCode)?.symbol ||
     "£";
 
-  return (
-    <main className="mx-auto max-w-6xl p-4 space-y-4">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Admin</h1>
-          <p className="text-sm text-slate-500">
-            Company info, catalog, and integrations.
-          </p>
-        </div>
-      </header>
+    return (
+      <main className="mx-auto max-w-7xl px-4 py-6 space-y-4">
+        <header className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold">Admin</h1>
+            <p className="text-sm text-slate-500">
+              Company info, catalog, and integrations.
+            </p>
+          </div>
+        </header>
 
-      <section className="grid gap-4 lg:grid-cols-[200px_minmax(0,1fr)]">
+    <section className="grid gap-4 lg:grid-cols-[200px_minmax(0,1fr)]">
         {/* Tabs */}
         <aside className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-3">
           <nav className="flex flex-col gap-1 text-sm">
@@ -135,6 +140,7 @@ export default function AdminPage() {
               ["mats", "Mats"],
               ["glazing", "Glazing"],
               ["printing", "Printing"],
+              ["backers", "Backer boards"],
               ["jobs", "Jobs"],
               ["integrations", "Integrations"],
             ].map(([id, label]) => (
@@ -205,6 +211,19 @@ export default function AdminPage() {
               currencySymbol={currencySymbol}
               onChange={(next) =>
                 saveCatalog({ printingMaterials: next })
+              }
+            />
+          )}
+
+          {activeTab === "backers" && (
+            <BackersPanel
+              backers={backers}
+              currencySymbol={currencySymbol}
+              onChange={(next) =>
+                saveCatalog({
+                  backers: next,
+                  backerBoards: next, // keep alias in sync
+                })
               }
             />
           )}
@@ -395,18 +414,13 @@ function SettingsPanel({
 }) {
   const initialCurrencyCode: string =
     settings.currencyCode ||
-    (typeof settings.currency === "string"
-      ? settings.currency
-      : "GBP");
+    (typeof settings.currency === "string" ? settings.currency : "GBP");
 
-  const found = CURRENCIES.find(
-    (c) => c.code === initialCurrencyCode
-  );
+  const found = CURRENCIES.find((c) => c.code === initialCurrencyCode);
 
   const [draft, setDraft] = useState(() => ({
     currencyCode: initialCurrencyCode,
-    currencySymbol:
-      settings.currencySymbol || found?.symbol || "£",
+    currencySymbol: settings.currencySymbol || found?.symbol || "£",
     taxRate: settings.taxRate ?? 0,
     defaultPaymentTerms: settings.defaultPaymentTerms || "Due on receipt",
     invoicePrefix: settings.invoicePrefix || "INV-",
@@ -486,9 +500,7 @@ function SettingsPanel({
           123.45
         </span>{" "}
         — current code:{" "}
-        <span className="font-mono text-xs">
-          {draft.currencyCode}
-        </span>
+        <span className="font-mono text-xs">{draft.currencyCode}</span>
       </div>
 
       {/* Invoice numbering, tax, terms */}
@@ -695,74 +707,108 @@ function FramesPanel({
               </tr>
             </thead>
             <tbody>
-              {frames.map((f, idx) => (
-                <tr key={f.id ?? idx} className="border-b last:border-0">
-                  <td className="py-1 pr-2">
+              {frames.map((f, idx) => {
+            const rawColor =
+              (f as any).colour || (f as any).color || "";
+
+            // For the <input type="color"> we MUST provide a valid hex;
+            // if the stored value isn't hex, fall back to a neutral grey.
+            const pickerColor = /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(rawColor)
+              ? rawColor
+              : "#cccccc";
+
+            return (
+              <tr key={f.id ?? idx} className="border-b last:border-0">
+                <td className="py-1 pr-2">
+                  <input
+                    className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                    value={(f as any).name || ""}
+                    onChange={(e) =>
+                      updateFrameRow(idx, { name: e.target.value } as any)
+                    }
+                  />
+                </td>
+
+                <td className="py-1 pr-2">
+                  <input
+                    className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                    value={(f as any).code || ""}
+                    onChange={(e) =>
+                      updateFrameRow(idx, { code: e.target.value } as any)
+                    }
+                  />
+                </td>
+
+                {/* 🔹 Colour picker + text */}
+                <td className="py-1 pr-2">
+                  <div className="flex items-center gap-2">
                     <input
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(f as any).name || ""}
-                      onChange={(e) =>
-                        updateFrameRow(idx, { name: e.target.value } as any)
-                      }
-                    />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <input
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(f as any).code || ""}
-                      onChange={(e) =>
-                        updateFrameRow(idx, { code: e.target.value } as any)
-                      }
-                    />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <input
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(f as any).colour || (f as any).color || ""}
+                      type="color"
+                      className="h-7 w-7 rounded border border-slate-300 cursor-pointer"
+                      value={pickerColor}
                       onChange={(e) =>
                         updateFrameRow(idx, { colour: e.target.value } as any)
                       }
                     />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-slate-500">
-                        {currencySymbol}
-                      </span>
-                      <input
-                        type="number"
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                        value={(f as any).costPerMeter ?? ""}
-                        onChange={(e) =>
-                          updateFrameRow(idx, {
-                            costPerMeter: num(e.target.value, 0),
-                          } as any)
-                        }
-                      />
-                    </div>
-                  </td>
-                  <td className="py-1 pr-2">
+                    <input
+                      className="flex-1 rounded border border-slate-200 px-2 py-1 text-xs"
+                      value={rawColor}
+                      onChange={(e) =>
+                        updateFrameRow(idx, { colour: e.target.value } as any)
+                      }
+                      placeholder="#RRGGBB or CSS name"
+                    />
+                  </div>
+                </td>
+
+                <td className="py-1 pr-2">
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-500">
+                      {currencySymbol}
+                    </span>
                     <input
                       type="number"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(f as any).markupPercent ?? ""}
+                      value={(f as any).costPerMeter ?? ""}
                       onChange={(e) =>
                         updateFrameRow(idx, {
-                          markupPercent: num(e.target.value, 0),
+                          costPerMeter: num(e.target.value, 0),
                         } as any)
                       }
                     />
-                  </td>
-                  <td className="py-1 pr-2 text-right">
-                    <button
-                      onClick={() => remove(idx)}
-                      className="text-xs text-rose-600 hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                  </div>
+                </td>
+
+                <td className="py-1 pr-2">
+                  <input
+                    type="number"
+                    className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                    value={(f as any).markupPct ?? ""}
+                    onChange={(e) =>
+                      updateFrameRow(idx, {
+                        markupPct: num(e.target.value, 0),
+                      } as any)
+                    }
+                  />
+                </td>
+
+                <td className="py-1 pl-2 text-right">
+                  <button
+                    type="button"
+                    className="text-xs text-rose-600 hover:underline"
+                    onClick={() => {
+                      const next = [...frames];
+                      next.splice(idx, 1);
+                      onChange(next);
+                    }}
+                  >
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+
             </tbody>
           </table>
         </div>
@@ -836,65 +882,96 @@ function MatsPanel({
               </tr>
             </thead>
             <tbody>
-              {mats.map((m, idx) => (
-                <tr key={m.id ?? idx} className="border-b last:border-0">
-                  <td className="py-1 pr-2">
-                    <input
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(m as any).name || ""}
-                      onChange={(e) =>
-                        updateMatRow(idx, { name: e.target.value } as any)
-                      }
-                    />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <input
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(m as any).colour || (m as any).color || ""}
-                      onChange={(e) =>
-                        updateMatRow(idx, { colour: e.target.value } as any)
-                      }
-                    />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-slate-500">
-                        {currencySymbol}
-                      </span>
+              {mats.map((m, idx) => {
+                const rawColor =
+                  (m as any).colour || (m as any).color || "";
+
+                const pickerColor = /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(rawColor)
+                  ? rawColor
+                  : "#cccccc";
+
+                return (
+                  <tr key={m.id ?? idx} className="border-b last:border-0">
+                    <td className="py-1 pr-2">
+                      <input
+                        className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                        value={(m as any).name || ""}
+                        onChange={(e) =>
+                          updateMatRow(idx, { name: e.target.value } as any)
+                        }
+                      />
+                    </td>
+
+                    {/* 🔹 Colour picker + text */}
+                    <td className="py-1 pr-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          className="h-7 w-7 rounded border border-slate-300 cursor-pointer"
+                          value={pickerColor}
+                          onChange={(e) =>
+                            updateMatRow(idx, { colour: e.target.value } as any)
+                          }
+                        />
+                        <input
+                          className="flex-1 rounded border border-slate-200 px-2 py-1 text-xs"
+                          value={rawColor}
+                          onChange={(e) =>
+                            updateMatRow(idx, { colour: e.target.value } as any)
+                          }
+                          placeholder="#RRGGBB or CSS name"
+                        />
+                      </div>
+                    </td>
+
+                    <td className="py-1 pr-2">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-slate-500">
+                          {currencySymbol}
+                        </span>
+                        <input
+                          type="number"
+                          className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                          value={(m as any).pricePerSqM ?? ""}
+                          onChange={(e) =>
+                            updateMatRow(idx, {
+                              pricePerSqM: num(e.target.value, 0),
+                            } as any)
+                          }
+                        />
+                      </div>
+                    </td>
+
+                    <td className="py-1 pr-2">
                       <input
                         type="number"
                         className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                        value={(m as any).costPerSqm ?? ""}
+                        value={(m as any).markupPct ?? ""}
                         onChange={(e) =>
                           updateMatRow(idx, {
-                            costPerSqm: num(e.target.value, 0),
+                            markupPct: num(e.target.value, 0),
                           } as any)
                         }
                       />
-                    </div>
-                  </td>
-                  <td className="py-1 pr-2">
-                    <input
-                      type="number"
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(m as any).markupPercent ?? ""}
-                      onChange={(e) =>
-                        updateMatRow(idx, {
-                          markupPercent: num(e.target.value, 0),
-                        } as any)
-                      }
-                    />
-                  </td>
-                  <td className="py-1 pr-2 text-right">
-                    <button
-                      onClick={() => remove(idx)}
-                      className="text-xs text-rose-600 hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+
+                    <td className="py-1 pl-2 text-right">
+                      <button
+                        type="button"
+                        className="text-xs text-rose-600 hover:underline"
+                        onClick={() => {
+                          const next = [...mats];
+                          next.splice(idx, 1);
+                          onChange(next);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+
             </tbody>
           </table>
         </div>
@@ -1078,8 +1155,8 @@ function PrintingPanel({
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        Cost per square meter for in-house printing media (paper, canvas, metal,
-        etc).
+        Cost per square meter for in-house printing media (paper, canvas,
+        metal, etc).
       </p>
 
       {printingMaterials.length === 0 && (
@@ -1170,6 +1247,157 @@ function PrintingPanel({
 }
 
 /* ------------------------------------------------------------------
+   Backer boards panel
+   ------------------------------------------------------------------ */
+
+function BackersPanel({
+  backers,
+  currencySymbol,
+  onChange,
+}: {
+  backers: BackerBoard[];
+  currencySymbol: string;
+  onChange: (next: BackerBoard[]) => void;
+}) {
+  const addBacker = () => {
+    const b: BackerBoard = {
+      id: rid(),
+      name: "New backer board",
+      code: "",
+      kind: "",
+      costPerSqm: 0,
+      markupPercent: 0,
+    };
+    onChange([...(backers || []), b]);
+  };
+
+  const updateRow = (idx: number, patch: Partial<BackerBoard>) => {
+    const next = [...backers];
+    next[idx] = { ...next[idx], ...patch };
+    onChange(next);
+  };
+
+  const remove = (idx: number) => {
+    if (!window.confirm("Delete this backer board?")) return;
+    const next = backers.filter((_, i) => i !== idx);
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Backer boards</h2>
+        <button
+          type="button"
+          onClick={addBacker}
+          className="rounded border px-3 py-1.5 text-xs font-medium hover:bg-black hover:text-white"
+        >
+          Add backer
+        </button>
+      </div>
+      <p className="text-sm text-slate-500">
+        Different backing boards (MDF, foam, conservation, etc). Cost is per
+        square meter.
+      </p>
+
+      {backers.length === 0 && (
+        <div className="text-sm text-slate-500">
+          No backer boards yet. Click &ldquo;Add backer&rdquo; to create one.
+        </div>
+      )}
+
+      {backers.length > 0 && (
+        <div className="overflow-auto">
+          <table className="w-full text-sm min-w-[600px]">
+            <thead>
+              <tr className="text-left text-slate-500 border-b">
+                <th className="py-1 pr-2">Name</th>
+                <th className="py-1 pr-2">Code / SKU</th>
+                <th className="py-1 pr-2">Type</th>
+                <th className="py-1 pr-2">Cost / m²</th>
+                <th className="py-1 pr-2">Markup %</th>
+                <th className="py-1 pr-2 w-10" />
+              </tr>
+            </thead>
+            <tbody>
+              {backers.map((b, idx) => (
+                <tr key={b.id ?? idx} className="border-b last:border-0">
+                  <td className="py-1 pr-2">
+                    <input
+                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                      value={b.name ?? ""}
+                      onChange={(e) =>
+                        updateRow(idx, { name: e.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <input
+                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                      value={b.code ?? ""}
+                      onChange={(e) =>
+                        updateRow(idx, { code: e.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <input
+                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                      placeholder="MDF, Foam, Conservation…"
+                      value={b.kind ?? ""}
+                      onChange={(e) =>
+                        updateRow(idx, { kind: e.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="py-1 pr-2">
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-slate-500">
+                        {currencySymbol}
+                      </span>
+                      <input
+                        type="number"
+                        className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                        value={b.costPerSqm ?? ""}
+                        onChange={(e) =>
+                          updateRow(idx, {
+                            costPerSqm: num(e.target.value, 0),
+                          })
+                        }
+                      />
+                    </div>
+                  </td>
+                  <td className="py-1 pr-2">
+                    <input
+                      type="number"
+                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                      value={b.markupPercent ?? ""}
+                      onChange={(e) =>
+                        updateRow(idx, {
+                          markupPercent: num(e.target.value, 0),
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="py-1 pr-2 text-right">
+                    <button
+                      onClick={() => remove(idx)}
+                      className="text-xs text-rose-600 hover:underline"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
    Jobs panel (checklist + ready message template)
    ------------------------------------------------------------------ */
 
@@ -1181,9 +1409,7 @@ function JobsPanel({
   onChange: (partial: any) => void;
 }) {
   const [items, setItems] = useState<string[]>(() => {
-    const fromSettings = settings.jobChecklistTemplate as
-      | string[]
-      | undefined;
+    const fromSettings = settings.jobChecklistTemplate as string[] | undefined;
     return fromSettings && fromSettings.length
       ? [...fromSettings]
       : [...DEFAULT_JOB_CHECKLIST];
