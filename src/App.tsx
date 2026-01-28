@@ -127,7 +127,7 @@ function App() {
   const primaryCreate =
     createOptions.find((o) => o.key === preferredCreateKey) || createOptions[0];
 
-  const showCreateButton = !(isMarketing || isStock || isAdmin || isDashboard || isVisualizer || isCalendar);
+  const showCreateButton = !(isMarketing || isStock || isAdmin || isDashboard || isVisualizer || isCalendar || isAPISettings);
 
   function triggerCreate(key: string) {
     const opt = createOptions.find((o) => o.key === key) || primaryCreate;
