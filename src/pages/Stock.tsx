@@ -48,9 +48,9 @@ export default function StockPage() {
     frameNameById[id] = name;
   });
 
-  const frames: StockFrame[] = catalog.stock?.frames || [];
-  const sheets: StockSheet[] = catalog.stock?.sheets || [];
-  const rolls: StockRoll[] = catalog.stock?.rolls || [];
+  const frames: StockFrame[] = catalog?.stock?.frames || [];
+  const sheets: StockSheet[] = catalog?.stock?.sheets || [];
+  const rolls: StockRoll[] = catalog?.stock?.rolls || [];
 
   // ----------------------------------------------------------------
   // ONE-TIME CLEANUP: remove specific junk SKUs from sheets
