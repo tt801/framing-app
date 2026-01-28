@@ -10,6 +10,7 @@ import StockPage from "./pages/Stock";
 import JobsPage from "./pages/Jobs";
 import CalendarPage from "./pages/Calendar";
 import DashboardPage from "./pages/Dashboard";
+import APISettingsPage from "./pages/APISettings";
 import ToastContainer from "./components/ToastContainer";
 import CommandPalette from "./components/CommandPalette";
 import { useLayout } from "@/lib/layout";
@@ -74,6 +75,7 @@ function App() {
   const isMarketing = route.startsWith("/marketing");
   const isStock = route.startsWith("/stock");
   const isCalendar = route.startsWith("/calendar");
+  const isAPISettings = route.startsWith("/api-settings");
   const isVisualizer =
     route.startsWith("/app") || route.startsWith("/visualizer");
 
@@ -87,6 +89,7 @@ function App() {
     !isMarketing &&
     !isStock &&
     !isCalendar &&
+    !isAPISettings &&
     !isVisualizer;
 
   const navItems = [
@@ -100,6 +103,7 @@ function App() {
     { label: "Marketing", href: "#/marketing", active: isMarketing },
     { label: "Stock", href: "#/stock", active: isStock },
     { label: "Admin", href: "#/admin", active: isAdmin },
+    { label: "API Settings", href: "#/api-settings", active: isAPISettings },
   ];
 
   const createOptions = [
@@ -232,6 +236,8 @@ function App() {
               <MarketingPage />
             ) : isStock ? (
               <StockPage />
+            ) : isAPISettings ? (
+              <APISettingsPage />
             ) : isVisualizer ? (
               <VisualizerApp />
             ) : (
