@@ -22,6 +22,12 @@ export default function APISettingsPage() {
   useEffect(() => {
     const loadUserAndCredentials = async () => {
       try {
+        if (!supabase) {
+          toast('Multi-tenant features require Supabase configuration');
+          setLoading(false);
+          return;
+        }
+
         const currentUser = await getCurrentUser();
         if (!currentUser) {
           window.location.hash = '#/login';
