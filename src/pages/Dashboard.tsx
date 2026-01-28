@@ -169,6 +169,8 @@ function useDashboardConfig(): {
         return {
           visible: DEFAULT_VISIBLE,
           order: ALL_WIDGET_KEYS,
+          kpiVisible: DEFAULT_KPI_VISIBLE,
+          kpiOrder: ALL_KPI_KEYS,
           dateRange: "30days",
           autoRefresh: false,
           refreshInterval: 300,
