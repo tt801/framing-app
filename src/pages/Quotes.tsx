@@ -6,6 +6,9 @@ import { useCatalog } from "@/lib/store";
 import { exportQuotePDF } from "@/lib/pdf/quotePdf";
 import { useInvoices } from "@/lib/invoices";
 import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
+import { useToast } from "@/lib/toast";
+import { useHistory } from "@/lib/history";
+import StatusBadge from "@/components/StatusBadge";
 
 // -------------------- Types (loose to avoid breaking) --------------------
 type Quote = any;
@@ -90,7 +93,8 @@ const defaultPrefix = "Q-";
 const formatQuoteNumber = (id: any, settings: any): string => {
   const rawId = safeRowId({ id });
   const digits = digitsFromId(rawId) ?? rawId;
-  const seq = digits.padStart(n(settings?.quoteNumberDigits ?? 4, 4), 4);
+  const numDigits = n(settings?.quoteNumberDigits ?? 4, 4);
+  const seq = digits.padStart(numDigits);
   const prefix = settings?.quoteNumberPrefix ?? defaultPrefix;
   return `${prefix}${seq}`;
 };
@@ -362,6 +366,8 @@ export default function QuotesPage() {
   const c = useCustomers() as any;
   const s = useCatalog() as any;
   const invoicesStore = useInvoices() as any;
+  const { add: toast } = useToast();
+  const { add: addToHistory } = useHistory();
 
   const settings = s?.settings || {};
   const settingsCurrencyCode: string | undefined =
@@ -425,7 +431,6 @@ export default function QuotesPage() {
         0;
 
       return {
-        ...row,
         id,
         status,
         customerName,
@@ -640,7 +645,7 @@ export default function QuotesPage() {
     if (!selected) return;
 
     const items =
-      selectedItems.map((it, idx) => ({
+      selectedItems.map((it) => ({
         id: rid(),
         name: it.name,
         description: it.name,
@@ -652,13 +657,14 @@ export default function QuotesPage() {
       selected.subtotal ??
       items.reduce((sum: number, it: any) => sum + it.qty * it.unitPrice, 0);
 
-    const taxRate =
+    const taxRatePercent =
       typeof selected.taxRate === "number"
         ? selected.taxRate
         : typeof settings.taxRate === "number"
         ? settings.taxRate
         : 0;
-
+    
+    const taxRate = taxRatePercent / 100;
     const tax = subtotal * taxRate;
     const total = selected.total ?? subtotal + tax;
 
@@ -842,7 +848,13 @@ export default function QuotesPage() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-6 space-y-6">
+      <header className="pb-6 border-b border-slate-200">
+        <h1 className="text-3xl font-bold text-slate-900 mb-1">💬 Quotes</h1>
+        <p className="text-sm text-slate-600">
+          Create, track, and manage quotes from first contact to acceptance.
+        </p>
+      </header>
       {/* ===== GLOBAL OVERVIEW ===== */}
       <section className="rounded-2xl ring-1 ring-slate-200 bg-white p-4 md:p-5">
         <div className="flex items-center justify-between mb-3">

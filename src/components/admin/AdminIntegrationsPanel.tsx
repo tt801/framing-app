@@ -1,8 +1,9 @@
 // src/components/admin/AdminIntegrationsPanel.tsx
 import React, { useEffect, useState } from "react";
 import { useCatalog } from "@/lib/store";
+import { useToast } from "@/lib/toast";
 
-type ProviderKey = "quickbooks" | "xero";
+type ProviderKey = "quickbooks" | "xero" | "marketing-automation";
 
 interface ProviderConfig {
   key: ProviderKey;
@@ -29,6 +30,14 @@ const PROVIDERS: ProviderConfig[] = [
       "Use Xero for accounting? Connect here and later we can add a 'Send to Xero' button on the Invoices page.",
     docsUrl: "https://www.xero.com/",
   },
+  {
+    key: "marketing-automation",
+    label: "Marketing Automation",
+    tagline: "Automate review requests and quote follow-ups via WhatsApp, Email, or Mailchimp.",
+    description:
+      "Send automated campaigns via WhatsApp (Twilio), Outlook Email (Microsoft Graph), or Mailchimp. Requires API credentials.",
+    docsUrl: "/AUTOMATION_SETUP.md",
+  },
 ];
 
 type ConnectionStatus = "connected" | "disconnected" | "pending" | "error";
@@ -53,6 +62,7 @@ type LoadingMap = Record<ProviderKey, boolean>;
 
 const AdminIntegrationsPanel: React.FC = () => {
   const { catalog, updateSettings, setCatalog, set } = useCatalog() as any;
+  const { add: toast } = useToast();
 
   const settings = catalog?.settings || {};
   const initialIntegrations: IntegrationsSettings =
@@ -64,6 +74,7 @@ const AdminIntegrationsPanel: React.FC = () => {
   const [loading, setLoading] = useState<LoadingMap>({
     quickbooks: false,
     xero: false,
+    "marketing-automation": false,
   });
   const [globalMessage, setGlobalMessage] = useState<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -453,12 +464,305 @@ const AdminIntegrationsPanel: React.FC = () => {
                   When you’re ready, we can add a “Send to Xero”
                   button on the Invoices page using this connection.
                 </p>
-              )}
-            </article>
+              )}              {provider.key === "marketing-automation" && (
+                <MarketingAutomationConfig
+                  state={state}
+                  upsertIntegration={upsertIntegration}
+                  toast={toast}
+                />
+              )}            </article>
           );
         })}
       </div>
     </section>
+  );
+};
+
+/* Marketing Automation Configuration Component */
+interface MarketingAutomationConfigProps {
+  state?: IntegrationState;
+  upsertIntegration: (provider: ProviderKey, patch: Partial<IntegrationState>) => void;
+  toast: (message: string, type: "success" | "error" | "warning" | "info") => void;
+}
+
+const MarketingAutomationConfig: React.FC<MarketingAutomationConfigProps> = ({
+  state,
+  upsertIntegration,
+  toast,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const [config, setConfig] = useState({
+    channel: (state?.channel as "whatsapp" | "email" | "mailchimp") || "email",
+    reviewRequestEnabled: state?.reviewRequestEnabled !== false,
+    quoteFollowupEnabled: state?.quoteFollowupEnabled !== false,
+    twilioConfigured: !!state?.twilioConfigured,
+    microsoftConfigured: !!state?.microsoftConfigured,
+    mailchimpConfigured: !!state?.mailchimpConfigured,
+  });
+
+  const [showEnvGuide, setShowEnvGuide] = useState(false);
+
+  const updateConfig = (updates: Partial<typeof config>) => {
+    const newConfig = { ...config, ...updates };
+    setConfig(newConfig);
+    upsertIntegration("marketing-automation", newConfig);
+  };
+
+  const testAPI = async (type: "review" | "followup") => {
+    try {
+      const endpoint =
+        type === "review"
+          ? "/api/automations/send-review-request"
+          : "/api/automations/send-quote-followup";
+
+      const testData =
+        type === "review"
+          ? {
+              customerName: "Test Customer",
+              customerEmail: "test@example.com",
+              customerPhone: "+1234567890",
+              jobCompletedDate: new Date().toISOString(),
+              channel: config.channel,
+              reviewLinks: {
+                google: "https://g.page/r/test",
+                facebook: "https://facebook.com/test",
+              },
+            }
+          : {
+              customerName: "Test Customer",
+              customerEmail: "test@example.com",
+              customerPhone: "+1234567890",
+              quotedItem: "Sample Frame",
+              quoteDate: new Date().toISOString(),
+              daysOld: 7,
+              channel: config.channel,
+            };
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(testData),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        toast(`✓ Test ${type === "review" ? "review request" : "quote follow-up"} sent successfully!`, "success");
+        // Mark the appropriate API as configured
+        if (config.channel === "whatsapp") {
+          updateConfig({ twilioConfigured: true });
+        } else if (config.channel === "email") {
+          updateConfig({ microsoftConfigured: true });
+        } else if (config.channel === "mailchimp") {
+          updateConfig({ mailchimpConfigured: true });
+        }
+      } else {
+        toast(result.error || "Test failed. Check API configuration in environment variables.", "error");
+      }
+    } catch (error) {
+      toast("Test failed. Make sure serverless functions are deployed and environment variables are set.", "error");
+    }
+  };
+
+  const viewLogs = () => {
+    const automationLogs = localStorage.getItem("marketing.automation.logs.v1");
+    if (automationLogs) {
+      const logs = JSON.parse(automationLogs);
+      console.table(logs);
+      toast(`${logs.length} automation logs found. Check browser console.`, "info");
+    } else {
+      toast("No automation logs found yet.", "info");
+    }
+  };
+
+  return (
+    <div className="mt-3 space-y-3">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+      >
+        {expanded ? "▼ Hide Configuration" : "▶ Show Configuration & Setup Guide"}
+      </button>
+
+      {expanded && (
+        <div className="space-y-3 border-t border-slate-200 pt-3">
+          {/* Channel Selection */}
+          <div className="bg-white rounded-lg border border-slate-200 p-3">
+            <div className="text-xs font-semibold text-slate-700 mb-2">Preferred Channel</div>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="marketing-channel"
+                  value="email"
+                  checked={config.channel === "email"}
+                  onChange={(e) => updateConfig({ channel: e.target.value as "email" })}
+                  className="w-4 h-4"
+                />
+                <span className="text-xs">
+                  📧 Email (Outlook) {config.microsoftConfigured && <span className="text-green-600">✓</span>}
+                </span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="marketing-channel"
+                  value="whatsapp"
+                  checked={config.channel === "whatsapp"}
+                  onChange={(e) => updateConfig({ channel: e.target.value as "whatsapp" })}
+                  className="w-4 h-4"
+                />
+                <span className="text-xs">
+                  💬 WhatsApp (Twilio) {config.twilioConfigured && <span className="text-green-600">✓</span>}
+                </span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="marketing-channel"
+                  value="mailchimp"
+                  checked={config.channel === "mailchimp"}
+                  onChange={(e) => updateConfig({ channel: e.target.value as "mailchimp" })}
+                  className="w-4 h-4"
+                />
+                <span className="text-xs">
+                  📬 Mailchimp {config.mailchimpConfigured && <span className="text-green-600">✓</span>}
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* Automation Types */}
+          <div className="bg-white rounded-lg border border-slate-200 p-3">
+            <div className="text-xs font-semibold text-slate-700 mb-2">Automation Types</div>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={config.reviewRequestEnabled}
+                  onChange={(e) => updateConfig({ reviewRequestEnabled: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <span className="text-xs">Auto-review requests (3 days after completion)</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={config.quoteFollowupEnabled}
+                  onChange={(e) => updateConfig({ quoteFollowupEnabled: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <span className="text-xs">Auto quote follow-ups (7+ days pending)</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Testing & Management */}
+          <div className="bg-white rounded-lg border border-slate-200 p-3">
+            <div className="text-xs font-semibold text-slate-700 mb-2">Testing & Management</div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => testAPI("review")}
+                className="px-3 py-1.5 text-xs font-semibold rounded bg-green-600 text-white hover:bg-green-700"
+              >
+                🧪 Test Review Request
+              </button>
+              <button
+                onClick={() => testAPI("followup")}
+                className="px-3 py-1.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700"
+              >
+                🧪 Test Quote Follow-up
+              </button>
+              <button
+                onClick={viewLogs}
+                className="px-3 py-1.5 text-xs font-semibold rounded bg-purple-600 text-white hover:bg-purple-700"
+              >
+                📋 View Logs
+              </button>
+              <button
+                onClick={() => setShowEnvGuide(!showEnvGuide)}
+                className="px-3 py-1.5 text-xs font-semibold rounded bg-slate-600 text-white hover:bg-slate-700"
+              >
+                📖 {showEnvGuide ? "Hide" : "Show"} Setup Guide
+              </button>
+            </div>
+          </div>
+
+          {/* Setup Guide */}
+          {showEnvGuide && (
+            <div className="bg-slate-50 rounded-lg border border-slate-300 p-4 text-xs space-y-3">
+              <div className="font-semibold text-slate-900">🔧 Environment Variables Setup</div>
+              
+              <div className="space-y-2">
+                <div className="font-semibold text-slate-700">1. Twilio (WhatsApp)</div>
+                <div className="bg-white rounded p-2 font-mono text-[10px] space-y-1">
+                  <div>TWILIO_ACCOUNT_SID=your_account_sid</div>
+                  <div>TWILIO_AUTH_TOKEN=your_auth_token</div>
+                  <div>TWILIO_WHATSAPP_NUMBER=+14155238886</div>
+                </div>
+                <div className="text-slate-600">
+                  Get from: <a href="https://www.twilio.com/console" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Twilio Console</a>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="font-semibold text-slate-700">2. Microsoft Graph (Outlook)</div>
+                <div className="bg-white rounded p-2 font-mono text-[10px] space-y-1">
+                  <div>MICROSOFT_CLIENT_ID=your_client_id</div>
+                  <div>MICROSOFT_CLIENT_SECRET=your_secret</div>
+                  <div>MICROSOFT_TENANT_ID=your_tenant_id</div>
+                </div>
+                <div className="text-slate-600">
+                  Get from: <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Azure Portal</a> → App Registrations
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="font-semibold text-slate-700">3. Mailchimp</div>
+                <div className="bg-white rounded p-2 font-mono text-[10px] space-y-1">
+                  <div>MAILCHIMP_API_KEY=your_api_key</div>
+                  <div>MAILCHIMP_SERVER=us1</div>
+                </div>
+                <div className="text-slate-600">
+                  Get from: <a href="https://mailchimp.com/account/api" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Mailchimp API Keys</a>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-300 pt-3 space-y-2">
+                <div className="font-semibold text-slate-700">📅 Automated Scheduling</div>
+                <div className="text-slate-600">
+                  Cron job runs daily at 9 AM (configured in vercel.json). The <code className="bg-white px-1 rounded">scheduled-check.ts</code> function automatically:
+                </div>
+                <ul className="list-disc list-inside text-slate-600 space-y-1">
+                  <li>Finds jobs completed 3 days ago → sends review requests</li>
+                  <li>Finds quotes pending 7+ days → sends follow-ups</li>
+                  <li>Logs all activity for monitoring</li>
+                </ul>
+              </div>
+
+              <div className="border-t border-slate-300 pt-3 space-y-2">
+                <div className="font-semibold text-slate-700">🔄 Managing Automations</div>
+                <div className="text-slate-600 space-y-1">
+                  <div><strong>View sent messages:</strong> Click "View Logs" button above</div>
+                  <div><strong>Pause automations:</strong> Uncheck automation types</div>
+                  <div><strong>Change channel:</strong> Select different radio button</div>
+                  <div><strong>Monitor failures:</strong> Check Vercel logs dashboard</div>
+                  <div><strong>Update templates:</strong> Go to Marketing page → Communication Templates</div>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded p-2 text-slate-700">
+                <strong>⚠️ Important:</strong> Add environment variables in Vercel Dashboard (Settings → Environment Variables) and redeploy for changes to take effect.
+              </div>
+            </div>
+          )}
+
+          <div className="text-[11px] text-slate-500">
+            💡 <strong>Tip:</strong> Manage automation settings from Marketing page or here. Changes sync automatically.
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

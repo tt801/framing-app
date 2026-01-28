@@ -1,4 +1,4 @@
-﻿// src/VisualizerApp.tsx
+// src/VisualizerApp.tsx
 import React, { useMemo, useRef, useState, useEffect } from "react";
 
 // STORES / LIBS
@@ -9,13 +9,6 @@ import { useInvoices } from "@/lib/invoices";
 import { useJobs } from "@/lib/jobs";
 import { useLayout } from "@/lib/layout";
 import * as htmlToImage from "html-to-image";
-
-declare global {
-  interface Window {
-    __FRAMEIT: { useCatalog: typeof useCatalog };
-  }
-}
-
 window.__FRAMEIT = { useCatalog };
 
 // PDF
@@ -222,6 +215,7 @@ export default function VisualizerApp() {
   const { customers, add: addCustomer, update: updateCustomer } =
     useCustomers();
   const { layoutMode } = useLayout();
+  const [frameMatsTab, setFrameMatsTab] = useState<"frame" | "mats">("frame");
 
   // 🔍 DEBUG: expose state on window for console inspection
   if (typeof window !== "undefined") {
@@ -253,8 +247,6 @@ export default function VisualizerApp() {
   const currencySymbol =
     settings?.currencySymbol || symbolFor(currencyCode) || "R ";
 
-  const defaultFrameId = catalog?.frames?.[0]?.id || "fr1";
-
   const moneyIntl = (n: number) => {
     try {
       return new Intl.NumberFormat(undefined, {
@@ -281,7 +273,7 @@ export default function VisualizerApp() {
   const [roomArtworkUrl, setRoomArtworkUrl] = useState<string>("");
 
   // Frame + mats
-  const [selectedFrame, setSelectedFrame] = useState<string>(defaultFrameId);
+  const [selectedFrame, setSelectedFrame] = useState<string>("frame1");
   const [faceAuto, setFaceAuto] = useState<boolean>(true);
   const [faceWidthCm, setFaceWidthCm] = useState(2.0);
 
@@ -306,6 +298,14 @@ export default function VisualizerApp() {
     (hasMat2 ? mat2BorderCm : 0) +
     (hasMat3 ? mat3BorderCm : 0);
 
+  const topVisibleBorderCm = hasMat1
+    ? mat1BorderCm
+    : hasMat2
+    ? mat2BorderCm
+    : hasMat3
+    ? mat3BorderCm
+    : 0;
+
   // Pro mode openings
   const [openings, setOpenings] = useState<MatOpening[]>([]);
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(
@@ -318,7 +318,9 @@ export default function VisualizerApp() {
   const [textureScalePct, setTextureScalePct] = useState<number>(100);
 
   // Printing and backer
-  const PRINT_MATS = (catalog?.printingMaterials || []) as any[];
+  const PRINT_MATS = (catalog?.printMaterials ||
+    (catalog as any)?.printingMaterials ||
+    []) as any[];
   const [includePrint, setIncludePrint] = useState(false);
   const [printMaterialId, setPrintMaterialId] = useState<string>("");
   const [includeBacker, setIncludeBacker] = useState(false);
@@ -362,15 +364,6 @@ export default function VisualizerApp() {
   };
 
   useEffect(() => {
-    const frames = (catalog?.frames || []) as any[];
-    if (!frames.length) return;
-    const exists = frames.some((f) => f.id === selectedFrame);
-    if (!selectedFrame || !exists) {
-      setSelectedFrame(frames[0].id);
-    }
-  }, [catalog?.frames, selectedFrame]);
-
-  useEffect(() => {
     if (faceAuto) {
       const w = getProfileFaceWidth(frameProfile);
       if (typeof w === "number") setFaceWidthCm(w);
@@ -380,14 +373,22 @@ export default function VisualizerApp() {
     selectedFrame,
     faceAuto,
     frameProfile?.faceWidthCm,
+    frameProfile?.faceWidth,
+    frameProfile?.lipWidthCm,
+    frameProfile?.lipWidth,
   ]);
 
   const framePreviewColor =
+    (frameProfile?.previewColor as string) ||
+    (frameProfile?.previewColour as string) || // if you ever store it like this
     (frameProfile as any)?.colour ||
     (frameProfile as any)?.color ||
     "#333";
 
-  const frameTextureUrl = "";
+  const frameTextureUrl =
+    (frameProfile?.previewImageUrl as string) ||
+    (frameProfile?.textureUrl as string) ||
+    "";
 
   // Derived dimensions
   const outerWcm = artWcm + 2 * (totalBorder + faceWidthCm);
@@ -468,7 +469,7 @@ export default function VisualizerApp() {
   const marginMultiplier = Number(
     catalog?.settings?.marginMultiplier ?? 1
   );
-  const taxRate = Number((catalog?.settings as any)?.taxRatePct ?? 0) / 100;
+  const taxRate = Number(catalog?.settings?.taxRate ?? 0);
 
   const subtotalRaw =
     frameCost +
@@ -612,19 +613,18 @@ export default function VisualizerApp() {
     if (!drag) return;
 
     function onMove(e: MouseEvent) {
-      const d = drag!;
-      const dxPx = e.clientX - d.startX;
-      const dyPx = e.clientY - d.startY;
+      const dxPx = e.clientX - drag.startX;
+      const dyPx = e.clientY - drag.startY;
       const dx = dxPx / scale;
       const dy = dyPx / scale;
 
-      if (d.kind === "move") {
-        const id = d.id;
-        const baseW = d.ow ?? 0;
-        const baseH = d.oh ?? 0;
+      if (drag.kind === "move") {
+        const id = drag.id;
+        const baseW = drag.ow ?? 0;
+        const baseH = drag.oh ?? 0;
 
-        let x = (d.ox ?? 0) + dx;
-        let y = (d.oy ?? 0) + dy;
+        let x = (drag.ox ?? 0) + dx;
+        let y = (drag.oy ?? 0) + dy;
 
         x = Math.max(0, Math.min(x, visibleWcm - baseW));
         y = Math.max(0, Math.min(y, visibleHcm - baseH));
@@ -680,10 +680,10 @@ export default function VisualizerApp() {
             o.id === id ? { ...o, xCm: x, yCm: y } : o
           )
         );
-      } else if (d.kind === "resize") {
-        const id = d.id;
-        const handle = d.handle!;
-        const shape = d.shape!;
+      } else if (drag.kind === "resize") {
+        const id = drag.id;
+        const handle = drag.handle!;
+        const shape = drag.shape!;
         setOpenings((arr) =>
           arr.map((o) => {
             if (o.id !== id) return o;
@@ -699,16 +699,16 @@ export default function VisualizerApp() {
             if (handle.includes("e")) {
               w = Math.max(
                 MIN_W_CM,
-                Math.min((d.ow ?? 0) + dx, visibleWcm - x)
+                Math.min((drag.ow ?? 0) + dx, visibleWcm - x)
               );
             }
             if (handle.includes("w")) {
               const newX = Math.max(
                 0,
-                Math.min(visibleWcm, (d.ox ?? 0) + dx)
+                Math.min(visibleWcm, (drag.ox ?? 0) + dx)
               );
               const owCalc =
-                (d.ow ?? 0) + (d.ox ?? 0) - newX;
+                (drag.ow ?? 0) + (drag.ox ?? 0) - newX;
               w = Math.max(
                 MIN_W_CM,
                 Math.min(owCalc, visibleWcm - newX)
@@ -718,16 +718,16 @@ export default function VisualizerApp() {
             if (handle.includes("s")) {
               h = Math.max(
                 MIN_H_CM,
-                Math.min((d.oh ?? 0) + dy, visibleHcm - y)
+                Math.min((drag.oh ?? 0) + dy, visibleHcm - y)
               );
             }
             if (handle.includes("n")) {
               const newY = Math.max(
                 0,
-                Math.min(visibleHcm, (d.oy ?? 0) + dy)
+                Math.min(visibleHcm, (drag.oy ?? 0) + dy)
               );
               const ohCalc =
-                (d.oh ?? 0) + (d.oy ?? 0) - newY;
+                (drag.oh ?? 0) + (drag.oy ?? 0) - newY;
               h = Math.max(
                 MIN_H_CM,
                 Math.min(ohCalc, visibleHcm - newY)
@@ -740,7 +740,7 @@ export default function VisualizerApp() {
               w = s;
               h = s;
             } else if (shape === "oval") {
-              const ratio = (d.ow ?? 1) / (d.oh ?? 1);
+              const ratio = (drag.ow ?? 1) / (drag.oh ?? 1);
               if (ratio > 1.5) h = Math.max(h, w / 1.5);
               else if (ratio < 0.66) w = Math.max(w, h * 0.66);
             }
@@ -855,6 +855,28 @@ export default function VisualizerApp() {
 
   const [backdrop, setBackdrop] = useState<Backdrop>("studio");
 
+  const backdropStyle: React.CSSProperties = useMemo(() => {
+    switch (backdrop) {
+      case "living":
+        return {
+          background:
+            "linear-gradient(180deg, #fefcf5 0%, #f8efe2 100%)",
+        };
+      case "gallery":
+        return {
+          background:
+            "linear-gradient(180deg, #fdfdfd 0%, #f3f4f6 100%)",
+        };
+      case "office":
+        return {
+          background:
+            "linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 100%)",
+        };
+      default: // studio
+        return { background: "transparent" };
+    }
+  }, [backdrop]);
+
   const sortedCustomers = useMemo(() => {
     const arr = [...(customers || [])] as any[];
     return arr.sort((a, b) =>
@@ -948,6 +970,14 @@ export default function VisualizerApp() {
       setOpeningImageTargetId(null);
     };
     reader.readAsDataURL(file);
+  }
+
+  function clearOpeningImage(id: string) {
+    setOpenings((arr) =>
+      arr.map((o) =>
+        o.id === id ? { ...o, imageUrl: "" } : o
+      )
+    );
   }
 
   // ---------- Actions: CRM / Quotes / Jobs / Invoice ----------
@@ -1060,9 +1090,18 @@ export default function VisualizerApp() {
     const existingInLS = readQuotesFromAnyLS();
     const allExisting = [...existingInStore, ...existingInLS];
 
-    const prefix: string = "Q-";
-    const pad: number = 3;
-    const start: number = 1;
+    const prefix: string =
+      catalog?.settings?.quoteNumberPrefix ??
+      catalog?.settings?.quotePrefix ??
+      "Q-";
+    const pad: number = Number(
+      catalog?.settings?.quoteNumberPad ??
+        catalog?.settings?.quotePad ??
+        3
+    );
+    const start: number = Number(
+      catalog?.settings?.quoteNumberStart ?? 1
+    );
 
     let maxN = 0;
     for (const q of allExisting) {
@@ -1534,6 +1573,12 @@ export default function VisualizerApp() {
               email: customerObj.email,
               phone: customerObj.phone,
               company: customerObj.company,
+              address1: customerObj.address1,
+              address2: customerObj.address2,
+              city: customerObj.city,
+              postcode:
+                customerObj.postcode || customerObj.postalCode,
+              country: customerObj.country,
             }
           : undefined,
         settings: {
@@ -1699,7 +1744,7 @@ export default function VisualizerApp() {
       setArtWcm(Number(s?.art?.widthCm) || 40);
       setArtHcm(Number(s?.art?.heightCm) || 30);
       setArtworkUrl(String(s?.art?.imageUrl || ""));
-      setSelectedFrame(String(s?.frame?.id || defaultFrameId));
+      setSelectedFrame(String(s?.frame?.id || "frame1"));
       setFaceAuto(Boolean(s?.frame?.faceAuto));
       if (
         !Boolean(s?.frame?.faceAuto) &&
@@ -1901,14 +1946,73 @@ export default function VisualizerApp() {
 
   // ---------- RENDER ----------
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-emerald-50/40 to-slate-50">
-      <main
-        className={`${containerClass} p-4 grid gap-4 
+    <div className="relative w-full min-h-screen">
+
+      {/* Full-page gradient background */}
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-br from-sky-50 via-emerald-50/40 to-slate-50" />
+        <main className={`${containerClass} px-4 py-6 min-h-screen`}>
+
+      {/* Page header / shell */}
+        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-900">
+              Visualizer
+            </h1>
+            <p className="text-sm text-slate-600">
+              Build frames, preview in rooms, and send to quotes, jobs & invoices.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+           
+            {/* Mode pill */}
+            <span className="inline-flex items-center rounded-full bg-white/70 px-3 py-1 font-medium text-emerald-700 ring-1 ring-emerald-100">
+              {mode === "basic"
+                ? "Basic layout · single artwork"
+                : "Pro layout · multi-openings"}
+            </span>
+
+            {/* Units */}
+            <span className="hidden sm:inline text-slate-500">
+              {unit === "metric" ? "Working in centimetres" : "Working in inches"}
+            </span>
+          </div>
+        </div>
+        <div
+          className="grid gap-4 
             lg:grid-cols-[320px_1fr_320px] 
-            xl:grid-cols-[360px_1fr_360px]`}
-      >
-        {/* LEFT */}
+            xl:grid-cols-[360px_1fr_360px]"
+        >
+
+          {/* LEFT */}
         <section className="space-y-3">
+          {/* Guided workflow legend */}
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-[11px] text-emerald-900">
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-semibold text-xs">Workflow</span>
+              <span className="text-[10px] text-emerald-800">
+                Follow steps 1 → 4
+              </span>
+            </div>
+            <ol className="space-y-0.5">
+              <li>
+                <span className="font-semibold mr-1">1.</span>
+                Artwork &amp; size
+              </li>
+              <li>
+                <span className="font-semibold mr-1">2.</span>
+                Frame profile &amp; mats
+              </li>
+              <li>
+                <span className="font-semibold mr-1">3.</span>
+                Glazing &amp; printing options
+              </li>
+              <li>
+                <span className="font-semibold mr-1">4.</span>
+                Save to customer / quotes / jobs
+              </li>
+            </ol>
+          </div>
+
           {/* Artwork / Image */}
           <Panel title="Artwork / Image">
             <div className="flex items-center justify-between mb-3 gap-2">
@@ -3434,6 +3538,7 @@ export default function VisualizerApp() {
             </div>
           </div>
         </aside>
+       </div> {/* closes the grid div */}
       </main>
 
       {/* Hidden file input for pro-mode opening images */}

@@ -119,12 +119,12 @@ export default function AdminPage() {
     "£";
 
     return (
-      <main className="mx-auto max-w-7xl px-4 py-6 space-y-4">
-        <header className="flex items-center justify-between">
+      <main className="mx-auto max-w-7xl px-4 py-8 space-y-6">
+        <header className="flex items-center justify-between pb-6 border-b border-slate-200">
           <div>
-            <h1 className="text-xl font-semibold">Admin</h1>
-            <p className="text-sm text-slate-500">
-              Company info, catalog, and integrations.
+            <h1 className="text-3xl font-bold text-slate-900 mb-1">⚙️ Admin</h1>
+            <p className="text-sm text-slate-600">
+              Manage company settings, catalog data, and system integrations.
             </p>
           </div>
         </header>
@@ -425,7 +425,6 @@ function SettingsPanel({
     defaultPaymentTerms: settings.defaultPaymentTerms || "Due on receipt",
     invoicePrefix: settings.invoicePrefix || "INV-",
     nextInvoiceNumber: settings.nextInvoiceNumber || 1001,
-    themeColor: settings.themeColor || "#0f172a",
     foamBackerEnabled: !!settings.foamBackerEnabled,
     invoiceFooterNote: settings.invoiceFooterNote || "",
   }));
@@ -569,46 +568,6 @@ function SettingsPanel({
             }))
           }
         />
-      </div>
-
-      {/* Foam backer + theme colour */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="h-4 w-4"
-            checked={draft.foamBackerEnabled}
-            onChange={(e) =>
-              setDraft((d) => ({
-                ...d,
-                foamBackerEnabled: e.target.checked,
-              }))
-            }
-          />
-          Enable foam-backer option in Visualizer
-        </label>
-
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-slate-600">
-            Theme colour
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              className="h-9 w-12 rounded-lg border border-slate-300"
-              value={draft.themeColor}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  themeColor: e.target.value || "#0f172a",
-                }))
-              }
-            />
-            <span className="text-xs text-slate-500 font-mono">
-              {draft.themeColor}
-            </span>
-          </div>
-        </div>
       </div>
 
       <div className="space-y-1">

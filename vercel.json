@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/automations/scheduled-check",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}

@@ -772,46 +772,48 @@ export default function StockPage() {
       : -1;
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-6">
-      <div className="space-y-6">
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-lg font-semibold">Stock</h1>
+    <main className="mx-auto max-w-7xl px-4 py-8">
+      <div className="space-y-8">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pb-6 border-b border-slate-200">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 mb-1">📦 Stock Management</h1>
+            <p className="text-sm text-slate-600">Track inventory, manage suppliers, and optimize stock levels</p>
+          </div>
           <button
             type="button"
             onClick={resetStockFromAdmin}
-            className="inline-flex items-center rounded border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-600 hover:text-white"
+            className="inline-flex items-center rounded-lg bg-red-50 border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 hover:border-red-300 transition-all duration-200"
           >
-            Reset stock from Admin
+            🔄 Reset
           </button>
         </header>
 
         {/* Top tools split into 2 cards (1x2 format) */}
-        <section className="grid gap-4 md:grid-cols-2">
+        <section className="grid gap-5 md:grid-cols-2">
           {/* CSV tools */}
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 flex flex-col gap-3">
+          <div className="rounded-lg bg-white p-6 shadow-md border border-slate-200 flex flex-col gap-4 hover:shadow-lg transition-shadow duration-300">
             <div>
-              <h2 className="text-sm font-semibold text-slate-800">
-                CSV import / export
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                📄 CSV Import / Export
               </h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Download your current stock as a CSV, edit it in Excel/Sheets,
-                and re-import to update FrameIT.
+              <p className="mt-2 text-sm text-slate-600">
+                Download, edit in Excel/Sheets, and re-import to update stock quantities.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={handleExportCSV}
-                className="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-black hover:text-white"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors duration-200"
               >
-                Export CSV
+                ⬇️ Export CSV
               </button>
               <button
                 type="button"
                 onClick={handleImportClick}
-                className="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-black hover:text-white"
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors duration-200"
               >
-                Import CSV
+                ⬆️ Import CSV
               </button>
             </div>
 
@@ -825,35 +827,35 @@ export default function StockPage() {
           </div>
 
           {/* Barcode / code scanner */}
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 flex flex-col gap-3">
+          <div className="rounded-lg bg-white p-6 shadow-md border border-slate-200 flex flex-col gap-4 hover:shadow-lg transition-shadow duration-300">
             <div>
-              <h2 className="text-sm font-semibold text-slate-800">
-                Barcode / code scanner
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                🔍 Barcode Scanner
               </h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Scan or type a frame profile ID, sheet SKU, or print material ID
-                to jump to that row. USB barcode scanners that act like a
-                keyboard will work here.
+              <p className="mt-2 text-sm text-slate-600">
+                Scan or type a code to quickly find and highlight that item.
               </p>
             </div>
 
             <form
               onSubmit={handleScanSubmit}
-              className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
+              className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-3"
             >
-              <label className="text-xs font-medium text-slate-700 sm:w-32">
-                Scan / search code
-              </label>
-              <input
-                type="text"
-                className="w-full max-w-sm rounded border px-2 py-1 text-sm"
-                placeholder="Scan or type code..."
-                value={scanCode}
-                onChange={(e) => setScanCode(e.target.value)}
-              />
+              <div className="flex-1">
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+                  Scan / Search
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors duration-200"
+                  placeholder="Scan or type code..."
+                  value={scanCode}
+                  onChange={(e) => setScanCode(e.target.value)}
+                />
+              </div>
               <button
                 type="submit"
-                className="mt-1 inline-flex items-center justify-center rounded border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-black hover:text-white sm:mt-0"
+                className="rounded-lg bg-purple-600 px-5 py-2 text-sm font-medium text-white hover:bg-purple-700 transition-colors duration-200"
               >
                 Go
               </button>
@@ -888,7 +890,7 @@ export default function StockPage() {
             <button
               type="button"
               onClick={syncFramesFromAdmin}
-              className="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-black hover:text-white"
+              className="rounded-lg bg-blue-100 border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-200 transition-colors duration-200"
             >
               Sync from Admin
             </button>
@@ -965,7 +967,7 @@ export default function StockPage() {
             <button
               type="button"
               onClick={syncMatsFromAdmin}
-              className="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-black hover:text-white"
+              className="rounded-lg bg-blue-100 border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-200 transition-colors duration-200"
             >
               Sync from Admin
             </button>
@@ -1031,7 +1033,7 @@ export default function StockPage() {
             <button
               type="button"
               onClick={syncGlazingFromAdmin}
-              className="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-black hover:text-white"
+              className="rounded-lg bg-blue-100 border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-200 transition-colors duration-200"
             >
               Sync from Admin
             </button>
@@ -1097,7 +1099,7 @@ export default function StockPage() {
             <button
               type="button"
               onClick={syncBackersFromAdmin}
-              className="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-black hover:text-white"
+              className="rounded-lg bg-blue-100 border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-200 transition-colors duration-200"
             >
               Sync from Admin
             </button>
@@ -1163,7 +1165,7 @@ export default function StockPage() {
             <button
               type="button"
               onClick={syncPrintingFromAdmin}
-              className="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-black hover:text-white"
+              className="rounded-lg bg-blue-100 border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-200 transition-colors duration-200"
             >
               Sync from Admin
             </button>
@@ -1240,17 +1242,17 @@ function OverviewTile({
 }) {
   const toneClasses =
     tone === "warn"
-      ? "border-red-100 bg-red-50 text-red-800"
+      ? "border-red-200 bg-gradient-to-br from-red-50 to-red-100 text-red-900"
       : tone === "ok"
-      ? "border-emerald-100 bg-emerald-50 text-emerald-800"
-      : "border-slate-100 bg-slate-50 text-slate-800";
+      ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-100 text-emerald-900"
+      : "border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900";
 
   return (
-    <div className={`rounded-2xl border px-3 py-3 text-sm shadow-sm ${toneClasses}`}>
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+    <div className={`rounded-lg border px-4 py-4 shadow-sm hover:shadow-md transition-shadow duration-300 ${toneClasses}`}>
+      <div className="text-xs font-bold uppercase tracking-widest text-slate-700 opacity-75">
         {label}
       </div>
-      <div className="mt-1 text-lg font-semibold">{value}</div>
+      <div className="mt-2 text-2xl font-bold">{value}</div>
     </div>
   );
 }
@@ -1265,9 +1267,9 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold">{title}</h2>
+    <section className="bg-white rounded-lg shadow-md hover:shadow-lg border border-slate-200 p-6 transition-shadow duration-300">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-bold text-slate-900">{title}</h2>
         {actions && <div className="flex items-center gap-2">{actions}</div>}
       </div>
       {children}

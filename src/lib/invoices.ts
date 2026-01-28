@@ -84,9 +84,22 @@ export function useInvoices() {
     return inv
   }
 
+  const addInvoice = (invoice: Invoice) => {
+    setInvoices(prev => {
+      const filtered = prev.filter(x => x.id !== invoice.id)
+      return [invoice, ...filtered]
+    })
+
+    const seqCandidate =
+      typeof invoice.seq === 'number' ? invoice.seq : extractNum(invoice.number)
+    if (typeof seqCandidate === 'number' && Number.isFinite(seqCandidate)) {
+      setMeta(m => ({ lastSeq: Math.max(m.lastSeq ?? 0, seqCandidate) }))
+    }
+  }
+
   const remove = (id: string) => setInvoices(prev => prev.filter(x => x.id !== id))
   const addPayment = (invoiceId: string, p: Payment) =>
     setInvoices(prev => prev.map(inv => inv.id === invoiceId ? { ...inv, payments: [...(inv.payments || []), p] } : inv))
 
-  return { invoices, addFromQuote, remove, addPayment }
+  return { invoices, addInvoice, addFromQuote, remove, addPayment, setInvoices }
 }

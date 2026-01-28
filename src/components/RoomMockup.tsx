@@ -46,6 +46,8 @@ export default function RoomMockup({
   const bgRef = useRef<HTMLImageElement | null>(null)
   const artRef = useRef<HTMLImageElement | null>(null)
 
+  // drag / zoom / opening-drag
+
   // live refs so event handlers always see the latest state/props
   const stateRef = useRef(state)
   useEffect(() => {
@@ -61,7 +63,7 @@ export default function RoomMockup({
   const openingImgCache = useRef<Map<string, HTMLImageElement>>(new Map())
 
   // ---- drag state ----
-  type DragMode = 'none' | 'artwork' | 'opening'
+  type DragMode = 'none' | 'artwork' | 'opening' | 'resize'
   const dragModeRef = useRef<DragMode>('none')
   const draggingOpeningIdRef = useRef<string | null>(null)
 
@@ -74,6 +76,7 @@ export default function RoomMockup({
     pointerYNorm: number
     frameX: number
     frameY: number
+    frameScale?: number
   } | null>(null)
 
   // geometry cache from last draw (so events can reuse)
@@ -536,6 +539,9 @@ export default function RoomMockup({
     let dragging = false
 
     function onDown(e: MouseEvent) {
+      // Only handle canvas clicks, not clicks on overlay handles
+      if (e.target !== canvas) return
+
       const rect = canvas.getBoundingClientRect()
       const mx = e.clientX - rect.left
       const my = e.clientY - rect.top
@@ -572,6 +578,7 @@ export default function RoomMockup({
         pointerYNorm,
         frameX: s.frame.x,
         frameY: s.frame.y,
+        frameScale: s.frame.scale,
       }
 
       dragModeRef.current = 'artwork'
@@ -728,10 +735,13 @@ export default function RoomMockup({
       </div>
     </div>
 
-    <div className="overflow-hidden rounded-2xl border shadow-sm bg-white">
+    <div className="rounded-lg border shadow-sm bg-white relative inline-block w-full">
+      <div className="text-xs text-gray-600 px-3 py-1 bg-gray-50 border-b rounded-t-lg" style={{ fontSize: '11px' }}>
+        <p><strong>Controls:</strong> Scroll to zoom • Drag to move</p>
+      </div>
       <canvas
         ref={canvasRef}
-        className="block w-full h-auto cursor-move"
+        className="block w-full h-auto rounded-b-lg"
         style={{ width: "100%", height: "auto", aspectRatio: `${width}/${height}` }}
       />
     </div>

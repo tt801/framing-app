@@ -1,10 +1,22 @@
 // src/pages/Customers.tsx
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useCatalog } from "../lib/store";
 import { useCustomers } from "../lib/customers";
 import { useInvoices } from "../lib/invoices";
 import { exportInvoicePDF } from "../lib/pdf/invoicePdf";
 import { customersToCSV, downloadCSV } from "../lib/customers";
+import { useToast } from "@/lib/toast";
+import { useHistory } from "@/lib/history";
+import { useFavorites } from "@/lib/favorites";
+import StatusBadge from "@/components/StatusBadge";
+
+type ConfirmModal = {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
 
 type CustStats = {
   totalInvoiced: number;
@@ -25,6 +37,9 @@ export default function CustomersPage() {
   const custStore = useCustomers() as any;
   const customers: any[] = custStore.customers ?? [];
   const { invoices } = useInvoices();
+  const { add: toast } = useToast();
+  const { add: addToHistory, canUndo, undo } = useHistory();
+  const { isFavorited, toggle: toggleFavorite } = useFavorites();
 
   const updateCustomer: (c: any) => void =
     custStore.update ||
@@ -34,16 +49,105 @@ export default function CustomersPage() {
       console.warn("No updateCustomer function found on customers store", c);
     });
 
+  const FILTER_KEY = "customers.filters.v1";
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [listFilter, setListFilter] = useState<"all" | "favorites" | "owing" | "inactive">("all");
   const [sortBy, setSortBy] = useState<"name" | "spend" | "recent">("name");
   const [showImportMenu, setShowImportMenu] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModal>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    onCancel: () => {},
+  });
+
+  // Communication log state
+  const [commLog, setCommLog] = useState<Record<string, any[]>>(() => {
+    try {
+      const stored = localStorage.getItem("customers.comlog.v1");
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // Persist communication log
+  useEffect(() => {
+    localStorage.setItem("customers.comlog.v1", JSON.stringify(commLog));
+  }, [commLog]);
+
+  // Add communication log entry
+  const addCommLogEntry = (customerId: string, type: "email" | "call" | "message" | "note", message: string) => {
+    setCommLog((prev) => ({
+      ...prev,
+      [customerId]: [
+        ...(prev[customerId] || []),
+        {
+          id: Math.random().toString(36).substr(2, 9),
+          type,
+          message,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    }));
+    toast("Communication logged", "success");
+  };
 
   const settings = catalog.settings || {};
   const companyName: string = settings.companyName || "Our workshop";
-  const fallbackWhatsAppTo: string = settings.companyWhatsAppTo || "";
+  const fallbackWhatsAppTo: string = (settings as any).companyWhatsAppTo || "";
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Persist filters per page
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(FILTER_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.search === "string") {
+        setSearchInput(parsed.search);
+        setSearchTerm(parsed.search);
+      }
+      if (
+        parsed.listFilter === "all" ||
+        parsed.listFilter === "favorites" ||
+        parsed.listFilter === "owing" ||
+        parsed.listFilter === "inactive"
+      ) {
+        setListFilter(parsed.listFilter);
+      }
+      if (parsed.sortBy === "name" || parsed.sortBy === "spend" || parsed.sortBy === "recent") {
+        setSortBy(parsed.sortBy);
+      }
+    } catch (e) {
+      console.warn("Failed to read customer filters from storage", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+    }, 200);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(
+        FILTER_KEY,
+        JSON.stringify({ search: searchInput, listFilter, sortBy })
+      );
+    } catch (e) {
+      console.warn("Failed to persist customer filters", e);
+    }
+  }, [searchInput, listFilter, sortBy]);
 
   // -------- money helper (match Quotes style) --------
   const money = (n: number) => {
@@ -141,9 +245,36 @@ export default function CustomersPage() {
   }, [customers, statsMap]);
 
   // -------- filtered/sorted customer list (left pane) --------
+  const filterCounts = useMemo(() => {
+    let fav = 0;
+    let owing = 0;
+    let inactive = 0;
+
+    for (const c of customers) {
+      if (isFavorited(c.id)) fav += 1;
+      if ((statsMap.get(c.id)?.outstanding ?? 0) > 0) owing += 1;
+      if (c.active === false) inactive += 1;
+    }
+
+    return {
+      all: customers.length,
+      favorites: fav,
+      owing,
+      inactive,
+    };
+  }, [customers, statsMap, isFavorited]);
+
   const list = useMemo(() => {
-    const needle = q.trim().toLowerCase();
+    const needle = searchTerm.trim().toLowerCase();
     let arr = [...customers];
+
+    if (listFilter === "favorites") {
+      arr = arr.filter((c) => isFavorited(c.id));
+    } else if (listFilter === "owing") {
+      arr = arr.filter((c) => (statsMap.get(c.id)?.outstanding ?? 0) > 0);
+    } else if (listFilter === "inactive") {
+      arr = arr.filter((c) => c.active === false);
+    }
 
     if (needle) {
       arr = arr.filter((c: any) => {
@@ -183,7 +314,7 @@ export default function CustomersPage() {
     });
 
     return arr;
-  }, [customers, q, sortBy, statsMap]);
+  }, [customers, listFilter, searchTerm, sortBy, statsMap, isFavorited]);
 
   const selectedCustomer = useMemo(
     () => list.find((c) => c.id === selectedId) || null,
@@ -230,7 +361,7 @@ export default function CustomersPage() {
         address1: cust.address1,
         address2: cust.address2,
         city: cust.city,
-        postcode: cust.postcode || cust.postalCode,
+        postalCode: cust.postalCode || cust.postcode,
         country: cust.country,
       },
       settings: {
@@ -241,21 +372,20 @@ export default function CustomersPage() {
         logoDataUrl: (settings as any).companyLogoDataUrl,
         currencySymbol: settings.currencySymbol,
         currencyCode: settings.currencyCode,
-        themeColor: settings.themeColor,
         bankDetails: (settings as any).bankDetails,
-        taxNumber: (settings as any).taxNumber,
-        invoiceFooterNote: (settings as any).invoiceFooterNote,
+        invoiceFooter: (settings as any).invoiceFooterNote,
       },
     });
   }
 
   function onSaveCustomer(c: any) {
     if (!c.firstName?.trim() || !c.lastName?.trim() || !c.email?.trim()) {
-      alert("First name, last name, and email are required.");
+      toast("First name, last name, and email are required.", "error");
       return;
     }
     updateCustomer({ id: c.id, ...c });
-    alert("Customer saved.");
+    const displayName = `${c.firstName} ${c.lastName}`;
+    toast(`${displayName} saved successfully`, "success");
   }
 
   function exportFilteredCSV() {
@@ -316,10 +446,22 @@ export default function CustomersPage() {
     return blank.id as string;
   }
 
-  function handleNewCustomer() {
+  const handleNewCustomer = useCallback(() => {
     const id = addCustomerToStore({});
     setSelectedId(id);
-  }
+  }, [addCustomerToStore]);
+
+  useEffect(() => {
+    const onGlobalNew = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { type?: string };
+      if (detail?.type === "customer") {
+        handleNewCustomer();
+      }
+    };
+
+    window.addEventListener("frameapp:new", onGlobalNew as EventListener);
+    return () => window.removeEventListener("frameapp:new", onGlobalNew as EventListener);
+  }, [handleNewCustomer]);
 
   function handleDeleteCustomer(id: string) {
     const customer = customers.find((c) => c.id === id);
@@ -330,28 +472,80 @@ export default function CustomersPage() {
         customer.email ||
         id);
 
-    const ok = window.confirm(
-      `Delete customer ${displayName || id}? This cannot be undone.`
-    );
-    if (!ok) return;
+    // Show custom confirm modal instead of window.confirm
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete Customer",
+      message: `Are you sure you want to delete ${displayName}?`,
+      onCancel: () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+      },
+      onConfirm: () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        performDeleteCustomer(id, customer, displayName);
+      },
+    });
+  }
 
+  function performDeleteCustomer(id: string, customer: any, displayName: string) {
     try {
+      // Store backup for undo
+      const backup = customer;
+      let deleteMethodUsed = "";
+
       if (typeof custStore.removeCustomer === "function") {
         custStore.removeCustomer(id);
+        deleteMethodUsed = "removeCustomer";
       } else if (typeof custStore.deleteCustomer === "function") {
         custStore.deleteCustomer(id);
+        deleteMethodUsed = "deleteCustomer";
       } else if (typeof custStore.remove === "function") {
         custStore.remove(id);
+        deleteMethodUsed = "remove";
       } else if (typeof custStore.delete === "function") {
         custStore.delete(id);
+        deleteMethodUsed = "delete";
       } else if (typeof custStore.setCustomers === "function") {
         custStore.setCustomers((rows: any[]) =>
           rows.filter((r: any) => r.id !== id)
         );
+        deleteMethodUsed = "setCustomers";
       } else {
         console.warn("No delete method found on customers store");
+        return;
       }
+
+      // Add to history for undo
+      addToHistory({
+        id: `delete-customer-${id}`,
+        name: `Delete ${displayName}`,
+        undo: () => {
+          if (backup && typeof custStore.add === "function") {
+            custStore.add(backup);
+          }
+        },
+        redo: () => {
+          // Use the same method that was used initially
+          if (deleteMethodUsed === "removeCustomer" && typeof custStore.removeCustomer === "function") {
+            custStore.removeCustomer(id);
+          } else if (deleteMethodUsed === "deleteCustomer" && typeof custStore.deleteCustomer === "function") {
+            custStore.deleteCustomer(id);
+          } else if (deleteMethodUsed === "remove" && typeof custStore.remove === "function") {
+            custStore.remove(id);
+          } else if (deleteMethodUsed === "delete" && typeof custStore.delete === "function") {
+            custStore.delete(id);
+          } else if (deleteMethodUsed === "setCustomers" && typeof custStore.setCustomers === "function") {
+            custStore.setCustomers((rows: any[]) =>
+              rows.filter((r: any) => r.id !== id)
+            );
+          }
+        },
+        timestamp: Date.now(),
+      });
+
+      toast(`${displayName} deleted`, "success");
     } catch (e) {
+      toast("Failed to delete customer", "error");
       console.warn("Failed to delete customer", e);
     }
 
@@ -444,11 +638,11 @@ export default function CustomersPage() {
     reader.onload = () => {
       const text = String(reader.result || "");
       const count = importCustomersFromCsv(text);
-      alert(
-        count === 0
-          ? "No customers were imported. Check the CSV headers (name, email, etc.)."
-          : `Imported ${count} customer${count === 1 ? "" : "s"} from CSV.`
-      );
+      if (count === 0) {
+        toast("No customers were imported. Check the CSV headers (name, email, etc.).", "warning");
+      } else {
+        toast(`Imported ${count} customer${count === 1 ? "" : "s"} from CSV.`, "success");
+      }
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -458,23 +652,42 @@ export default function CustomersPage() {
   }
 
   function handleImportFromGmail() {
-    alert(
-      "Gmail import would start a 'Connect to Google Contacts' flow here (OAuth + Google People API).\n\n" +
-        "For now, you can export contacts from Gmail as CSV and use 'export customers'."
+    toast(
+      "Gmail import: Coming soon! For now, export from Gmail as CSV and import here.",
+      "info"
     );
     setShowImportMenu(false);
   }
 
   function handleImportFromOutlook() {
-    alert(
-      "Outlook import would start a 'Connect to Outlook / Microsoft 365 contacts' flow here.\n\n" +
-        "For now, you can export contacts from Outlook as CSV and use 'import customers'."
+    toast(
+      "Outlook import: Coming soon! For now, export from Outlook as CSV and import here.",
+      "info"
     );
     setShowImportMenu(false);
   }
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-6 space-y-6">
+      <header className="pb-6 border-b border-slate-200">
+        <h1 className="text-3xl font-bold text-slate-900 mb-1">👥 Customers</h1>
+        <p className="text-sm text-slate-600">
+          Manage your customer database, contact details, and account status.
+        </p>
+      </header>
+      {/* UNDO BAR */}
+      {canUndo() && (
+        <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <span className="text-xs font-medium text-blue-900">Last action:</span>
+          <button
+            onClick={undo}
+            className="px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded transition"
+          >
+            ↶ Undo
+          </button>
+        </div>
+      )}
+
       {/* ===== CUSTOMER OVERVIEW ===== */}
       <section className="rounded-2xl ring-1 ring-slate-200 bg-white p-4 md:p-5">
         <div className="flex items-center justify-between mb-3">
@@ -543,136 +756,192 @@ export default function CustomersPage() {
             </button>
           </div>
 
-          <div className="grid gap-2 mb-3">
-            {/* Search */}
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search by name, email, company…"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
-            />
-
-            {/* export/import customers row, both full width */}
-            <div className="flex gap-2 relative">
-              <button
-                onClick={exportFilteredCSV}
-                className="flex-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs md:text-sm whitespace-nowrap hover:bg-slate-50"
-              >
-                export customers
-              </button>
-
-              <div className="relative flex-1">
-                <button
-                  onClick={() => setShowImportMenu((prev) => !prev)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs md:text-sm whitespace-nowrap hover:bg-slate-50"
-                >
-                  import customers
-                </button>
-
-                {showImportMenu && (
-                  <div className="absolute right-0 mt-1 w-48 rounded-xl border border-slate-200 bg-white shadow-lg z-10 text-sm">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full text-left px-3 py-2 hover:bg-slate-50"
-                    >
-                      Import CSV
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleImportFromGmail}
-                      className="w-full text-left px-3 py-2 hover:bg-slate-50"
-                    >
-                      Import from Gmail
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleImportFromOutlook}
-                      className="w-full text-left px-3 py-2 hover:bg-slate-50"
-                    >
-                      Import from Outlook
-                    </button>
-                  </div>
+          <div className="relative max-h-[calc(100vh-270px)] overflow-auto pr-1 space-y-2">
+            <div className="sticky top-0 z-10 bg-white pb-2 space-y-2">
+              {/* Search */}
+              <div className="relative">
+                <input
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search by name, email, company…"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
+                />
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchInput("")}
+                    className="absolute inset-y-0 right-2 px-2 text-xs text-slate-500 hover:text-slate-700"
+                    aria-label="Clear search"
+                  >
+                    ✕
+                  </button>
                 )}
               </div>
-            </div>
 
-            {/* Sort dropdown full width */}
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
-              title="Sort customers"
-            >
-              <option value="name">Sort: Name</option>
-              <option value="spend">Sort: Top spenders</option>
-              <option value="recent">Sort: Most recent</option>
-            </select>
-          </div>
-
-          {/* Hidden file input for CSV upload */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={handleImportCsvFile}
-          />
-
-          <div className="grid gap-2 max-h-[calc(100vh-270px)] overflow-auto pr-1">
-            {list.map((c: any) => {
-              const s = statsMap.get(c.id);
-              const isSelected = selectedCustomer?.id === c.id;
-              return (
+              {/* export/import customers row, both full width */}
+              <div className="flex gap-2 relative">
                 <button
-                  key={c.id}
-                  onClick={() => setSelectedId(c.id)}
-                  className={`text-left rounded-xl border px-3 py-2 transition shadow-sm ${
-                    isSelected
-                      ? "border-slate-900 bg-slate-50"
-                      : "border-slate-200 hover:border-slate-300 bg-white"
-                  }`}
-                  title={`View ${c.firstName} ${c.lastName}`}
+                  onClick={exportFilteredCSV}
+                  className="flex-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs md:text-sm whitespace-nowrap hover:bg-slate-50"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-medium truncate">
-                      {c.firstName} {c.lastName}
-                    </div>
-                    {s && s.outstanding > 0 && (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                        Owing
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-500 truncate">
-                    {c.email}
-                  </div>
-                  {s ? (
-                    <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-slate-700">
-                      <div>
-                        Inv: <b>{s.invoiceCount}</b>
-                      </div>
-                      <div>
-                        Paid: <b>{money(s.totalPaid)}</b>
-                      </div>
-                      <div>
-                        Owing: <b>{money(s.outstanding)}</b>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mt-1 text-[11px] text-slate-500">
-                      Add new customer details
+                  export customers
+                </button>
+
+                <div className="relative flex-1">
+                  <button
+                    onClick={() => setShowImportMenu((prev) => !prev)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs md:text-sm whitespace-nowrap hover:bg-slate-50"
+                  >
+                    import customers
+                  </button>
+
+                  {showImportMenu && (
+                    <div className="absolute right-0 mt-1 w-48 rounded-xl border border-slate-200 bg-white shadow-lg z-20 text-sm">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50"
+                      >
+                        Import CSV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleImportFromGmail}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50"
+                      >
+                        Import from Gmail
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleImportFromOutlook}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50"
+                      >
+                        Import from Outlook
+                      </button>
                     </div>
                   )}
-                </button>
-              );
-            })}
-
-            {!list.length && (
-              <div className="text-sm text-slate-500 py-6 text-center">
-                No customers match your filters.
+                </div>
               </div>
-            )}
+
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                {(
+                  [
+                    { key: "all" as const, label: "All", count: filterCounts.all },
+                    { key: "favorites" as const, label: "Favourites", count: filterCounts.favorites },
+                    { key: "owing" as const, label: "Owing", count: filterCounts.owing },
+                    { key: "inactive" as const, label: "Inactive", count: filterCounts.inactive },
+                  ]
+                ).map(({ key, label, count }) => {
+                  const active = listFilter === key;
+                  const base =
+                    "rounded-full px-3 py-1.5 border transition flex items-center gap-1";
+                  const activeCls =
+                    "bg-slate-900 text-white border-slate-900";
+                  const idleCls =
+                    "bg-white text-slate-700 border-slate-300 hover:bg-slate-50";
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setListFilter(key)}
+                      className={`${base} ${active ? activeCls : idleCls}`}
+                    >
+                      <span>{label}</span>
+                      <span className="tabular-nums">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Sort dropdown full width */}
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
+                title="Sort customers"
+              >
+                <option value="name">Sort: Name</option>
+                <option value="spend">Sort: Top spenders</option>
+                <option value="recent">Sort: Most recent</option>
+              </select>
+            </div>
+
+            {/* Hidden file input for CSV upload */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={handleImportCsvFile}
+            />
+
+            <div className="grid gap-2">
+              {list.map((c: any) => {
+                const s = statsMap.get(c.id);
+                const isSelected = selectedCustomer?.id === c.id;
+                const isFav = isFavorited(c.id);
+                const isActive = c.active !== false; // Default to active
+                
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedId(c.id)}
+                    className={`text-left rounded-lg border px-3 py-2.5 transition ${
+                      isSelected
+                        ? "border-slate-900 bg-slate-50 shadow-sm"
+                        : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                    title={`View ${c.firstName} ${c.lastName}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFavorite(c.id);
+                          }}
+                          className="text-lg hover:scale-125 transition-transform flex-shrink-0"
+                        >
+                          {isFav ? "⭐" : "☆"}
+                        </button>
+                        <div className="font-medium truncate">
+                          {c.firstName} {c.lastName}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <StatusBadge status={isActive ? "active" : "inactive"} />
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-500 truncate">
+                      {c.email}
+                    </div>
+                    {s ? (
+                      <div className="mt-1 grid grid-cols-3 gap-2 text-[11px] text-slate-700">
+                        <div>
+                          Inv: <b>{s.invoiceCount}</b>
+                        </div>
+                        <div>
+                          Paid: <b>{money(s.totalPaid)}</b>
+                        </div>
+                        <div>
+                          Owing: <b>{money(s.outstanding)}</b>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        Add new customer details
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+
+              {!list.length && (
+                <div className="text-sm text-slate-500 py-6 text-center">
+                  No customers match your filters.
+                </div>
+              )}
+            </div>
           </div>
         </aside>
 
@@ -699,10 +968,40 @@ export default function CustomersPage() {
               onDelete={handleDeleteCustomer}
               companyName={companyName}
               fallbackWhatsAppTo={fallbackWhatsAppTo}
+              commLog={commLog}
+              onAddCommLogEntry={addCommLogEntry}
             />
           )}
         </main>
       </div>
+
+      {/* CONFIRM DELETE MODAL */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm mx-4 ring-1 ring-slate-200">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">
+              {confirmModal.title}
+            </h3>
+            <p className="text-slate-600 mb-6 text-sm">
+              {confirmModal.message}
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={confirmModal.onCancel}
+                className="px-4 py-2 text-sm font-medium rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmModal.onConfirm}
+                className="px-4 py-2 text-sm font-medium rounded-xl bg-red-500 hover:bg-red-600 text-white transition"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -719,6 +1018,8 @@ function CustomerDetails({
   onDelete,
   companyName,
   fallbackWhatsAppTo,
+  commLog,
+  onAddCommLogEntry,
 }: {
   customer: any;
   stats: CustStats;
@@ -729,6 +1030,8 @@ function CustomerDetails({
   onDelete: (id: string) => void;
   companyName: string;
   fallbackWhatsAppTo: string;
+  commLog: Record<string, any[]>;
+  onAddCommLogEntry: (customerId: string, type: "email" | "call" | "message" | "note", message: string) => void;
 }) {
   const [edit, setEdit] = useState(() => ({
     firstName: customer.firstName || "",
@@ -1152,6 +1455,55 @@ function CustomerDetails({
             <div className="py-6 text-sm text-slate-500">
               No invoices match this filter.
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Communication Log */}
+      <div className="rounded-2xl ring-1 ring-slate-200 bg-purple-50 p-4">
+        <div className="text-sm font-medium mb-3">Communication Log</div>
+        <div className="flex flex-col gap-2">
+          <select
+            className="px-2 py-1.5 text-xs rounded-lg ring-1 ring-slate-300 bg-white"
+            onChange={(e) => {
+              if (e.target.value) {
+                const msg = prompt("Enter message:");
+                if (msg) {
+                  onAddCommLogEntry(customer.id, e.target.value as any, msg);
+                  e.target.value = "";
+                }
+              }
+            }}
+          >
+            <option value="">Add communication...</option>
+            <option value="email">📧 Email</option>
+            <option value="call">📞 Call</option>
+            <option value="message">💬 Message</option>
+            <option value="note">📝 Note</option>
+          </select>
+          {!commLog[customer.id] || commLog[customer.id].length === 0 ? (
+            <div className="text-xs text-slate-500 mt-2">No communications logged yet</div>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {commLog[customer.id].map((entry) => (
+                <li key={entry.id} className="p-2 bg-white rounded-lg ring-1 ring-purple-200">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex-1">
+                      <div className="text-[11px] text-purple-700 font-semibold">
+                        {entry.type === "email" && "📧 Email"}
+                        {entry.type === "call" && "📞 Call"}
+                        {entry.type === "message" && "💬 Message"}
+                        {entry.type === "note" && "📝 Note"}
+                      </div>
+                      <div className="text-xs text-slate-600 mt-1">{entry.message}</div>
+                    </div>
+                    <div className="text-[10px] text-slate-400 whitespace-nowrap">
+                      {new Date(entry.timestamp).toLocaleDateString()}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>

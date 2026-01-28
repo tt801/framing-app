@@ -1,5 +1,5 @@
 // src/pages/Calendar.tsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   Calendar as RBCalendar,
   Views,
@@ -26,6 +26,9 @@ import {
 import { useCustomers } from "@/lib/customers";
 import { useJobs } from "@/lib/jobs";
 import { useLayout } from "@/lib/layout";
+import { useUsers } from "@/lib/users";
+import { useToast } from "@/lib/toast";
+import { useHistory } from "@/lib/history";
 
 import * as enGB from "date-fns/locale/en-GB";
 
@@ -50,6 +53,13 @@ const typeColor: Record<CalendarEventType, string> = {
   job: "#ea580c", // orange
   stock: "#0ea5e9", // sky
   other: "#6b7280", // slate
+};
+
+const statusColor: Record<string, string> = {
+  tentative: "#f59e0b", // amber
+  confirmed: "#10b981", // emerald
+  completed: "#6b7280", // slate
+  cancelled: "#ef4444", // red
 };
 
 // staff list – tweak these names/colours to match your team
@@ -85,11 +95,39 @@ export default function CalendarPage() {
   const { customers } = useCustomers() as any;
   const { jobs } = useJobs() as any;
   const { layoutMode } = useLayout();
+  const { users } = useUsers();
+  const { add: toast } = useToast();
+  const { add: addToHistory, canUndo, undo } = useHistory();
 
   const containerClass =
     layoutMode === "fixed" ? "max-w-[1440px] mx-auto" : "max-w-none w-full";
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
+  // Debounce search input
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setSearchQuery(searchInput.trim());
+    }, 200);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
+
+  // Confirm modal for deletion
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    onCancel: () => {},
+  });
 
   // 🔧 Controlled view + date so toolbar buttons (Today/Back/Next, Month/Week/Day) work
   const [view, setView] = useState<string>(Views.WEEK);
@@ -108,8 +146,8 @@ export default function CalendarPage() {
   // filter by staff (user assignment)
   const [staffFilter, setStaffFilter] = useState<Record<string, boolean>>(() => {
     const base: Record<string, boolean> = { unassigned: true };
-    staffMembers.forEach((m) => {
-      base[m.id] = true;
+    users.forEach((u) => {
+      base[u.id] = true;
     });
     return base;
   });
@@ -130,7 +168,16 @@ export default function CalendarPage() {
         })
       : byType;
 
-    return byStaff.map((ev) => {
+    // filter by search query
+    const bySearch = searchQuery.trim()
+      ? byStaff.filter((ev) =>
+          ev.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (ev.notes && ev.notes.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (ev.location && ev.location.toLowerCase().includes(searchQuery.toLowerCase()))
+        )
+      : byStaff;
+
+    return bySearch.map((ev) => {
       const start = toDate(ev.start, now);
       const end = toDate(ev.end, addHours(start, 1));
       return {
@@ -142,7 +189,7 @@ export default function CalendarPage() {
         resource: ev,
       };
     });
-  }, [events, filterTypes, staffFilter, now]);
+  }, [events, filterTypes, staffFilter, searchQuery, now]);
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) || null;
 
@@ -169,7 +216,9 @@ export default function CalendarPage() {
       allDay: false,
     });
 
+    // Auto-open sidebar with the new event
     setSelectedEventId(ev.id);
+    toast("Event created", "success");
   }
 
   function handleEventDrop({ event, start, end }: any) {
@@ -178,6 +227,7 @@ export default function CalendarPage() {
       start: start.toISOString(),
       end: end.toISOString(),
     });
+    toast("Event moved", "success");
   }
 
   function handleEventResize({ event, start, end }: any) {
@@ -186,6 +236,7 @@ export default function CalendarPage() {
       start: start.toISOString(),
       end: end.toISOString(),
     });
+    toast("Event resized", "success");
   }
 
   function handleChangeField<K extends keyof CalendarEvent>(
@@ -217,6 +268,9 @@ export default function CalendarPage() {
         ? ""
         : staffNameById[staffKey] || ev.assignedTo || "";
 
+    const statusDot = statusColor[ev.status || "confirmed"] || "#6b7280";
+    const statusLabel = ev.status || "confirmed";
+
     return (
       <div className="flex items-center gap-1 text-[11px]">
         <span
@@ -228,6 +282,11 @@ export default function CalendarPage() {
           className="inline-block w-2 h-2 rounded-full"
           style={{ backgroundColor: staffDot }}
           title={staffName ? `Assigned: ${staffName}` : "Unassigned"}
+        />
+        <span
+          className="inline-block w-2 h-2 rounded-full"
+          style={{ backgroundColor: statusDot }}
+          title={`Status: ${statusLabel}`}
         />
         <span className="truncate">{event.title}</span>
       </div>
@@ -244,14 +303,38 @@ export default function CalendarPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-emerald-50/40 to-slate-50">
+      {/* UNDO BAR */}
+      {canUndo() && (
+        <div className="flex items-center gap-2 p-3 mx-4 mt-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <span className="text-xs font-medium text-blue-900">Last action:</span>
+          <button
+            onClick={undo}
+            className="px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded transition"
+          >
+            ↶ Undo
+          </button>
+        </div>
+      )}
+
       <main
-        className={`${containerClass} p-4 grid gap-4 lg:grid-cols-[minmax(0,2.2fr)_minmax(280px,1fr)]`}
+        className={`${containerClass} p-4 grid gap-4 lg:grid-cols-[minmax(0,2.2fr)_minmax(280px,1fr)] flex-col lg:flex-row`}
       >
         {/* LEFT: Calendar */}
         <section className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4 flex flex-col min-h-[520px]">
-          <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h1 className="text-lg font-semibold text-slate-900">Calendar</h1>
+          <header className="mb-3 flex flex-col gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+              <div>
+                <h1 className="text-lg font-semibold text-slate-900">Calendar</h1>
+              </div>
+
+              {/* Search bar */}
+              <input
+                type="text"
+                placeholder="Search events..."
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
             </div>
 
             <div className="space-y-1">
@@ -265,7 +348,7 @@ export default function CalendarPage() {
                     key={t}
                     type="button"
                     onClick={() => toggleType(t)}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border ${
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs ${
                       filterTypes[t]
                         ? "bg-slate-900 text-white border-slate-900"
                         : "bg-white text-slate-600 border-slate-300"
@@ -287,7 +370,7 @@ export default function CalendarPage() {
                 <button
                   type="button"
                   onClick={() => toggleStaff("unassigned")}
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border ${
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs ${
                     staffFilter["unassigned"]
                       ? "bg-white text-slate-700 border-slate-400"
                       : "bg-slate-100 text-slate-400 border-slate-200"
@@ -300,22 +383,22 @@ export default function CalendarPage() {
                   <span>Unassigned</span>
                 </button>
 
-                {staffMembers.map((m) => (
+                {users.map((u) => (
                   <button
-                    key={m.id}
+                    key={u.id}
                     type="button"
-                    onClick={() => toggleStaff(m.id)}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border ${
-                      staffFilter[m.id]
+                    onClick={() => toggleStaff(u.id)}
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs ${
+                      staffFilter[u.id]
                         ? "bg-white text-slate-700 border-slate-400"
                         : "bg-slate-100 text-slate-400 border-slate-200"
                     }`}
                   >
                     <span
                       className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: m.color }}
+                      style={{ backgroundColor: u.color }}
                     />
-                    <span>{m.name}</span>
+                    <span>{u.name}</span>
                   </button>
                 ))}
               </div>
@@ -352,7 +435,7 @@ export default function CalendarPage() {
         </section>
 
         {/* RIGHT: Event details */}
-        <aside className="space-y-3">
+        <aside className="space-y-3 lg:space-y-3">
           <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
             <h2 className="text-base font-semibold text-slate-900 mb-1">
               Event details
@@ -437,9 +520,9 @@ export default function CalendarPage() {
                     }
                   >
                     <option value="">Unassigned</option>
-                    {staffMembers.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
                       </option>
                     ))}
                   </select>
@@ -581,12 +664,28 @@ export default function CalendarPage() {
                     type="button"
                     className="text-xs text-rose-600 hover:text-rose-700 hover:underline"
                     onClick={() => {
-                      if (
-                        window.confirm("Delete this event from the calendar?")
-                      ) {
-                        deleteEvent(selectedEvent.id);
-                        setSelectedEventId(null);
-                      }
+                      setConfirmModal({
+                        isOpen: true,
+                        title: "Delete Event",
+                        message: "Are you sure you want to delete this event from the calendar? This cannot be undone.",
+                        onCancel: () => {
+                          setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+                        },
+                        onConfirm: () => {
+                          setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+                          // Store deleted event in history for undo
+                          addToHistory({
+                            type: "deleteEvent",
+                            data: selectedEvent,
+                            undo: () => {
+                              addEvent(selectedEvent);
+                            },
+                          });
+                          deleteEvent(selectedEvent.id);
+                          setSelectedEventId(null);
+                          toast("Event deleted", "success");
+                        },
+                      });
                     }}
                   >
                     Delete event
@@ -604,17 +703,58 @@ export default function CalendarPage() {
           </div>
 
           {/* Placeholder card for future sync */}
-          <div className="bg-white/90 rounded-2xl shadow-sm ring-1 ring-slate-200 p-4">
-            <h3 className="text-sm font-semibold text-slate-900 mb-1">
-              External calendar sync (later)
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl shadow-sm ring-1 ring-blue-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-2">
+              📅 External calendar sync
             </h3>
-            <p className="text-xs text-slate-500">
-              Here we can add buttons to export an <code>.ics</code> file or
-              connect Google / Outlook calendars once the backend is ready.
+            <p className="text-xs text-slate-600 mb-3">
+              Coming soon: Export an <code className="bg-white px-1 py-0.5 rounded text-xs">.ics</code> file or connect Google / Outlook calendars
             </p>
+            <div className="flex gap-2">
+              <button
+                disabled
+                className="text-xs px-2 py-1 rounded border border-blue-300 bg-white text-slate-500 cursor-not-allowed"
+              >
+                Export .ics
+              </button>
+              <button
+                disabled
+                className="text-xs px-2 py-1 rounded border border-blue-300 bg-white text-slate-500 cursor-not-allowed"
+              >
+                Sync Calendar
+              </button>
+            </div>
           </div>
         </aside>
       </main>
+
+      {/* CONFIRM DELETE MODAL */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm mx-4 ring-1 ring-slate-200">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">
+              {confirmModal.title}
+            </h3>
+            <p className="text-slate-600 mb-6 text-sm">
+              {confirmModal.message}
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={confirmModal.onCancel}
+                className="px-4 py-2 text-sm font-medium rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmModal.onConfirm}
+                className="px-4 py-2 text-sm font-medium rounded-xl bg-red-500 hover:bg-red-600 text-white transition"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
