@@ -4,6 +4,8 @@ import { LoadingSpinner } from "./components/LoadingSpinner";
 import ToastContainer from "./components/ToastContainer";
 import CommandPalette from "./components/CommandPalette";
 import { useLayout } from "@/lib/layout";
+import TrialBanner from "./components/TrialBanner";
+import { useTrialStatus } from "@/lib/trial";
 
 const VisualizerApp = React.lazy(() => import("./VisualizerApp"));
 const Admin = React.lazy(() => import("./pages/Admin"));
@@ -104,6 +106,8 @@ function App() {
     !isVisualizer &&
     !isDashboard;
 
+  const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding);
+
   const navItems = [
     { label: "Dashboard", href: "#/dashboard", active: isDashboard || isUnknownInternalRoute },
     { label: "App", href: "#/app", active: isVisualizer },
@@ -161,8 +165,40 @@ function App() {
     );
   }
 
+  if (!trialLoading && isExpired) {
+    return (
+      <div className="min-h-dvh w-full bg-slate-50 text-slate-900">
+        <TrialBanner trial={trial} />
+        <main className="mx-auto flex min-h-[70vh] w-full max-w-3xl items-center justify-center px-4 py-12">
+          <div className="w-full rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-[0.15em] text-rose-600">Subscription Required</p>
+            <h1 className="mt-2 text-3xl font-black text-slate-900">Your free trial has ended</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Upgrade to continue managing quotes, jobs, invoices, and automations for your business account.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <a
+                href="#/"
+                className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-black"
+              >
+                View Pricing
+              </a>
+              <a
+                href="#/api-settings"
+                className="rounded-full border border-slate-300 px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-800 hover:bg-slate-50"
+              >
+                API Settings
+              </a>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-dvh w-full bg-neutral-50 text-neutral-900">
+      <TrialBanner trial={trial} loading={trialLoading} />
       {/* ---------- Header ---------- */}
       <header className="sticky top-0 z-40 w-full border-b border-neutral-200 bg-white/80 backdrop-blur">
         <div

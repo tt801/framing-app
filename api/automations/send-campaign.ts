@@ -15,7 +15,7 @@ type MicrosoftTokenResponse = {
 
 // Import Supabase server client
 import { createClient } from '@supabase/supabase-js';
-import { requireAuthenticatedUserId } from '../_lib/auth';
+import { requireActiveTrialUserId } from '../_lib/auth';
 
 const createSupabaseServerClient = () => {
   const url = process.env.SUPABASE_URL;
@@ -73,7 +73,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const userId = await requireAuthenticatedUserId(req);
+    const userId = await requireActiveTrialUserId(req);
 
     // Get user's API credentials
     const credentials = await getUserApiCredentials(userId);
@@ -270,6 +270,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to send campaign';
     console.error('Campaign send error:', error);
+    if (message === 'Trial expired') {
+      return res.status(403).json({
+        error: 'Trial expired',
+      });
+    }
     return res.status(500).json({
       error: message,
     });

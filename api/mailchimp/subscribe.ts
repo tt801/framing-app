@@ -10,7 +10,7 @@ type VercelResponse = {
 };
 
 import { createClient } from '@supabase/supabase-js';
-import { requireAuthenticatedUserId } from '../_lib/auth';
+import { requireActiveTrialUserId } from '../_lib/auth';
 
 const createSupabaseServerClient = () => {
   const url = process.env.SUPABASE_URL;
@@ -48,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const userId = await requireAuthenticatedUserId(req);
+    const userId = await requireActiveTrialUserId(req);
     const { email, audienceId } = req.body || {};
 
     if (!isValidEmail(email)) {
@@ -100,6 +100,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to subscribe contact';
     console.error('Mailchimp subscribe error:', error);
+    if (message === 'Trial expired') {
+      return res.status(403).json({
+        error: 'Trial expired',
+      });
+    }
     return res.status(500).json({ error: message });
   }
 }

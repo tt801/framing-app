@@ -12,7 +12,7 @@ type VercelResponse = {
   json: (payload: unknown) => VercelResponse;
 };
 import { createClient } from '@supabase/supabase-js';
-import { requireAuthenticatedUserId } from '../_lib/auth';
+import { requireActiveTrialUserId } from '../_lib/auth';
 
 type UserApiCredentials = {
   twilio_account_sid?: string;
@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const userId = await requireAuthenticatedUserId(req);
+    const userId = await requireActiveTrialUserId(req);
 
     const {
       customerName,
@@ -264,6 +264,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error: unknown) {
     const details = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error sending review request:', error);
+    if (details === 'Trial expired') {
+      return res.status(403).json({
+        error: 'Trial expired',
+      });
+    }
     return res.status(500).json({
       error: 'Failed to send review request',
       details,
