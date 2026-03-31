@@ -186,7 +186,7 @@ export const useStripeCheckout = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const startCheckout = async (priceId: string) => {
+  const startCheckout = async (priceId: string, isOneTime = false) => {
     setLoading(true);
     setError(null);
 
@@ -204,7 +204,7 @@ export const useStripeCheckout = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ priceId }),
+        body: JSON.stringify({ priceId, isOneTime }),
       });
 
       if (!res.ok) {

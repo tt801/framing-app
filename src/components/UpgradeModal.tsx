@@ -5,86 +5,139 @@ interface UpgradeModalProps {
   onClose?: () => void;
 }
 
-// Map plan names to Stripe price IDs
-// You'll fill these in after creating prices in Stripe
-const STRIPE_PRICES = {
-  starter: import.meta.env.VITE_STRIPE_PRICE_STARTER || "",
-  growth: import.meta.env.VITE_STRIPE_PRICE_GROWTH || "",
-};
+type PlanId = "starter" | "growth" | "pro" | "founder";
+
+const PLANS: {
+  id: PlanId;
+  name: string;
+  subtitle: string;
+  price: string;
+  period: string;
+  featured?: boolean;
+  badge?: string;
+  oneTime?: boolean;
+  priceId: string;
+  features: string[];
+}[] = [
+  {
+    id: "starter",
+    name: "Starter",
+    subtitle: "For solo framers",
+    price: "£19",
+    period: "/month",
+    priceId: import.meta.env.VITE_STRIPE_PRICE_STARTER || "",
+    features: [
+      "Unlimited quotes & invoices",
+      "Stock catalogue",
+      "Room visualizer",
+      "Professional PDFs",
+      "Single user",
+      "Email support",
+    ],
+  },
+  {
+    id: "growth",
+    name: "Growth",
+    subtitle: "For growing teams",
+    price: "£35",
+    period: "/month",
+    featured: true,
+    priceId: import.meta.env.VITE_STRIPE_PRICE_GROWTH || "",
+    features: [
+      "Everything in Starter",
+      "Up to 5 team seats",
+      "Follow-up automations",
+      "Mailchimp integration",
+      "Priority support",
+    ],
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    subtitle: "For established studios",
+    price: "£59",
+    period: "/month",
+    priceId: import.meta.env.VITE_STRIPE_PRICE_PRO || "",
+    features: [
+      "Everything in Growth",
+      "Unlimited team seats",
+      "Xero & QuickBooks sync",
+      "Advanced API integrations",
+      "Dedicated onboarding",
+    ],
+  },
+  {
+    id: "founder",
+    name: "Founder",
+    subtitle: "Lifetime access",
+    price: "£299",
+    period: " once",
+    badge: "Limited offer",
+    oneTime: true,
+    priceId: import.meta.env.VITE_STRIPE_PRICE_FOUNDER || "",
+    features: [
+      "Lifetime access to all features",
+      "All future updates included",
+      "Up to 5 team seats",
+      "Locked-in pricing forever",
+      "Founding member status",
+    ],
+  },
+];
 
 export default function UpgradeModal({ onClose }: UpgradeModalProps) {
   const { startCheckout, loading, error } = useStripeCheckout();
-  const [selectedPlan, setSelectedPlan] = useState<"starter" | "growth">("growth");
+  const [selectedPlan, setSelectedPlan] = useState<PlanId>("growth");
+
+  const selected = PLANS.find((p) => p.id === selectedPlan)!;
 
   const handleCheckout = async () => {
-    const priceId = STRIPE_PRICES[selectedPlan];
-    if (priceId) {
-      await startCheckout(priceId);
+    if (selected.priceId) {
+      await startCheckout(selected.priceId, selected.oneTime ?? false);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-2xl border border-white/20 bg-slate-900 p-6 shadow-2xl sm:p-10">
-        <h2 className="font-display text-2xl text-white sm:text-3xl">Upgrade your plan</h2>
+      <div className="w-full max-w-4xl rounded-2xl border border-white/20 bg-slate-900 p-6 shadow-2xl sm:p-10">
+        <h2 className="font-display text-2xl text-white sm:text-3xl">Choose your plan</h2>
         <p className="mt-2 text-sm text-slate-300">
-          Your free trial has ended. Choose a plan to continue using Framers App.
+          Your free trial has ended. Select a plan to continue using Framers App.
         </p>
 
-        <div className="mt-8 grid gap-5 sm:grid-cols-2">
-          {[
-            {
-              id: "starter" as const,
-              name: "Starter",
-              subtitle: "For solo framers",
-              price: "R 499",
-              features: [
-                "Unlimited quotes & invoices",
-                "Stock catalogue",
-                "Room visualizer",
-                "Professional PDFs",
-                "Email support",
-              ],
-            },
-            {
-              id: "growth" as const,
-              name: "Growth",
-              subtitle: "For growing teams",
-              price: "R 999",
-              featured: true,
-              features: [
-                "Everything in Starter",
-                "Multi-user teams",
-                "Follow-up automations",
-                "Mailchimp integration",
-                "Priority support",
-              ],
-            },
-          ].map((plan) => (
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {PLANS.map((plan) => (
             <button
               key={plan.id}
               type="button"
               onClick={() => setSelectedPlan(plan.id)}
-              className={`rounded-2xl border p-6 text-left transition ${
+              className={`rounded-2xl border p-5 text-left transition ${
                 selectedPlan === plan.id
-                  ? "border-cyan-300/60 bg-cyan-300/10 ring-2 ring-cyan-300/30"
+                  ? plan.id === "founder"
+                    ? "border-amber-300/60 bg-amber-300/10 ring-2 ring-amber-300/30"
+                    : "border-cyan-300/60 bg-cyan-300/10 ring-2 ring-cyan-300/30"
                   : "border-white/10 bg-white/5 hover:border-white/20"
               }`}
             >
               {plan.featured && (
-                <span className="mb-3 inline-block rounded-full bg-cyan-300 px-2.5 py-0.5 text-[10px] font-black uppercase text-slate-950">
+                <span className="mb-2 inline-block rounded-full bg-cyan-300 px-2.5 py-0.5 text-[10px] font-black uppercase text-slate-950">
                   Most popular
                 </span>
               )}
-              <p className="font-display text-xl text-white">{plan.name}</p>
+              {plan.badge && (
+                <span className="mb-2 inline-block rounded-full bg-amber-300 px-2.5 py-0.5 text-[10px] font-black uppercase text-slate-950">
+                  {plan.badge}
+                </span>
+              )}
+              <p className="font-display text-lg text-white">{plan.name}</p>
               <p className="mt-0.5 text-xs text-slate-400">{plan.subtitle}</p>
-              <p className="mt-3 text-3xl font-black text-white">
+              <p className="mt-3 text-2xl font-black text-white">
                 {plan.price}
-                <span className="text-sm font-bold text-slate-400">/month</span>
+                <span className="text-xs font-bold text-slate-400">{plan.period}</span>
               </p>
-              <ul className="mt-4 space-y-2 text-xs text-slate-200">
+              <ul className="mt-3 space-y-1.5 text-xs text-slate-200">
                 {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2">
+                  <li key={f} className="flex items-start gap-1.5">
                     <span className="mt-0.5 text-emerald-400">✓</span>
                     {f}
                   </li>
@@ -96,14 +149,22 @@ export default function UpgradeModal({ onClose }: UpgradeModalProps) {
 
         {error && <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <button
             type="button"
             onClick={handleCheckout}
-            disabled={loading || !STRIPE_PRICES[selectedPlan]}
-            className="flex-1 rounded-lg bg-cyan-300 px-6 py-3 text-sm font-bold text-slate-950 transition disabled:opacity-50"
+            disabled={loading || !selected.priceId}
+            className={`flex-1 rounded-lg px-6 py-3 text-sm font-bold transition disabled:opacity-50 ${
+              selected.id === "founder"
+                ? "bg-amber-300 text-slate-950 hover:bg-amber-200"
+                : "bg-cyan-300 text-slate-950 hover:bg-cyan-200"
+            }`}
           >
-            {loading ? "Redirecting..." : `Upgrade to ${selectedPlan === "starter" ? "Starter" : "Growth"}`}
+            {loading
+              ? "Redirecting to Stripe..."
+              : selected.oneTime
+              ? `Buy ${selected.name} — ${selected.price}`
+              : `Start ${selected.name} Plan — ${selected.price}${selected.period}`}
           </button>
           {onClose && (
             <button
@@ -111,10 +172,13 @@ export default function UpgradeModal({ onClose }: UpgradeModalProps) {
               onClick={onClose}
               className="rounded-lg border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/5"
             >
-              Cancel
+              Not now
             </button>
           )}
         </div>
+        {!selected.oneTime && (
+          <p className="mt-2 text-center text-xs text-slate-600">No commitment · Cancel anytime</p>
+        )}
       </div>
     </div>
   );

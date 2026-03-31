@@ -25,7 +25,31 @@ function verifyWebhookSignature(
   }
 }
 
-// Handle checkout.session.completed
+// Handle Founder one-time payment
+async function handleFounderPayment(session: Stripe.Checkout.Session) {
+  const companyAccountId = session.payment_intent
+    ? (await stripe.paymentIntents.retrieve(session.payment_intent as string))
+        .metadata?.company_account_id
+    : undefined;
+
+  if (!companyAccountId) {
+    console.warn("[webhook] No company_account_id in Founder payment metadata");
+    return;
+  }
+
+  await supabase
+    .from("company_accounts")
+    .update({
+      plan_status: "active",
+      stripe_price_id: "founder_lifetime",
+      subscription_renewed_at: new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000), // 100 years
+    })
+    .eq("id", companyAccountId);
+
+  console.log("[webhook] Founder lifetime access activated:", companyAccountId);
+}
+
+// Handle checkout.session.completed (subscription)
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
   if (!session.subscription) return;
 
@@ -128,9 +152,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     switch (event.type) {
-      case "checkout.session.completed":
-        await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.mode === "payment") {
+          // Founder one-time payment
+          await handleFounderPayment(session);
+        } else {
+          await handleCheckoutSessionCompleted(session);
+        }
         break;
+      }
 
       case "customer.subscription.updated":
         await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);

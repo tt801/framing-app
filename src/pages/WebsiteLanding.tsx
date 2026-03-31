@@ -1,33 +1,34 @@
 import React, { useState, useEffect } from "react";
 
 // ─── Currency ────────────────────────────────────────────────────────────────
+// Base currency is GBP (Stripe billing currency)
 
-const CURRENCY_CODES = ["ZAR", "USD", "GBP", "EUR", "AUD", "CAD"] as const;
+const CURRENCY_CODES = ["GBP", "USD", "EUR", "ZAR", "AUD", "CAD"] as const;
 type CurrencyCode = (typeof CURRENCY_CODES)[number];
 
 const CURRENCIES: Record<CurrencyCode, { symbol: string; label: string; rate: number }> = {
-  ZAR: { symbol: "R",   label: "ZAR – South African Rand", rate: 1 },
-  USD: { symbol: "$",   label: "USD – US Dollar",          rate: 0.054 },
-  GBP: { symbol: "£",   label: "GBP – British Pound",      rate: 0.043 },
-  EUR: { symbol: "€",   label: "EUR – Euro",               rate: 0.050 },
-  AUD: { symbol: "A$",  label: "AUD – Australian Dollar",  rate: 0.084 },
-  CAD: { symbol: "C$",  label: "CAD – Canadian Dollar",    rate: 0.074 },
+  GBP: { symbol: "£",   label: "GBP – British Pound",      rate: 1 },
+  USD: { symbol: "$",   label: "USD – US Dollar",          rate: 1.27 },
+  EUR: { symbol: "€",   label: "EUR – Euro",               rate: 1.17 },
+  ZAR: { symbol: "R",   label: "ZAR – South African Rand", rate: 23.5 },
+  AUD: { symbol: "A$",  label: "AUD – Australian Dollar",  rate: 1.97 },
+  CAD: { symbol: "C$",  label: "CAD – Canadian Dollar",    rate: 1.74 },
 };
 
-// Approximate Q1-2026 rates from ZAR — update periodically
+// Approximate Q1-2026 rates from GBP — update periodically
 function detectCurrency(): CurrencyCode {
-  const locale = (navigator.language ?? "en-ZA").toLowerCase();
+  const locale = (navigator.language ?? "en-GB").toLowerCase();
   if (locale.includes("-us")) return "USD";
-  if (locale.includes("-gb")) return "GBP";
   if (locale.includes("-au") || locale.includes("-nz")) return "AUD";
   if (locale.includes("-ca")) return "CAD";
+  if (locale.includes("-za")) return "ZAR";
   if (["de-", "fr-", "nl-", "it-", "es-", "pt-"].some((l) => locale.startsWith(l))) return "EUR";
-  return "ZAR";
+  return "GBP";
 }
 
-function fmtPrice(zarAmount: number, currency: CurrencyCode): string {
+function fmtPrice(gbpAmount: number, currency: CurrencyCode): string {
   const { symbol, rate } = CURRENCIES[currency];
-  const val = Math.round(zarAmount * rate);
+  const val = Math.round(gbpAmount * rate);
   return `${symbol}${val}`;
 }
 
@@ -126,7 +127,9 @@ const landingContent = {
     {
       name: "Starter",
       subtitle: "For solo framers and small studios",
-      zarPrice: 499,
+      gbpPrice: 19,
+      period: "/month",
+      oneTime: false,
       featured: false,
       bullets: [
         "Unlimited quotes, jobs & invoices",
@@ -140,15 +143,50 @@ const landingContent = {
     {
       name: "Growth",
       subtitle: "For busy studios scaling up",
-      zarPrice: 999,
+      gbpPrice: 35,
+      period: "/month",
+      oneTime: false,
       featured: true,
       bullets: [
         "Everything in Starter",
-        "Multi-user teams (up to 10 seats)",
+        "Multi-user teams (up to 5 seats)",
         "Quote follow-up automations",
         "Review request automations",
         "Mailchimp & accounting integrations",
         "Priority support",
+      ],
+    },
+    {
+      name: "Pro",
+      subtitle: "For established studios with full teams",
+      gbpPrice: 59,
+      period: "/month",
+      oneTime: false,
+      featured: false,
+      bullets: [
+        "Everything in Growth",
+        "Unlimited team seats",
+        "Advanced API integrations",
+        "Xero & QuickBooks sync",
+        "Dedicated onboarding",
+        "Priority phone support",
+      ],
+    },
+    {
+      name: "Founder",
+      subtitle: "Lifetime access — limited availability",
+      gbpPrice: 299,
+      period: " one-off",
+      oneTime: true,
+      featured: false,
+      badge: "Limited offer",
+      bullets: [
+        "Lifetime access to all features",
+        "All future updates included",
+        "Up to 5 team seats",
+        "Automations & integrations",
+        "Founding member badge & community",
+        "Locked-in pricing forever",
       ],
     },
   ],
@@ -597,13 +635,15 @@ export default function WebsiteLanding() {
             </div>
           </div>
 
-          <div className="mt-8 grid gap-5 sm:grid-cols-2">
+          <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {landingContent.pricing.map((plan) => (
               <article
                 key={plan.name}
                 className={
                   plan.featured
                     ? "relative rounded-3xl border border-cyan-300/40 bg-gradient-to-b from-cyan-300/10 to-transparent p-6 backdrop-blur-sm"
+                    : plan.name === "Founder"
+                    ? "rounded-3xl border border-amber-300/30 bg-gradient-to-b from-amber-300/10 to-transparent p-6 backdrop-blur-sm"
                     : "rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm"
                 }
               >
@@ -612,15 +652,20 @@ export default function WebsiteLanding() {
                     Most popular
                   </span>
                 )}
+                {"badge" in plan && plan.badge && (
+                  <span className="mb-3 inline-block rounded-full bg-amber-300 px-3 py-0.5 text-[11px] font-black uppercase tracking-wide text-slate-950">
+                    {plan.badge}
+                  </span>
+                )}
                 <p className="font-display text-2xl text-white">{plan.name}</p>
                 <p className="mt-1 text-sm text-slate-300">{plan.subtitle}</p>
-                <p className="mt-5 text-5xl font-black text-white">
-                  {fmtPrice(plan.zarPrice, currency)}
-                  <span className="text-lg font-bold text-slate-400">/month</span>
+                <p className="mt-5 text-4xl font-black text-white">
+                  {fmtPrice(plan.gbpPrice, currency)}
+                  <span className="text-base font-bold text-slate-400">{plan.period}</span>
                 </p>
-                {currency !== "ZAR" && (
+                {currency !== "GBP" && (
                   <p className="mt-1 text-xs text-slate-500">
-                    ≈ R{plan.zarPrice}/month · billed in ZAR · rates are approximate
+                    ≈ £{plan.gbpPrice}{plan.oneTime ? " one-off" : "/mo"} · billed in GBP · rates approx.
                   </p>
                 )}
                 <ul className="mt-6 space-y-2.5">
@@ -636,14 +681,18 @@ export default function WebsiteLanding() {
                   className={`mt-8 block rounded-full py-3 text-center text-sm font-black uppercase tracking-wide transition ${
                     plan.featured
                       ? "bg-white text-slate-950 hover:bg-slate-100"
+                      : plan.name === "Founder"
+                      ? "bg-amber-300 text-slate-950 hover:bg-amber-200"
                       : "border border-white/30 text-white hover:bg-white/10"
                   }`}
                 >
-                  Start Free Trial
+                  {plan.oneTime ? "Buy Lifetime Access" : "Start Free Trial"}
                 </a>
-                <p className="mt-2 text-center text-xs text-slate-500">
-                  No credit card required · No commitment
-                </p>
+                {!plan.oneTime && (
+                  <p className="mt-2 text-center text-xs text-slate-500">
+                    No credit card required · No commitment
+                  </p>
+                )}
               </article>
             ))}
           </div>

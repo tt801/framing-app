@@ -36,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const { user, account } = await requireBillingUser(req);
-    const { priceId } = req.body;
+    const { priceId, isOneTime } = req.body;
 
     if (!priceId) throw new Error("priceId required");
 
@@ -61,6 +61,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Create checkout session
+    // Founder plan is a one-time payment, all others are recurring subscriptions
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://localhost:5173";
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ["card"],
@@ -70,14 +75,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           quantity: 1,
         },
       ],
-      mode: "subscription",
-      success_url: `${process.env.VERCEL_URL || "http://localhost:5173"}#/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.VERCEL_URL || "http://localhost:5173"}#/app`,
-      subscription_data: {
-        metadata: {
-          company_account_id: account.id,
-        },
-      },
+      mode: isOneTime ? "payment" : "subscription",
+      success_url: `${baseUrl}#/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}#/app`,
+      ...(isOneTime
+        ? {
+            payment_intent_data: {
+              metadata: { company_account_id: account.id },
+            },
+          }
+        : {
+            subscription_data: {
+              metadata: { company_account_id: account.id },
+            },
+          }),
     });
 
     res.status(200).json({ sessionId: session.id });
