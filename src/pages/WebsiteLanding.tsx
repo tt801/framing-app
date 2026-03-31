@@ -92,7 +92,7 @@ export default function WebsiteLanding() {
 
             <div className="flex items-center gap-2">
               <a
-                href="#/dashboard"
+                href="#/login"
                 className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-100 backdrop-blur transition hover:border-white/40 hover:bg-white/10"
               >
                 Login
@@ -134,7 +134,7 @@ export default function WebsiteLanding() {
 
             <div className="mt-8 flex flex-wrap gap-3">
               <a
-                href="#/dashboard"
+                href="#/start-trial"
                 className="rounded-full bg-white px-6 py-3 text-sm font-black uppercase tracking-wide text-slate-950 transition hover:bg-slate-100"
               >
                 Start Free Trial
@@ -224,7 +224,7 @@ export default function WebsiteLanding() {
               Launch with your team, import your customers, and start sending professional quotes today.
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
-              <a href="#/dashboard" className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-black uppercase tracking-wide text-cyan-100 hover:bg-black">
+              <a href="#/start-trial" className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-black uppercase tracking-wide text-cyan-100 hover:bg-black">
                 Create Account
               </a>
               <a href="#/api-settings" className="rounded-full border border-white/25 px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-white/10">

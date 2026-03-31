@@ -19,6 +19,7 @@ const CalendarPage = React.lazy(() => import("./pages/Calendar"));
 const DashboardPage = React.lazy(() => import("./pages/Dashboard"));
 const APISettingsPage = React.lazy(() => import("./pages/APISettings"));
 const WebsiteLanding = React.lazy(() => import("./pages/WebsiteLanding"));
+const AuthPage = React.lazy(() => import("./pages/Auth"));
 
 // ---------- Hash Router ----------
 function useHashRoute() {
@@ -79,6 +80,9 @@ function App() {
   const { layoutMode, toggleLayoutMode } = useLayout();
 
   const isLanding = route === "/" || route === "";
+  const isLogin = route.startsWith("/login");
+  const isStartTrial = route.startsWith("/start-trial");
+  const isAuthRoute = isLogin || isStartTrial;
 
   const isAdmin = route.startsWith("/admin");
   const isCustomers = route.startsWith("/customers");
@@ -161,6 +165,14 @@ function App() {
     return (
       <ErrorBoundary>
         <WebsiteLanding />
+      </ErrorBoundary>
+    );
+  }
+
+  if (isAuthRoute) {
+    return (
+      <ErrorBoundary>
+        <AuthPage defaultMode={isStartTrial ? "signup" : "login"} />
       </ErrorBoundary>
     );
   }
