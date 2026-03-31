@@ -5,17 +5,10 @@
       "schedule": "0 9 * * *"
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/.*",
-      "dest": "/index.html"
+      "source": "/auth/callback",
+      "destination": "/"
     }
   ]
 }
