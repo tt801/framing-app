@@ -182,7 +182,22 @@ function App() {
   }
 
   if (!isPublicRoute && !isAuthenticated) {
-    return null;
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <p className="text-sm font-semibold text-slate-900">Redirecting to sign in...</p>
+          <p className="mt-2 text-sm text-slate-600">
+            This page requires an active account session.
+          </p>
+          <a
+            href="#/login"
+            className="mt-4 inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white"
+          >
+            Go to Login
+          </a>
+        </div>
+      </div>
+    );
   }
 
   const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding);
