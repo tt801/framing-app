@@ -7,6 +7,7 @@ import { useLayout } from "@/lib/layout";
 import TrialBanner from "./components/TrialBanner";
 import UpgradeModal from "./components/UpgradeModal";
 import { useTrialStatus } from "@/lib/trial";
+import { getCurrentUser, supabase } from "@/lib/supabase";
 
 const VisualizerApp = React.lazy(() => import("./VisualizerApp"));
 const Admin = React.lazy(() => import("./pages/Admin"));
@@ -96,6 +97,8 @@ function ErrorCatcher({
 function App() {
   const route = useHashRoute();
   const { layoutMode, toggleLayoutMode } = useLayout();
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const isLanding = route === "/" || route === "";
   const isLogin = route.startsWith("/login");
@@ -132,6 +135,55 @@ function App() {
     !isDashboard &&
     !isBilling &&
     !isBillingSuccess;
+
+  const isPublicRoute = isLanding || isAuthRoute;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const initAuth = async () => {
+      const user = await getCurrentUser();
+      if (!mounted) return;
+      setIsAuthenticated(Boolean(user));
+      setAuthLoading(false);
+    };
+
+    initAuth();
+
+    if (!supabase) return () => {
+      mounted = false;
+    };
+
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      setIsAuthenticated(Boolean(session?.user));
+      setAuthLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isPublicRoute && !isAuthenticated) {
+      window.location.hash = "#/login";
+    }
+  }, [authLoading, isAuthenticated, isPublicRoute]);
+
+  if (!isPublicRoute && authLoading) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-slate-50">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  if (!isPublicRoute && !isAuthenticated) {
+    return null;
+  }
 
   const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding);
 
