@@ -113,6 +113,7 @@ function App() {
   const isCalendar = route.startsWith("/calendar");
   const isAPISettings = route.startsWith("/api-settings");
   const isDashboard = route.startsWith("/dashboard");
+  const isBilling = route.startsWith("/billing");
   const isBillingSuccess = route.startsWith("/billing/success");
   const isVisualizer =
     route.startsWith("/app") || route.startsWith("/visualizer");
@@ -129,6 +130,7 @@ function App() {
     !isAPISettings &&
     !isVisualizer &&
     !isDashboard &&
+    !isBilling &&
     !isBillingSuccess;
 
   const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding);
@@ -207,6 +209,17 @@ function App() {
       <ErrorBoundary>
         <BillingSuccessPage />
       </ErrorBoundary>
+    );
+  }
+
+  if (isBilling) {
+    return (
+      <div className="min-h-dvh w-full bg-slate-50 text-slate-900">
+        <TrialBanner trial={trial} loading={trialLoading} />
+        <main className="mx-auto flex min-h-[70vh] w-full max-w-4xl items-center justify-center px-4 py-12">
+          <UpgradeModal onClose={() => (window.location.hash = "#/app")} />
+        </main>
+      </div>
     );
   }
 

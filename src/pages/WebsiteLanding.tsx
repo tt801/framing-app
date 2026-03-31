@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { useStripeCheckout } from "@/lib/trial";
+import { getCurrentUser } from "@/lib/supabase";
 
 // ─── Currency ────────────────────────────────────────────────────────────────
 // Base currency is GBP (Stripe billing currency)
@@ -430,6 +432,14 @@ function AutomationMockup() {
 
 export default function WebsiteLanding() {
   const [currency, setCurrency] = useState<CurrencyCode>("ZAR");
+  const { startCheckout, loading: checkoutLoading } = useStripeCheckout();
+
+  const stripePriceIds = {
+    Starter: import.meta.env.VITE_STRIPE_PRICE_STARTER || "",
+    Growth: import.meta.env.VITE_STRIPE_PRICE_GROWTH || "",
+    Pro: import.meta.env.VITE_STRIPE_PRICE_PRO || "",
+    Founder: import.meta.env.VITE_STRIPE_PRICE_FOUNDER || "",
+  } as const;
 
   useEffect(() => {
     setCurrency(detectCurrency());
@@ -437,6 +447,22 @@ export default function WebsiteLanding() {
 
   const scrollTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const startPlanCheckout = async (planName: keyof typeof stripePriceIds, isOneTime: boolean) => {
+    const user = await getCurrentUser();
+    if (!user) {
+      window.location.hash = "#/start-trial";
+      return;
+    }
+
+    const priceId = stripePriceIds[planName];
+    if (!priceId) {
+      console.error("[pricing] Missing Stripe price ID for plan:", planName);
+      return;
+    }
+
+    await startCheckout(priceId, isOneTime);
   };
 
   return (
@@ -676,21 +702,27 @@ export default function WebsiteLanding() {
                     </li>
                   ))}
                 </ul>
-                <a
-                  href="#/start-trial"
+                <button
+                  type="button"
+                  onClick={() => startPlanCheckout(plan.name as keyof typeof stripePriceIds, plan.oneTime)}
+                  disabled={checkoutLoading}
                   className={`mt-8 block rounded-full py-3 text-center text-sm font-black uppercase tracking-wide transition ${
                     plan.featured
                       ? "bg-white text-slate-950 hover:bg-slate-100"
                       : plan.name === "Founder"
                       ? "bg-amber-300 text-slate-950 hover:bg-amber-200"
                       : "border border-white/30 text-white hover:bg-white/10"
-                  }`}
+                  } disabled:cursor-not-allowed disabled:opacity-70`}
                 >
-                  {plan.oneTime ? "Buy Lifetime Access" : "Start Free Trial"}
-                </a>
+                  {checkoutLoading
+                    ? "Redirecting..."
+                    : plan.oneTime
+                    ? "Buy Lifetime Access"
+                    : "Start Subscription"}
+                </button>
                 {!plan.oneTime && (
                   <p className="mt-2 text-center text-xs text-slate-500">
-                    No credit card required · No commitment
+                    Sign in required · Stripe checkout
                   </p>
                 )}
               </article>

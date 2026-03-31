@@ -34,10 +34,10 @@ export default function TrialBanner({ trial, loading = false }: TrialBannerProps
           <span className="font-bold">Free trial:</span> {trial.daysRemaining} day{trial.daysRemaining === 1 ? "" : "s"} left for {trial.companyName}.
         </p>
         <a
-          href="#/"
+          href="#/billing"
           className="inline-flex items-center justify-center rounded-full border border-cyan-300 px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-cyan-900 hover:bg-cyan-100"
         >
-          Compare Plans
+          Upgrade Now
         </a>
       </div>
     </div>
