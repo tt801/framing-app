@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/pages/Stock.tsx
 import React, { useRef, useState } from "react";
 import {

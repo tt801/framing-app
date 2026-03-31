@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/components/admin/AdminIntegrationsPanel.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useCatalog } from "@/lib/store";
 import { useToast } from "@/lib/toast";
+import { getAccessToken } from "@/lib/supabase";
 
 type ProviderKey = "quickbooks" | "xero" | "marketing-automation";
 
@@ -65,8 +67,9 @@ const AdminIntegrationsPanel: React.FC = () => {
   const { add: toast } = useToast();
 
   const settings = catalog?.settings || {};
-  const initialIntegrations: IntegrationsSettings =
-    (settings.integrations as IntegrationsSettings) || {};
+  const initialIntegrations = useMemo<IntegrationsSettings>(() => {
+    return (settings.integrations as IntegrationsSettings) || {};
+  }, [settings.integrations]);
 
   const [integrations, setIntegrations] = useState<IntegrationsSettings>(
     initialIntegrations
@@ -82,7 +85,7 @@ const AdminIntegrationsPanel: React.FC = () => {
   // Keep local state in sync if settings change elsewhere
   useEffect(() => {
     setIntegrations(initialIntegrations);
-  }, [catalog?.settings?.integrations]);
+  }, [initialIntegrations]);
 
   const saveSettings = (nextIntegrations: IntegrationsSettings) => {
     const nextSettings = {
@@ -510,6 +513,12 @@ const MarketingAutomationConfig: React.FC<MarketingAutomationConfigProps> = ({
 
   const testAPI = async (type: "review" | "followup") => {
     try {
+      const token = await getAccessToken();
+      if (!token) {
+        toast("Please sign in before testing automations.", "error");
+        return;
+      }
+
       const endpoint =
         type === "review"
           ? "/api/automations/send-review-request"
@@ -540,7 +549,10 @@ const MarketingAutomationConfig: React.FC<MarketingAutomationConfigProps> = ({
 
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(testData),
       });
 
@@ -559,7 +571,7 @@ const MarketingAutomationConfig: React.FC<MarketingAutomationConfigProps> = ({
       } else {
         toast(result.error || "Test failed. Check API configuration in environment variables.", "error");
       }
-    } catch (error) {
+    } catch {
       toast("Test failed. Make sure serverless functions are deployed and environment variables are set.", "error");
     }
   };

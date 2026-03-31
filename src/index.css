@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=Manrope:wght@400;500;700;800&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -11,12 +13,35 @@ body {
 }
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: "Manrope", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background-color: #f1f5f9; /* slate-100 style background */
   color: #0f172a; /* slate-900 style text */
 }
 
 #root {
   min-height: 100vh;
+}
+
+.font-display {
+  font-family: "Archivo", "Manrope", system-ui, sans-serif;
+}
+
+.landing-root {
+  background:
+    radial-gradient(1200px 550px at 15% -10%, rgba(125, 211, 252, 0.26), rgba(2, 6, 23, 0) 62%),
+    radial-gradient(900px 500px at 90% 8%, rgba(251, 191, 36, 0.2), rgba(2, 6, 23, 0) 58%),
+    linear-gradient(165deg, #081224 0%, #102542 55%, #09111f 100%);
+}
+
+.reveal-up {
+  opacity: 0;
+  transform: translateY(14px);
+  animation: reveal-up 520ms ease forwards;
+}
+
+@keyframes reveal-up {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

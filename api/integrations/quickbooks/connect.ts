@@ -1,21 +1,20 @@
 // api/integrations/quickbooks/connect.ts
-// Stub handler for "Connect to QuickBooks" button in Admin Integrations tab.
-// For now this just returns a fake auth URL so you can prove the wiring works.
+// QuickBooks OAuth integration is not yet implemented.
+// Returns 501 so the UI shows a clear "not available" error instead of
+// falsely marking the integration as connected.
 
-export default async function handler(req: any, res: any) {
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+export default function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' })
-    return
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
   }
 
-  // TODO: Replace this with real QuickBooks OAuth logic.
-  // For example: create an OAuth state, build the QuickBooks authorize URL,
-  // save state in a DB, then return the URL here.
-
-  res.status(200).json({
-    ok: true,
-    provider: 'quickbooks',
-    // Front-end will redirect the browser to this URL if present.
-    authUrl: 'https://example.com/quickbooks-oauth-demo'
-  })
+  res.status(501).json({
+    error: 'Not implemented',
+    message:
+      'QuickBooks OAuth is not yet configured on this server. ' +
+      'Set up your Intuit developer credentials and implement the OAuth flow before enabling this integration.',
+  });
 }

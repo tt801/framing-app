@@ -238,7 +238,7 @@ export default function APISettingsPage() {
         {/* Info Box */}
         <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
           <p className="text-sm text-blue-800">
-            💡 Your API credentials are encrypted and stored securely. Only you can see and use them.
+            💡 Your API credentials are stored securely with row-level access control. Only your account can read or update them.
           </p>
         </div>
       </div>

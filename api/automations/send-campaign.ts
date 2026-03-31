@@ -1,8 +1,21 @@
-type VercelRequest = any;
-type VercelResponse = any;
+type VercelRequest = {
+  method?: string;
+  headers?: Record<string, string | undefined>;
+  body?: Record<string, unknown>;
+};
+
+type VercelResponse = {
+  status: (code: number) => VercelResponse;
+  json: (payload: unknown) => VercelResponse;
+};
+
+type MicrosoftTokenResponse = {
+  access_token?: string;
+};
 
 // Import Supabase server client
 import { createClient } from '@supabase/supabase-js';
+import { requireAuthenticatedUserId } from '../_lib/auth';
 
 const createSupabaseServerClient = () => {
   const url = process.env.SUPABASE_URL;
@@ -35,17 +48,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { userId, campaignId, campaignName, message, channel, recipientEmails, recipientPhones } = req.body;
+  const {
+    campaignId,
+    campaignName,
+    message,
+    messageTemplate,
+    channel,
+    recipientEmails,
+    recipientPhones,
+    recipients,
+  } = req.body || {};
 
-  if (!userId) {
-    return res.status(401).json({ error: 'User ID required' });
-  }
+  const normalizedMessage = typeof message === 'string' ? message : messageTemplate;
+  const normalizedCampaignName = typeof campaignName === 'string' && campaignName.trim().length > 0
+    ? campaignName
+    : 'Campaign';
+  const normalizedEmails = (Array.isArray(recipientEmails) ? recipientEmails : Array.isArray(recipients) ? recipients : [])
+    .filter((e: unknown) => typeof e === 'string' && e.includes('@'));
+  const normalizedPhones = (Array.isArray(recipientPhones) ? recipientPhones : [])
+    .filter((p: unknown) => typeof p === 'string' && p.startsWith('+'));
 
-  if (!campaignId || !campaignName || !message || !channel) {
+  if (!normalizedMessage || !channel) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
   try {
+    const userId = await requireAuthenticatedUserId(req);
+
     // Get user's API credentials
     const credentials = await getUserApiCredentials(userId);
 
@@ -66,15 +95,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       // Filter and send to phone numbers
-      const phones = recipientPhones?.filter((p: string) => p && p.startsWith('+'));
-      if (!phones?.length) {
+      if (!normalizedPhones.length) {
         return res.status(400).json({ error: 'No valid phone numbers provided for WhatsApp' });
       }
 
-      for (const phone of phones) {
+      for (const phone of normalizedPhones) {
         try {
           const auth = Buffer.from(`${credentials.twilio_account_sid}:${credentials.twilio_auth_token}`).toString('base64');
-          await fetch(
+          const providerResponse = await fetch(
             `https://api.twilio.com/2010-04-01/Accounts/${credentials.twilio_account_sid}/Messages.json`,
             {
               method: 'POST',
@@ -89,6 +117,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               }).toString(),
             }
           );
+
+          if (!providerResponse.ok) {
+            const text = await providerResponse.text().catch(() => '');
+            console.error(`Failed to send WhatsApp to ${phone}:`, text);
+            continue;
+          }
+
           sent++;
         } catch (error) {
           console.error(`Failed to send WhatsApp to ${phone}:`, error);
@@ -100,6 +135,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({
           error: 'Email not configured. Add Microsoft credentials in API Settings.',
         });
+      }
+
+      if (!normalizedEmails.length) {
+        return res.status(400).json({ error: 'No valid email addresses provided' });
       }
 
       // Get access token
@@ -118,15 +157,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       );
 
-      const tokenData = (await tokenResponse.json()) as any;
+      const tokenData = (await tokenResponse.json()) as MicrosoftTokenResponse;
       if (!tokenData.access_token) {
         return res.status(400).json({ error: 'Failed to authenticate with Microsoft' });
       }
 
       // Send to each email address
-      for (const email of recipientEmails || []) {
+      for (const email of normalizedEmails) {
         try {
-          await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+          const providerResponse = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(credentials.outlook_from_email)}/sendMail`, {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${tokenData.access_token}`,
@@ -150,6 +189,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               saveToSentItems: true,
             }),
           });
+
+          if (!providerResponse.ok) {
+            const text = await providerResponse.text().catch(() => '');
+            console.error(`Failed to send email to ${email}:`, text);
+            continue;
+          }
+
           sent++;
         } catch (error) {
           console.error(`Failed to send email to ${email}:`, error);
@@ -163,9 +209,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      for (const email of recipientEmails || []) {
+      if (!normalizedEmails.length) {
+        return res.status(400).json({ error: 'No valid email addresses provided' });
+      }
+
+      for (const email of normalizedEmails) {
         try {
-          await fetch(
+          const providerResponse = await fetch(
             `https://${credentials.mailchimp_server}.api.mailchimp.com/3.0/messages/send`,
             {
               method: 'POST',
@@ -183,20 +233,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               }),
             }
           );
+
+          if (!providerResponse.ok) {
+            const text = await providerResponse.text().catch(() => '');
+            console.error(`Failed to send Mailchimp to ${email}:`, text);
+            continue;
+          }
+
           sent++;
         } catch (error) {
           console.error(`Failed to send Mailchimp to ${email}:`, error);
         }
       }
+    } else {
+      return res.status(400).json({ error: 'Invalid channel' });
     }
 
     // Log the campaign send
     const sendLog = {
       campaignId,
-      campaignName,
+      campaignName: normalizedCampaignName,
       channel,
       sentAt: new Date().toISOString(),
-      recipientCount: recipientEmails?.length || recipientPhones?.length || 0,
+      recipientCount: normalizedEmails.length || normalizedPhones.length || 0,
       sent,
     };
 
@@ -204,14 +263,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       success: true,
-      message: `Campaign "${campaignName}" sent to ${sent} recipients`,
+      message: `Campaign "${normalizedCampaignName}" sent to ${sent} recipients`,
       sent,
       log: sendLog,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to send campaign';
     console.error('Campaign send error:', error);
     return res.status(500).json({
-      error: error.message || 'Failed to send campaign',
+      error: message,
     });
   }
 }

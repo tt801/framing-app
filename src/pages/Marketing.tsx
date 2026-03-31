@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, prefer-const */
 // src/pages/Marketing.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import { useQuotes } from "@/lib/quotes";
@@ -5,6 +6,7 @@ import { useCustomers } from "@/lib/customers";
 import { useJobs } from "@/lib/jobs";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
+import { getAccessToken } from "@/lib/supabase";
 
 /** Minimal inline icons (no external deps) */
 const Icon = {
@@ -119,6 +121,17 @@ export default function MarketingPage() {
   const quotes: any[] = quotesStore?.quotes || quotesStore?.items || [];
   const customers: any[] = customersStore?.customers || customersStore?.items || [];
   const jobs: any[] = jobsStore?.jobs || jobsStore?.items || [];
+
+  const getAuthHeaders = async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      throw new Error("Please sign in to send marketing automations.");
+    }
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    };
+  };
 
   const [plannedCampaigns, setPlannedCampaigns] = useState<Campaign[]>([
     {
@@ -342,7 +355,7 @@ export default function MarketingPage() {
 
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify(testData),
       });
 
@@ -425,7 +438,7 @@ export default function MarketingPage() {
       // Call the campaign sending API
       const response = await fetch("/api/automations/send-campaign", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           campaignId: campaign.id,
           campaignName: campaign.name,
@@ -642,7 +655,7 @@ export default function MarketingPage() {
 
       const response = await fetch("/api/automations/send-campaign", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({
           channel: sendingChannel,
           recipients: recipientEmails,

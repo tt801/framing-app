@@ -1,8 +1,60 @@
 // api/automations/send-quote-followup.ts
 // Serverless function to send automated quote follow-ups
 
-type VercelRequest = any;
-type VercelResponse = any;
+type VercelRequest = {
+  method?: string;
+  headers?: Record<string, string | undefined>;
+  body?: unknown;
+};
+
+type VercelResponse = {
+  status: (code: number) => VercelResponse;
+  json: (payload: unknown) => VercelResponse;
+};
+import { createClient } from '@supabase/supabase-js';
+import { requireAuthenticatedUserId } from '../_lib/auth';
+
+type UserApiCredentials = {
+  twilio_account_sid?: string;
+  twilio_auth_token?: string;
+  twilio_whatsapp_number?: string;
+  microsoft_client_id?: string;
+  microsoft_client_secret?: string;
+  microsoft_tenant_id?: string;
+  outlook_from_email?: string;
+  mailchimp_api_key?: string;
+  mailchimp_server?: string;
+};
+
+type MicrosoftTokenResponse = {
+  access_token?: string;
+};
+
+const createSupabaseServerClient = () => {
+  const url = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error('Supabase not configured');
+  }
+
+  return createClient(url, serviceRoleKey);
+};
+
+const getUserApiCredentials = async (userId: string): Promise<UserApiCredentials | null> => {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from('user_api_credentials')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') {
+    throw error;
+  }
+
+  return (data as UserApiCredentials | null) ?? null;
+};
 
 interface QuoteFollowup {
   customerName: string;
@@ -20,6 +72,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const userId = await requireAuthenticatedUserId(req);
+
     const {
       customerName,
       customerEmail,
@@ -29,15 +83,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       channel,
     } = req.body as QuoteFollowup;
 
-    // Get API keys from environment variables
-    const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-    const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-    const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER;
-    const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
-    const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
-    const MICROSOFT_TENANT_ID = process.env.MICROSOFT_TENANT_ID;
-    const MAILCHIMP_API_KEY = process.env.MAILCHIMP_API_KEY;
-    const MAILCHIMP_SERVER = process.env.MAILCHIMP_SERVER;
+    const credentials = await getUserApiCredentials(userId);
+    if (!credentials) {
+      return res.status(400).json({
+        error: 'No API credentials configured. Please add them in API Settings.',
+      });
+    }
 
     // Determine message based on days old
     let message;
@@ -52,7 +103,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let result;
 
     if (channel === 'whatsapp') {
-      if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_NUMBER) {
+      if (!credentials.twilio_account_sid || !credentials.twilio_auth_token || !credentials.twilio_whatsapp_number) {
         return res.status(400).json({ error: 'Twilio credentials not configured' });
       }
 
@@ -61,24 +112,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const response = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
+        `https://api.twilio.com/2010-04-01/Accounts/${credentials.twilio_account_sid}/Messages.json`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            Authorization: `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
+            Authorization: `Basic ${Buffer.from(`${credentials.twilio_account_sid}:${credentials.twilio_auth_token}`).toString('base64')}`,
           },
           body: new URLSearchParams({
-            From: `whatsapp:${TWILIO_WHATSAPP_NUMBER}`,
+            From: `whatsapp:${credentials.twilio_whatsapp_number}`,
             To: `whatsapp:${customerPhone}`,
             Body: message,
           }),
         }
       );
 
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        return res.status(502).json({ error: 'Twilio send failed', details: text });
+      }
+
       result = await response.json();
     } else if (channel === 'email') {
-      if (!MICROSOFT_CLIENT_ID || !MICROSOFT_CLIENT_SECRET || !MICROSOFT_TENANT_ID) {
+      if (!credentials.microsoft_client_id || !credentials.microsoft_client_secret || !credentials.outlook_from_email) {
         return res.status(400).json({ error: 'Microsoft credentials not configured' });
       }
 
@@ -88,23 +144,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Get access token
       const tokenResponse = await fetch(
-        `https://login.microsoftonline.com/${MICROSOFT_TENANT_ID}/oauth2/v2.0/token`,
+        `https://login.microsoftonline.com/${credentials.microsoft_tenant_id || 'common'}/oauth2/v2.0/token`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
-            client_id: MICROSOFT_CLIENT_ID,
-            client_secret: MICROSOFT_CLIENT_SECRET,
+            client_id: credentials.microsoft_client_id,
+            client_secret: credentials.microsoft_client_secret,
             scope: 'https://graph.microsoft.com/.default',
             grant_type: 'client_credentials',
           }),
         }
       );
 
-      const { access_token } = await tokenResponse.json();
+      if (!tokenResponse.ok) {
+        const text = await tokenResponse.text().catch(() => '');
+        return res.status(502).json({ error: 'Microsoft token request failed', details: text });
+      }
+
+      const { access_token } = (await tokenResponse.json()) as MicrosoftTokenResponse;
+      if (!access_token) {
+        return res.status(400).json({ error: 'Failed to authenticate with Microsoft' });
+      }
 
       // Send email
-      const emailResponse = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+      const emailResponse = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(credentials.outlook_from_email)}/sendMail`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${access_token}`,
@@ -122,9 +186,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }),
       });
 
+      if (!emailResponse.ok) {
+        const text = await emailResponse.text().catch(() => '');
+        return res.status(502).json({ error: 'Microsoft send failed', details: text });
+      }
+
       result = { status: 'sent', email: customerEmail };
     } else if (channel === 'mailchimp') {
-      if (!MAILCHIMP_API_KEY || !MAILCHIMP_SERVER) {
+      if (!credentials.mailchimp_api_key || !credentials.mailchimp_server) {
         return res.status(400).json({ error: 'Mailchimp credentials not configured' });
       }
 
@@ -133,24 +202,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const response = await fetch(
-        `https://${MAILCHIMP_SERVER}.api.mailchimp.com/3.0/messages/send`,
+        `https://${credentials.mailchimp_server}.api.mailchimp.com/3.0/messages/send`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${MAILCHIMP_API_KEY}`,
+            Authorization: `Bearer ${credentials.mailchimp_api_key}`,
           },
           body: JSON.stringify({
             message: {
               subject: daysOld > 14 ? '✨ Special 10% off offer!' : `About your ${quotedItem} quote`,
               text: message,
-              from_email: 'hello@yourframingbusiness.com',
+              from_email: credentials.outlook_from_email || 'noreply@framingapp.com',
               from_name: 'Your Framing Business',
               to: [{ email: customerEmail, name: customerName, type: 'to' }],
             },
           }),
         }
       );
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        return res.status(502).json({ error: 'Mailchimp send failed', details: text });
+      }
 
       result = await response.json();
     } else {
@@ -164,11 +238,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       daysOld,
       result,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const details = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error sending quote follow-up:', error);
     return res.status(500).json({
       error: 'Failed to send quote follow-up',
-      details: error.message,
+      details,
     });
   }
 }

@@ -21,6 +21,12 @@ export const getCurrentUser = async () => {
   return user;
 };
 
+export const getAccessToken = async () => {
+  if (!supabase) return null;
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token || null;
+};
+
 // Helper to get user's API credentials
 export const getUserCredentials = async (userId: string) => {
   if (!supabase) return null;
@@ -38,7 +44,7 @@ export const getUserCredentials = async (userId: string) => {
 };
 
 // Helper to save user's API credentials
-export const saveUserCredentials = async (userId: string, credentials: any) => {
+export const saveUserCredentials = async (userId: string, credentials: Record<string, unknown>) => {
   if (!supabase) {
     throw new Error('Supabase not configured');
   }

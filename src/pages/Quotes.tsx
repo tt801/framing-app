@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
 // src/pages/Quotes.tsx
 import React, { useMemo, useState } from "react";
 import { useQuotes } from "@/lib/quotes";

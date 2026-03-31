@@ -1,19 +1,22 @@
 // src/App.tsx
-import React, { useEffect, useState } from "react";
-import VisualizerApp from "./VisualizerApp";
-import Admin from "./pages/Admin";
-import Customers from "./pages/Customers";
-import Quotes from "./pages/Quotes";
-import InvoicesPage from "./pages/Invoices";
-import MarketingPage from "./pages/Marketing";
-import StockPage from "./pages/Stock";
-import JobsPage from "./pages/Jobs";
-import CalendarPage from "./pages/Calendar";
-import DashboardPage from "./pages/Dashboard";
-import APISettingsPage from "./pages/APISettings";
+import React, { useEffect, useState, Suspense } from "react";
+import { LoadingSpinner } from "./components/LoadingSpinner";
 import ToastContainer from "./components/ToastContainer";
 import CommandPalette from "./components/CommandPalette";
 import { useLayout } from "@/lib/layout";
+
+const VisualizerApp = React.lazy(() => import("./VisualizerApp"));
+const Admin = React.lazy(() => import("./pages/Admin"));
+const Customers = React.lazy(() => import("./pages/Customers"));
+const Quotes = React.lazy(() => import("./pages/Quotes"));
+const InvoicesPage = React.lazy(() => import("./pages/Invoices"));
+const MarketingPage = React.lazy(() => import("./pages/Marketing"));
+const StockPage = React.lazy(() => import("./pages/Stock"));
+const JobsPage = React.lazy(() => import("./pages/Jobs"));
+const CalendarPage = React.lazy(() => import("./pages/Calendar"));
+const DashboardPage = React.lazy(() => import("./pages/Dashboard"));
+const APISettingsPage = React.lazy(() => import("./pages/APISettings"));
+const WebsiteLanding = React.lazy(() => import("./pages/WebsiteLanding"));
 
 // ---------- Hash Router ----------
 function useHashRoute() {
@@ -41,9 +44,15 @@ function ErrorBoundary({ children }: { children: React.ReactNode }) {
     );
   }
   return (
-    <React.Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center p-12">
+          <LoadingSpinner size="lg" />
+        </div>
+      }
+    >
       <ErrorCatcher onError={setErr}>{children}</ErrorCatcher>
-    </React.Suspense>
+    </Suspense>
   );
 }
 
@@ -56,8 +65,8 @@ function ErrorCatcher({
 }) {
   try {
     return <>{children}</>;
-  } catch (e: any) {
-    onError(e);
+  } catch (e: unknown) {
+    onError(e instanceof Error ? e : new Error(String(e)));
     return null;
   }
 }
@@ -66,6 +75,8 @@ function ErrorCatcher({
 function App() {
   const route = useHashRoute();
   const { layoutMode, toggleLayoutMode } = useLayout();
+
+  const isLanding = route === "/" || route === "";
 
   const isAdmin = route.startsWith("/admin");
   const isCustomers = route.startsWith("/customers");
@@ -76,11 +87,11 @@ function App() {
   const isStock = route.startsWith("/stock");
   const isCalendar = route.startsWith("/calendar");
   const isAPISettings = route.startsWith("/api-settings");
+  const isDashboard = route.startsWith("/dashboard");
   const isVisualizer =
     route.startsWith("/app") || route.startsWith("/visualizer");
-
-  // Dashboard = default home when no other route matches
-  const isDashboard =
+  const isUnknownInternalRoute =
+    !isLanding &&
     !isAdmin &&
     !isCustomers &&
     !isQuotes &&
@@ -90,10 +101,11 @@ function App() {
     !isStock &&
     !isCalendar &&
     !isAPISettings &&
-    !isVisualizer;
+    !isVisualizer &&
+    !isDashboard;
 
   const navItems = [
-    { label: "Dashboard", href: "#/", active: isDashboard },
+    { label: "Dashboard", href: "#/dashboard", active: isDashboard || isUnknownInternalRoute },
     { label: "App", href: "#/app", active: isVisualizer },
     { label: "Customers", href: "#/customers", active: isCustomers },
     { label: "Quotes", href: "#/quotes", active: isQuotes },
@@ -139,6 +151,14 @@ function App() {
     } catch {
       /* ignore */
     }
+  }
+
+  if (isLanding) {
+    return (
+      <ErrorBoundary>
+        <WebsiteLanding />
+      </ErrorBoundary>
+    );
   }
 
   return (

@@ -31,7 +31,7 @@ function loadFromStorage(): AppUser[] {
 function saveToStorage(users: AppUser[]) {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(users));
-  } catch {}
+  } catch { /* ignore quota errors */ }
 }
 
 type UserStore = {

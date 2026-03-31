@@ -1,135 +1,105 @@
-// src/pages/Marketing.tsx
-import React, { useMemo, useState } from 'react'
-import { useCatalog } from '../lib/store'
+type VercelRequest = {
+  method?: string;
+  headers?: Record<string, string | undefined>;
+  body?: Record<string, unknown>;
+};
 
-type Provider = 'mailchimp' | 'sendgrid' | 'custom'
+type VercelResponse = {
+  status: (code: number) => VercelResponse;
+  json: (payload: unknown) => VercelResponse;
+};
 
-export default function MarketingPage() {
-  const { catalog } = useCatalog()
-  const [provider, setProvider] = useState<Provider>('mailchimp')
-  const [testEmail, setTestEmail] = useState('')
-  const [audienceId, setAudienceId] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+import { createClient } from '@supabase/supabase-js';
+import { requireAuthenticatedUserId } from '../_lib/auth';
 
-  const company = useMemo(() => ({
-    name: (catalog.settings as any)?.companyName || 'FrameIT',
-    email: (catalog.settings as any)?.companyEmail || '',
-  }), [catalog.settings])
+const createSupabaseServerClient = () => {
+  const url = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const onSubscribe = async () => {
-    setMsg(null)
-    if (!testEmail || !audienceId) {
-      setMsg('Enter an email and audience/list ID first.')
-      return
-    }
-    try {
-      setBusy(true)
-      // Calls your serverless function (Vercel) – see /api/mailchimp/subscribe.ts below.
-      const res = await fetch('/api/mailchimp/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: testEmail, audienceId }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || 'Failed to subscribe')
-      setMsg(`Subscribed ${testEmail} ✅`)
-      setTestEmail('')
-    } catch (e: any) {
-      setMsg(e.message || 'Error')
-    } finally {
-      setBusy(false)
-    }
+  if (!url || !serviceRoleKey) {
+    throw new Error('Supabase not configured');
   }
 
-  return (
-    <div className="p-4 space-y-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Marketing Integrations</h1>
-        <div className="text-sm text-slate-600">
-          {company.name} {company.email ? `• ${company.email}` : ''}
-        </div>
-      </header>
+  return createClient(url, serviceRoleKey);
+};
 
-      {/* Provider selector */}
-      <div className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4">
-        <div className="text-sm font-medium mb-2">Provider</div>
-        <div className="flex gap-2 text-sm">
-          <button
-            className={`rounded border px-3 py-1 ${provider==='mailchimp' ? 'bg-black text-white' : 'bg-white hover:bg-black/5'}`}
-            onClick={() => setProvider('mailchimp')}
-          >
-            Mailchimp
-          </button>
-          <button
-            className={`rounded border px-3 py-1 ${provider==='sendgrid' ? 'bg-black text-white' : 'bg-white hover:bg-black/5'}`}
-            onClick={() => setProvider('sendgrid')}
-          >
-            SendGrid (coming soon)
-          </button>
-          <button
-            className={`rounded border px-3 py-1 ${provider==='custom' ? 'bg-black text-white' : 'bg-white hover:bg-black/5'}`}
-            onClick={() => setProvider('custom')}
-          >
-            Custom Webhook (coming soon)
-          </button>
-        </div>
-      </div>
+const getUserApiCredentials = async (userId: string) => {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from('user_api_credentials')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
 
-      {/* Mailchimp block */}
-      {provider === 'mailchimp' && (
-        <div className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4 space-y-3">
-          <div className="text-sm">
-            <div className="font-medium mb-1">Mailchimp</div>
-            <p className="text-slate-600">
-              For security, store API keys as environment variables on Vercel (do <b>not</b> hardcode in the browser).
-              Use the serverless endpoint below to subscribe contacts.
-            </p>
-          </div>
+  if (error && error.code !== 'PGRST116') {
+    throw error;
+  }
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="block text-xs font-medium mb-1">Audience (List) ID</label>
-              <input
-                className="w-full rounded border px-3 py-2 text-sm"
-                placeholder="e.g. a1b2c3d4e5"
-                value={audienceId}
-                onChange={e => setAudienceId(e.target.value)}
-              />
-            </div>
+  return data;
+};
 
-            <div>
-              <label className="block text-xs font-medium mb-1">Test email</label>
-              <input
-                className="w-full rounded border px-3 py-2 text-sm"
-                placeholder="name@example.com"
-                value={testEmail}
-                onChange={e => setTestEmail(e.target.value)}
-              />
-            </div>
-          </div>
+const isValidEmail = (value: unknown): value is string => {
+  return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+};
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onSubscribe}
-              disabled={busy}
-              className="rounded border px-3 py-2 text-sm bg-white hover:bg-black hover:text-white disabled:opacity-60"
-            >
-              {busy ? 'Subscribing…' : 'Subscribe test email'}
-            </button>
-            {msg && <div className="text-sm">{msg}</div>}
-          </div>
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
-          <details className="text-xs mt-2">
-            <summary className="cursor-pointer select-none">Setup notes</summary>
-            <ul className="list-disc pl-4 mt-2 space-y-1 text-slate-600">
-              <li>On Vercel, add env vars: <code>MAILCHIMP_API_KEY</code> and <code>MAILCHIMP_DC</code> (e.g. <code>us21</code>), and optionally <code>MAILCHIMP_AUDIENCE_ID</code>.</li>
-              <li>Create the serverless function <code>/api/mailchimp/subscribe.ts</code> (below) to proxy requests to Mailchimp.</li>
-              <li>Do not expose API keys in client code.</li>
-            </ul>
-          </details>
-        </div>
-      )}
-    </div>
-  )
+  try {
+    const userId = await requireAuthenticatedUserId(req);
+    const { email, audienceId } = req.body || {};
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
+
+    if (typeof audienceId !== 'string' || audienceId.trim().length === 0) {
+      return res.status(400).json({ error: 'Audience ID is required' });
+    }
+
+    const credentials = await getUserApiCredentials(userId);
+    if (!credentials?.mailchimp_api_key || !credentials?.mailchimp_server) {
+      return res.status(400).json({
+        error: 'Mailchimp credentials not configured. Please add them in API Settings.',
+      });
+    }
+
+    const auth = Buffer.from(`anystring:${credentials.mailchimp_api_key}`).toString('base64');
+    const response = await fetch(
+      `https://${credentials.mailchimp_server}.api.mailchimp.com/3.0/lists/${encodeURIComponent(audienceId)}/members`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email_address: email,
+          status: 'subscribed',
+          status_if_new: 'subscribed',
+        }),
+      }
+    );
+
+    if (response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return res.status(200).json({ success: true, data });
+    }
+
+    const errorData = await response.json().catch(() => ({}));
+    if (errorData?.title === 'Member Exists') {
+      return res.status(200).json({ success: true, alreadySubscribed: true });
+    }
+
+    return res.status(502).json({
+      error: 'Mailchimp subscribe request failed',
+      details: errorData?.detail || errorData?.title || `HTTP ${response.status}`,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to subscribe contact';
+    console.error('Mailchimp subscribe error:', error);
+    return res.status(500).json({ error: message });
+  }
 }
