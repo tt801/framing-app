@@ -173,6 +173,8 @@ function App() {
     }
   }, [authLoading, isAuthenticated, isPublicRoute]);
 
+  const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding && isAuthenticated);
+
   if (!isPublicRoute && authLoading) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-slate-50">
@@ -199,8 +201,6 @@ function App() {
       </div>
     );
   }
-
-  const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding);
 
   const navItems = [
     { label: "Dashboard", href: "#/dashboard", active: isDashboard || isUnknownInternalRoute },
