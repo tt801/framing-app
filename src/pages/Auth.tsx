@@ -54,7 +54,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
       setLoading(true);
 
       if (mode === "signup") {
-        const redirectTo = `${window.location.origin}${window.location.pathname}#/dashboard`;
+        const redirectTo = `${window.location.origin}/auth/callback`;
         const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,

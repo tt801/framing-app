@@ -20,17 +20,33 @@ const DashboardPage = React.lazy(() => import("./pages/Dashboard"));
 const APISettingsPage = React.lazy(() => import("./pages/APISettings"));
 const WebsiteLanding = React.lazy(() => import("./pages/WebsiteLanding"));
 const AuthPage = React.lazy(() => import("./pages/Auth"));
+const AuthCallbackPage = React.lazy(() => import("./pages/AuthCallback"));
 
 // ---------- Hash Router ----------
 function useHashRoute() {
-  const [route, setRoute] = useState(window.location.hash || "#/");
+  const getRoute = () => {
+    if (window.location.hash) {
+      return window.location.hash.replace(/^#/, "");
+    }
+
+    if (window.location.pathname && window.location.pathname !== "/") {
+      return window.location.pathname;
+    }
+
+    return "/";
+  };
+
+  const [route, setRoute] = useState(getRoute());
   useEffect(() => {
-    const onHash = () => setRoute(window.location.hash || "#/");
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    const onLocationChange = () => setRoute(getRoute());
+    window.addEventListener("hashchange", onLocationChange);
+    window.addEventListener("popstate", onLocationChange);
+    return () => {
+      window.removeEventListener("hashchange", onLocationChange);
+      window.removeEventListener("popstate", onLocationChange);
+    };
   }, []);
-  // e.g. returns "/", "/customers", "/quotes", etc.
-  return route.replace(/^#/, "");
+  return route;
 }
 
 // ---------- Error Boundary ----------
@@ -82,7 +98,8 @@ function App() {
   const isLanding = route === "/" || route === "";
   const isLogin = route.startsWith("/login");
   const isStartTrial = route.startsWith("/start-trial");
-  const isAuthRoute = isLogin || isStartTrial;
+  const isAuthCallback = route.startsWith("/auth/callback");
+  const isAuthRoute = isLogin || isStartTrial || isAuthCallback;
 
   const isAdmin = route.startsWith("/admin");
   const isCustomers = route.startsWith("/customers");
@@ -172,7 +189,11 @@ function App() {
   if (isAuthRoute) {
     return (
       <ErrorBoundary>
-        <AuthPage defaultMode={isStartTrial ? "signup" : "login"} />
+        {isAuthCallback ? (
+          <AuthCallbackPage />
+        ) : (
+          <AuthPage defaultMode={isStartTrial ? "signup" : "login"} />
+        )}
       </ErrorBoundary>
     );
   }

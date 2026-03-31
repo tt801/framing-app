@@ -4,5 +4,11 @@
       "path": "/api/automations/scheduled-check",
       "schedule": "0 9 * * *"
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/"
+    }
   ]
 }
