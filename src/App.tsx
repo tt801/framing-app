@@ -5,6 +5,7 @@ import ToastContainer from "./components/ToastContainer";
 import CommandPalette from "./components/CommandPalette";
 import { useLayout } from "@/lib/layout";
 import TrialBanner from "./components/TrialBanner";
+import UpgradeModal from "./components/UpgradeModal";
 import { useTrialStatus } from "@/lib/trial";
 
 const VisualizerApp = React.lazy(() => import("./VisualizerApp"));
@@ -21,6 +22,7 @@ const APISettingsPage = React.lazy(() => import("./pages/APISettings"));
 const WebsiteLanding = React.lazy(() => import("./pages/WebsiteLanding"));
 const AuthPage = React.lazy(() => import("./pages/Auth"));
 const AuthCallbackPage = React.lazy(() => import("./pages/AuthCallback"));
+const BillingSuccessPage = React.lazy(() => import("./pages/BillingSuccess"));
 
 // ---------- Hash Router ----------
 function useHashRoute() {
@@ -111,6 +113,7 @@ function App() {
   const isCalendar = route.startsWith("/calendar");
   const isAPISettings = route.startsWith("/api-settings");
   const isDashboard = route.startsWith("/dashboard");
+  const isBillingSuccess = route.startsWith("/billing/success");
   const isVisualizer =
     route.startsWith("/app") || route.startsWith("/visualizer");
   const isUnknownInternalRoute =
@@ -125,7 +128,8 @@ function App() {
     !isCalendar &&
     !isAPISettings &&
     !isVisualizer &&
-    !isDashboard;
+    !isDashboard &&
+    !isBillingSuccess;
 
   const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding);
 
@@ -198,32 +202,20 @@ function App() {
     );
   }
 
+  if (isBillingSuccess) {
+    return (
+      <ErrorBoundary>
+        <BillingSuccessPage />
+      </ErrorBoundary>
+    );
+  }
+
   if (!trialLoading && isExpired) {
     return (
       <div className="min-h-dvh w-full bg-slate-50 text-slate-900">
         <TrialBanner trial={trial} />
         <main className="mx-auto flex min-h-[70vh] w-full max-w-3xl items-center justify-center px-4 py-12">
-          <div className="w-full rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-[0.15em] text-rose-600">Subscription Required</p>
-            <h1 className="mt-2 text-3xl font-black text-slate-900">Your free trial has ended</h1>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              Upgrade to continue managing quotes, jobs, invoices, and automations for your business account.
-            </p>
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-              <a
-                href="#/"
-                className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-black"
-              >
-                View Pricing
-              </a>
-              <a
-                href="#/api-settings"
-                className="rounded-full border border-slate-300 px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-800 hover:bg-slate-50"
-              >
-                API Settings
-              </a>
-            </div>
-          </div>
+          <UpgradeModal onClose={() => window.location.hash = "#/"} />
         </main>
       </div>
     );

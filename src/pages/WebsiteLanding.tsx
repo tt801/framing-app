@@ -1,83 +1,411 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+
+// ─── Currency ────────────────────────────────────────────────────────────────
+
+const CURRENCY_CODES = ["ZAR", "USD", "GBP", "EUR", "AUD", "CAD"] as const;
+type CurrencyCode = (typeof CURRENCY_CODES)[number];
+
+const CURRENCIES: Record<CurrencyCode, { symbol: string; label: string; rate: number }> = {
+  ZAR: { symbol: "R",   label: "ZAR – South African Rand", rate: 1 },
+  USD: { symbol: "$",   label: "USD – US Dollar",          rate: 0.054 },
+  GBP: { symbol: "£",   label: "GBP – British Pound",      rate: 0.043 },
+  EUR: { symbol: "€",   label: "EUR – Euro",               rate: 0.050 },
+  AUD: { symbol: "A$",  label: "AUD – Australian Dollar",  rate: 0.084 },
+  CAD: { symbol: "C$",  label: "CAD – Canadian Dollar",    rate: 0.074 },
+};
+
+// Approximate Q1-2026 rates from ZAR — update periodically
+function detectCurrency(): CurrencyCode {
+  const locale = (navigator.language ?? "en-ZA").toLowerCase();
+  if (locale.includes("-us")) return "USD";
+  if (locale.includes("-gb")) return "GBP";
+  if (locale.includes("-au") || locale.includes("-nz")) return "AUD";
+  if (locale.includes("-ca")) return "CAD";
+  if (["de-", "fr-", "nl-", "it-", "es-", "pt-"].some((l) => locale.startsWith(l))) return "EUR";
+  return "ZAR";
+}
+
+function fmtPrice(zarAmount: number, currency: CurrencyCode): string {
+  const { symbol, rate } = CURRENCIES[currency];
+  const val = Math.round(zarAmount * rate);
+  return `${symbol}${val}`;
+}
+
+// ─── Content config ───────────────────────────────────────────────────────────
 
 const landingContent = {
   brandName: "Framers App",
   brandTagline: "Business OS for modern framing studios",
   heroBadge: "Built for custom framers",
-  heroTitle: "Spend more time framing and less time managing.",
+  heroTitle: "Spend more time framing,\nless time on admin.",
   heroBody:
-    "Framers App combines quoting, jobs, invoicing, stock, customer history, and follow-up automations in one focused tool for independent framing businesses.",
-  aboutTitle: "About Framers App",
-  aboutBody:
-    "Framers App is built specifically for independent framing studios that need professional workflows without enterprise complexity. It brings quoting, job tracking, invoicing, stock control, and follow-up campaigns into one practical workspace your team can use every day.",
-  proofQuote:
-    "We replaced four tools and now send quotes in under 10 minutes.",
-  sectionTabs: [
-    { label: "About", id: "about" },
-    { label: "Pricing", id: "pricing" },
-    { label: "Features", id: "features" },
-  ],
+    "Framers App brings quoting, job tracking, invoicing, stock control, room visualisation, and customer follow-ups into one focused workspace built for independent framing studios.",
+
   stats: [
-    { label: "Quoting time saved", value: "63%" },
-    { label: "Avg. monthly jobs", value: "+41" },
-    { label: "Repeat customers", value: "2.2x" },
+    { label: "Faster quoting", value: "63%" },
+    { label: "Extra jobs / month", value: "+41" },
+    { label: "Repeat customer rate", value: "2.2×" },
+    { label: "Admin hours saved / week", value: "6 hrs" },
   ],
+
+  steps: [
+    {
+      num: "01",
+      title: "Build a quote in minutes",
+      body: "Add the client, the artwork dimensions, and select frame, mat, and glass from your stock catalogue. Pricing calculates automatically from your own markup rules.",
+    },
+    {
+      num: "02",
+      title: "Convert to a job with one click",
+      body: "When the client says yes, the quote becomes a tracked job card — ready with work notes, due dates, and team assignment already filled in.",
+    },
+    {
+      num: "03",
+      title: "Invoice, follow up, and repeat",
+      body: "Generate a professional invoice, trigger follow-up emails automatically, and build a client history that keeps repeat business coming back.",
+    },
+  ],
+
   features: [
     {
+      id: "quotes",
       title: "Quote-to-Job Pipeline",
-      text: "Move from first enquiry to approved quote to job card without copy/paste admin.",
+      tagline: "From first enquiry to approved job — no copy-paste, no spreadsheets.",
+      bullets: [
+        "Build detailed quotes with frame, mat, mount, glass, and custom labour line items",
+        "Pricing auto-calculates from your own markup percentages and live stock costs",
+        "Export a branded PDF quote and send it directly from inside the app",
+        "One-click conversion from approved quote to active job card",
+        "Full quote history per client — duplicate and re-price previous jobs in seconds",
+      ],
     },
     {
-      title: "Visual Room Mockups",
-      text: "Show clients a framed preview inside a room scene so approvals happen faster.",
+      id: "jobs",
+      title: "Visual Job Board",
+      tagline: "See every job at a glance. Never miss a deadline.",
+      bullets: [
+        "Kanban columns: New Quote → Approved → In Progress → Ready → Collected",
+        "Assign jobs to team members, set due dates, and flag priority work",
+        "Attach notes, photos, measurements, and special instructions to each job card",
+        "Dashboard overview highlights overdue jobs, today's work, and what's ready to collect",
+        "Full activity log tracks every status change, edit, and team note",
+      ],
     },
     {
-      title: "Automation That Nudges",
-      text: "Send review requests and quote follow-ups automatically from inside your workflow.",
+      id: "visualizer",
+      title: "Room Visualizer",
+      tagline: "Help clients say yes faster by showing them the finished result.",
+      bullets: [
+        "Drop any frame and mat combination into a photorealistic room scene",
+        "Choose from multiple room backdrops: living room, bedroom, gallery wall",
+        "Preview updates instantly as you change frame style, mat colour, and size",
+        "Export the mockup image to share with clients via email or WhatsApp",
+        "Include the room preview in your PDF quote for a premium presentation",
+      ],
     },
     {
-      title: "Team-Ready Controls",
-      text: "Separate users, credentials, and activity so each shop can run like a real business.",
+      id: "automation",
+      title: "Follow-up Automations",
+      tagline: "Win back lost quotes and grow 5-star reviews — on autopilot.",
+      bullets: [
+        "Auto-send a follow-up email when a quote has been open 3 days with no reply",
+        "Send a review request the moment a job is marked Collected",
+        "Schedule marketing campaigns to your customer list, all from inside the app",
+        "Mailchimp integration syncs your customers to your existing email lists",
+        "All emails go out under your business name and branding",
+      ],
     },
   ],
-  pricingPlans: [
+
+  testimonial: {
+    quote: "We replaced four tools and now send quotes in under 10 minutes. The job board alone saved us hours every week.",
+    author: "Studio owner, Cape Town",
+  },
+
+  pricing: [
     {
       name: "Starter",
-      subtitle: "For solo framers and new studios",
-      price: "R499",
-      period: "/month",
+      subtitle: "For solo framers and small studios",
+      zarPrice: 499,
       featured: false,
       bullets: [
-        "Quotes, jobs, invoices, stock",
-        "Room visualizer + PDF exports",
-        "One business account",
+        "Unlimited quotes, jobs & invoices",
+        "Stock catalogue with markup rules",
+        "Room visualizer",
+        "Professional PDF exports",
+        "Single user account",
+        "Email support",
       ],
     },
     {
       name: "Growth",
-      subtitle: "For busy teams scaling operations",
-      price: "R999",
-      period: "/month",
+      subtitle: "For busy studios scaling up",
+      zarPrice: 999,
       featured: true,
       bullets: [
         "Everything in Starter",
-        "Multi-user teams + activity tracking",
-        "Automations and API integrations",
+        "Multi-user teams (up to 10 seats)",
+        "Quote follow-up automations",
+        "Review request automations",
+        "Mailchimp & accounting integrations",
+        "Priority support",
       ],
     },
   ],
+
+  footer: {
+    tagline:
+      "Framers App is a business management platform built specifically for independent picture framing studios.",
+    company: "Framers App (Pty) Ltd",
+    address: "South Africa",
+    email: "support@framersapp.co.za",
+    social: [
+      { label: "X / Twitter", href: "https://x.com/framersapp",                icon: "𝕏" },
+      { label: "LinkedIn",    href: "https://linkedin.com/company/framersapp",  icon: "in" },
+      { label: "Instagram",   href: "https://instagram.com/framersapp",         icon: "IG" },
+    ],
+    links: {
+      Product: [
+        { label: "Features",        href: "#features" },
+        { label: "Pricing",         href: "#pricing" },
+        { label: "How it works",    href: "#about" },
+        { label: "Book a Demo",     href: "#/start-trial" },
+      ],
+      Account: [
+        { label: "Start Free Trial", href: "#/start-trial" },
+        { label: "Log In",           href: "#/login" },
+        { label: "Contact Support",  href: "mailto:support@framersapp.co.za" },
+      ],
+      Legal: [
+        { label: "Privacy Policy",   href: "#" },
+        { label: "Terms of Service", href: "#" },
+        { label: "Cookie Policy",    href: "#" },
+      ],
+    },
+  },
 };
 
+// ─── App UI Mockups ───────────────────────────────────────────────────────────
+// These are CSS representations of the real app screens.
+// Replace with actual <img> screenshots once available.
+
+function MockupShell({ children, url }: { children: React.ReactNode; url: string }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/15 bg-slate-900 shadow-2xl">
+      <div className="flex items-center gap-1.5 border-b border-white/10 bg-slate-800/80 px-3 py-2.5">
+        <span className="h-2.5 w-2.5 rounded-full bg-red-400/60" />
+        <span className="h-2.5 w-2.5 rounded-full bg-yellow-400/60" />
+        <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/60" />
+        <span className="ml-3 truncate rounded bg-slate-700 px-3 py-0.5 text-[10px] text-slate-400">{url}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function QuoteMockup() {
+  return (
+    <MockupShell url="app.framersapp.co.za / quotes / Q-2847">
+      <div className="p-4 text-xs">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <p className="font-bold text-white">Quote #Q-2847</p>
+            <p className="text-slate-400">Sarah Mitchell · 48 × 63 cm landscape</p>
+          </div>
+          <span className="rounded-full bg-cyan-300/20 px-2.5 py-0.5 text-[10px] font-bold text-cyan-200">Awaiting approval</span>
+        </div>
+        <div className="mb-3 overflow-hidden rounded-lg border border-white/10 bg-slate-800 text-[11px]">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 border-b border-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+            <span>Item</span>
+            <span className="text-right">Qty</span>
+            <span className="text-right">Price</span>
+          </div>
+          {[
+            ["Oak shadowbox frame", "—", "R 420"],
+            ["Off-white mat board 2.5 mm", "1", "R 85"],
+            ["Conservation clear glass", "1", "R 180"],
+            ["Assembly & labour", "—", "R 65"],
+          ].map(([item, qty, p]) => (
+            <div key={item} className="grid grid-cols-[1fr_auto_auto] gap-x-3 border-b border-white/5 px-3 py-1.5 text-slate-200">
+              <span>{item}</span>
+              <span className="text-right text-slate-400">{qty}</span>
+              <span className="text-right">{p}</span>
+            </div>
+          ))}
+          <div className="grid grid-cols-[1fr_auto] gap-x-3 bg-white/5 px-3 py-2 font-bold">
+            <span className="text-slate-300">Total (incl. VAT)</span>
+            <span className="text-right text-cyan-300">R 750</span>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button className="flex-1 rounded-lg bg-cyan-300 py-1.5 text-[11px] font-bold text-slate-950">Accept Quote</button>
+          <button className="rounded-lg border border-white/15 px-3 py-1.5 text-[11px] text-slate-300">Export PDF</button>
+          <button className="rounded-lg border border-white/15 px-3 py-1.5 text-[11px] text-slate-300">Duplicate</button>
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
+function JobBoardMockup() {
+  const cols = [
+    {
+      label: "New Quote",
+      dot: "bg-slate-400",
+      cards: ["Wedding artwork — Smith", "A3 landscape — Jones"],
+    },
+    {
+      label: "In Progress",
+      dot: "bg-blue-400",
+      cards: ["Oval portrait — Chen", "Diploma set — Park", "Abstract 90×60 — Lim"],
+    },
+    {
+      label: "Ready",
+      dot: "bg-emerald-400",
+      cards: ["Wildlife print — Adams"],
+    },
+    {
+      label: "Collected",
+      dot: "bg-slate-600",
+      cards: ["4 jobs this week"],
+    },
+  ];
+  return (
+    <MockupShell url="app.framersapp.co.za / jobs">
+      <div className="flex gap-2 overflow-x-auto p-3 pb-4">
+        {cols.map((col) => (
+          <div key={col.label} className="w-36 shrink-0">
+            <div className="mb-2 flex items-center gap-1.5 px-1">
+              <span className={`h-2 w-2 rounded-full ${col.dot}`} />
+              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{col.label}</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {col.cards.map((card) => (
+                <div
+                  key={card}
+                  className="rounded-lg border border-white/10 bg-slate-800 px-2.5 py-2 text-[11px] leading-tight text-slate-300"
+                >
+                  {card}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </MockupShell>
+  );
+}
+
+function RoomMockup() {
+  return (
+    <MockupShell url="app.framersapp.co.za / visualizer">
+      <div className="p-3">
+        <div
+          className="relative mb-3 overflow-hidden rounded-xl bg-gradient-to-b from-slate-600 to-slate-800"
+          style={{ height: 148 }}
+        >
+          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-500/60 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 h-10 bg-amber-900/40" />
+          <div
+            className="absolute left-1/2 top-6 -translate-x-1/2 rounded border-[5px] border-amber-700 bg-slate-300/30 shadow-2xl"
+            style={{ width: 82, height: 68 }}
+          >
+            <div className="h-full w-full rounded-sm bg-gradient-to-br from-slate-200/30 to-slate-500/20" />
+          </div>
+          <div className="absolute bottom-2 left-3 rounded-full bg-black/30 px-2 py-0.5 text-[9px] text-white backdrop-blur">
+            Oak Natural · Off-white mat
+          </div>
+          <div className="absolute bottom-2 right-3 rounded-full bg-black/30 px-2 py-0.5 text-[9px] text-white backdrop-blur">
+            48 × 63 cm
+          </div>
+        </div>
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">Frame style</p>
+        <div className="flex gap-1.5 text-[10px]">
+          {[
+            { name: "Oak Natural", active: true },
+            { name: "Walnut Dark", active: false },
+            { name: "Gloss Black", active: false },
+          ].map((f) => (
+            <div
+              key={f.name}
+              className={`flex-1 rounded-lg border py-1 text-center ${
+                f.active
+                  ? "border-cyan-300/60 bg-cyan-300/15 text-cyan-200"
+                  : "border-white/10 text-slate-400"
+              }`}
+            >
+              {f.name}
+            </div>
+          ))}
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
+function AutomationMockup() {
+  return (
+    <MockupShell url="app.framersapp.co.za / automations">
+      <div className="p-3 text-[11px]">
+        <p className="mb-2.5 font-bold text-slate-300">Active Automations</p>
+        {[
+          {
+            label: "Quote follow-up",
+            trigger: "3 days after send · no reply",
+            stat: "8 sent this month",
+            on: true,
+          },
+          {
+            label: "Review request",
+            trigger: "Job marked Collected",
+            stat: "14 sent this month",
+            on: true,
+          },
+          {
+            label: "Re-engagement campaign",
+            trigger: "60 days no activity",
+            stat: "Paused",
+            on: false,
+          },
+        ].map((a) => (
+          <div key={a.label} className="mb-2 rounded-lg border border-white/10 bg-slate-800 px-3 py-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white">{a.label}</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                  a.on ? "bg-emerald-400/20 text-emerald-300" : "bg-slate-600/50 text-slate-400"
+                }`}
+              >
+                {a.on ? "Active" : "Paused"}
+              </span>
+            </div>
+            <p className="mt-0.5 text-slate-400">{a.trigger}</p>
+            <p className="mt-0.5 text-cyan-300/80">{a.stat}</p>
+          </div>
+        ))}
+      </div>
+    </MockupShell>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function WebsiteLanding() {
-  const scrollToSection = (id: string) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  const [currency, setCurrency] = useState<CurrencyCode>("ZAR");
+
+  useEffect(() => {
+    setCurrency(detectCurrency());
+  }, []);
+
+  const scrollTo = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
     <div className="landing-root min-h-dvh text-slate-100">
-      <div className="mx-auto w-full max-w-6xl px-4 pb-20 pt-6 sm:px-6 lg:px-10">
+      <div className="mx-auto w-full max-w-6xl px-4 pb-24 pt-6 sm:px-6 lg:px-10">
+
+        {/* ── HEADER ─────────────────────────────────────────────────────── */}
         <header className="mb-12 flex flex-col gap-4 sm:mb-16">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
@@ -85,11 +413,12 @@ export default function WebsiteLanding() {
                 <span className="text-lg font-black">F</span>
               </div>
               <div>
-                <p className="font-display text-sm uppercase tracking-[0.22em] text-cyan-200/90">{landingContent.brandName}</p>
+                <p className="font-display text-sm uppercase tracking-[0.22em] text-cyan-200/90">
+                  {landingContent.brandName}
+                </p>
                 <p className="text-xs text-slate-300/80">{landingContent.brandTagline}</p>
               </div>
             </div>
-
             <div className="flex items-center gap-2">
               <a
                 href="#/login"
@@ -98,20 +427,23 @@ export default function WebsiteLanding() {
                 Login
               </a>
               <a
-                href="#/app"
+                href="#/start-trial"
                 className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-extrabold text-slate-950 transition hover:bg-cyan-200"
               >
-                Live Demo
+                Start Free Trial
               </a>
             </div>
           </div>
-
           <div className="flex flex-wrap items-center gap-2">
-            {landingContent.sectionTabs.map((tab) => (
+            {[
+              { label: "How It Works", id: "about" },
+              { label: "Features",     id: "features" },
+              { label: "Pricing",      id: "pricing" },
+            ].map((tab) => (
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => scrollToSection(tab.id)}
+                onClick={() => scrollTo(tab.id)}
                 className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-100 transition hover:border-white/40 hover:bg-white/10"
               >
                 {tab.label}
@@ -120,18 +452,18 @@ export default function WebsiteLanding() {
           </div>
         </header>
 
-        <section className="reveal-up grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+        {/* ── HERO ───────────────────────────────────────────────────────── */}
+        <section className="reveal-up grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
           <div>
             <p className="mb-4 inline-flex rounded-full border border-cyan-300/40 bg-cyan-300/15 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-cyan-100">
               {landingContent.heroBadge}
             </p>
-            <h1 className="font-display text-4xl leading-[1.05] text-white sm:text-5xl lg:text-6xl">
+            <h1 className="font-display text-4xl leading-[1.06] text-white sm:text-5xl lg:text-6xl" style={{ whiteSpace: "pre-line" }}>
               {landingContent.heroTitle}
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-slate-200/90 sm:text-lg">
               {landingContent.heroBody}
             </p>
-
             <div className="mt-8 flex flex-wrap gap-3">
               <a
                 href="#/start-trial"
@@ -139,100 +471,274 @@ export default function WebsiteLanding() {
               >
                 Start Free Trial
               </a>
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  scrollToSection("features");
-                }}
+              <button
+                type="button"
+                onClick={() => scrollTo("features")}
                 className="rounded-full border border-white/25 px-6 py-3 text-sm font-bold uppercase tracking-wide text-slate-100 transition hover:border-white/50 hover:bg-white/5"
               >
-                Explore Features
-              </a>
+                See Features
+              </button>
             </div>
+            <p className="mt-3 text-xs text-slate-400">
+              ✓ 14-day free trial &nbsp;·&nbsp; No credit card required &nbsp;·&nbsp; Cancel anytime
+            </p>
           </div>
-
           <div className="relative">
             <div className="absolute -inset-8 rounded-[2rem] bg-gradient-to-br from-cyan-400/25 to-orange-300/20 blur-3xl" />
-            <div className="relative rounded-[1.6rem] border border-white/20 bg-slate-900/70 p-4 shadow-2xl backdrop-blur">
-              <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-3">
-                <p className="font-display text-sm uppercase tracking-[0.15em] text-cyan-100">Today at a glance</p>
-                <span className="rounded-full bg-emerald-400/20 px-2 py-1 text-[11px] font-bold text-emerald-200">Live</span>
+            <div className="relative">
+              <QuoteMockup />
+            </div>
+          </div>
+        </section>
+
+        {/* ── STATS BAR ──────────────────────────────────────────────────── */}
+        <section className="mt-14 reveal-up" style={{ animationDelay: "60ms" }}>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {landingContent.stats.map((s) => (
+              <div key={s.label} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-center backdrop-blur-sm">
+                <p className="font-display text-3xl font-black text-white">{s.value}</p>
+                <p className="mt-1 text-xs text-slate-300">{s.label}</p>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                {landingContent.stats.map((item) => (
-                  <div key={item.label} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-2xl font-black text-white">{item.value}</p>
-                    <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-300">{item.label}</p>
+            ))}
+          </div>
+        </section>
+
+        {/* ── HOW IT WORKS ───────────────────────────────────────────────── */}
+        <section id="about" className="mt-24 scroll-mt-6 reveal-up" style={{ animationDelay: "80ms" }}>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">How it works</p>
+          <h2 className="font-display text-3xl text-white sm:text-4xl">Everything connected, end to end.</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300/85">
+            Framers App is built specifically for independent framing studios that need professional workflows without enterprise complexity. Every part of your workflow — from the first enquiry to the final collection — lives in one place.
+          </p>
+          <div className="mt-8 grid gap-5 sm:grid-cols-3">
+            {landingContent.steps.map((step) => (
+              <div key={step.num} className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
+                <p className="font-display text-4xl font-black text-cyan-300/40">{step.num}</p>
+                <p className="mt-2 font-display text-lg text-white">{step.title}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-300/85">{step.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── FEATURE DETAILS ────────────────────────────────────────────── */}
+        <section id="features" className="mt-24 scroll-mt-6">
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Features</p>
+          <h2 className="font-display text-3xl text-white sm:text-4xl">All the tools. None of the bloat.</h2>
+
+          <div className="mt-12 flex flex-col gap-20">
+            {landingContent.features.map((feature, i) => (
+              <div key={feature.id} className="reveal-up grid gap-8 lg:grid-cols-2 lg:items-center">
+                {/* Text — alternates side */}
+                <div className={i % 2 === 1 ? "lg:order-2" : "lg:order-1"}>
+                  <p className="font-display text-2xl text-white sm:text-3xl">{feature.title}</p>
+                  <p className="mt-2 text-base text-cyan-200/80 italic">{feature.tagline}</p>
+                  <ul className="mt-5 space-y-2.5">
+                    {feature.bullets.map((b) => (
+                      <li key={b} className="flex items-start gap-2.5 text-sm leading-6 text-slate-200/85">
+                        <span className="mt-0.5 shrink-0 text-emerald-400">✓</span>
+                        {b}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                {/* Mockup — alternates side */}
+                <div className={`relative ${i % 2 === 1 ? "lg:order-1" : "lg:order-2"}`}>
+                  <div className="absolute -inset-6 rounded-3xl bg-gradient-to-br from-cyan-500/10 to-slate-800/5 blur-2xl" />
+                  <div className="relative">
+                    {feature.id === "quotes"     && <QuoteMockup />}
+                    {feature.id === "jobs"        && <JobBoardMockup />}
+                    {feature.id === "visualizer"  && <RoomMockup />}
+                    {feature.id === "automation"  && <AutomationMockup />}
                   </div>
-                ))}
+                </div>
               </div>
-              <div className="mt-3 rounded-xl border border-white/10 bg-gradient-to-r from-orange-300/25 to-cyan-400/20 p-3 text-xs leading-5 text-slate-100">
-                "{landingContent.proofQuote}"
-              </div>
-            </div>
+            ))}
           </div>
         </section>
 
-        <section id="about" className="mt-14 reveal-up" style={{ animationDelay: "90ms" }}>
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-8 backdrop-blur-sm">
-            <p className="font-display text-xl text-white sm:text-2xl">{landingContent.aboutTitle}</p>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-200/90 sm:text-base">
-              {landingContent.aboutBody}
+        {/* ── TESTIMONIAL ────────────────────────────────────────────────── */}
+        <section className="mt-20 reveal-up">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-10 text-center backdrop-blur-sm">
+            <p className="font-display text-xl text-white sm:text-2xl lg:text-3xl max-w-3xl mx-auto leading-snug">
+              "{landingContent.testimonial.quote}"
             </p>
+            <p className="mt-4 text-sm text-slate-400">— {landingContent.testimonial.author}</p>
           </div>
         </section>
 
-        <section id="features" className="mt-16 grid gap-4 sm:grid-cols-2 reveal-up" style={{ animationDelay: "120ms" }}>
-          {landingContent.features.map((feature) => (
-            <article key={feature.title} className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm transition hover:-translate-y-0.5 hover:border-cyan-200/40 hover:bg-white/10">
-              <h3 className="font-display text-xl text-white">{feature.title}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-200/85">{feature.text}</p>
-            </article>
-          ))}
-        </section>
-
-        <section id="pricing" className="mt-14 grid gap-4 sm:grid-cols-2 reveal-up" style={{ animationDelay: "160ms" }}>
-          {landingContent.pricingPlans.map((plan) => (
-            <article
-              key={plan.name}
-              className={
-                plan.featured
-                  ? "rounded-3xl border border-cyan-300/40 bg-cyan-300/10 p-6 backdrop-blur-sm"
-                  : "rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm"
-              }
-            >
-              <p className="font-display text-2xl text-white">{plan.name}</p>
-              <p className={plan.featured ? "mt-1 text-sm text-slate-200" : "mt-1 text-sm text-slate-300"}>{plan.subtitle}</p>
-              <p className="mt-4 text-4xl font-black text-white">
-                {plan.price}
-                <span className={plan.featured ? "text-base font-bold text-slate-200" : "text-base font-bold text-slate-300"}>{plan.period}</span>
+        {/* ── PRICING ────────────────────────────────────────────────────── */}
+        <section id="pricing" className="mt-24 scroll-mt-6 reveal-up">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Pricing</p>
+              <h2 className="font-display text-3xl text-white sm:text-4xl">Simple, transparent pricing.</h2>
+              <p className="mt-2 text-sm text-slate-300">
+                Start free for 14 days. No credit card required.
               </p>
-              <ul className={plan.featured ? "mt-4 space-y-2 text-sm text-slate-100/95" : "mt-4 space-y-2 text-sm text-slate-200/90"}>
-                {plan.bullets.map((bullet) => (
-                  <li key={bullet}>{bullet}</li>
+            </div>
+            {/* Currency selector */}
+            <div className="flex items-center gap-2">
+              <label htmlFor="currency-select" className="text-xs text-slate-400 shrink-0">
+                Show prices in
+              </label>
+              <select
+                id="currency-select"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+                className="rounded-lg border border-white/20 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-cyan-300/50 cursor-pointer"
+              >
+                {CURRENCY_CODES.map((c) => (
+                  <option key={c} value={c}>
+                    {CURRENCIES[c].label}
+                  </option>
                 ))}
-              </ul>
-            </article>
-          ))}
-        </section>
-
-        <section className="mt-14 reveal-up" style={{ animationDelay: "200ms" }}>
-          <div className="rounded-3xl border border-orange-200/25 bg-gradient-to-r from-orange-300/20 via-amber-200/10 to-cyan-300/20 p-6 sm:p-8">
-            <p className="font-display text-xl text-white sm:text-2xl">Ready to run your framing business like a modern studio?</p>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-200/90">
-              Launch with your team, import your customers, and start sending professional quotes today.
-            </p>
-            <div className="mt-5 flex flex-wrap gap-3">
-              <a href="#/start-trial" className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-black uppercase tracking-wide text-cyan-100 hover:bg-black">
-                Create Account
-              </a>
-              <a href="#/api-settings" className="rounded-full border border-white/25 px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-white/10">
-                Connect APIs
-              </a>
+              </select>
             </div>
           </div>
+
+          <div className="mt-8 grid gap-5 sm:grid-cols-2">
+            {landingContent.pricing.map((plan) => (
+              <article
+                key={plan.name}
+                className={
+                  plan.featured
+                    ? "relative rounded-3xl border border-cyan-300/40 bg-gradient-to-b from-cyan-300/10 to-transparent p-6 backdrop-blur-sm"
+                    : "rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm"
+                }
+              >
+                {plan.featured && (
+                  <span className="mb-3 inline-block rounded-full bg-cyan-300 px-3 py-0.5 text-[11px] font-black uppercase tracking-wide text-slate-950">
+                    Most popular
+                  </span>
+                )}
+                <p className="font-display text-2xl text-white">{plan.name}</p>
+                <p className="mt-1 text-sm text-slate-300">{plan.subtitle}</p>
+                <p className="mt-5 text-5xl font-black text-white">
+                  {fmtPrice(plan.zarPrice, currency)}
+                  <span className="text-lg font-bold text-slate-400">/month</span>
+                </p>
+                {currency !== "ZAR" && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    ≈ R{plan.zarPrice}/month · billed in ZAR · rates are approximate
+                  </p>
+                )}
+                <ul className="mt-6 space-y-2.5">
+                  {plan.bullets.map((b) => (
+                    <li key={b} className="flex items-start gap-2 text-sm text-slate-100/90">
+                      <span className="mt-0.5 shrink-0 text-emerald-400">✓</span>
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+                <a
+                  href="#/start-trial"
+                  className={`mt-8 block rounded-full py-3 text-center text-sm font-black uppercase tracking-wide transition ${
+                    plan.featured
+                      ? "bg-white text-slate-950 hover:bg-slate-100"
+                      : "border border-white/30 text-white hover:bg-white/10"
+                  }`}
+                >
+                  Start Free Trial
+                </a>
+                <p className="mt-2 text-center text-xs text-slate-500">
+                  No credit card required · No commitment
+                </p>
+              </article>
+            ))}
+          </div>
         </section>
+
+        {/* ── CTA BANNER ─────────────────────────────────────────────────── */}
+        <section className="mt-20 reveal-up">
+          <div className="rounded-3xl border border-orange-200/20 bg-gradient-to-r from-orange-300/20 via-amber-200/10 to-cyan-300/20 p-8 text-center sm:p-12">
+            <h2 className="font-display text-2xl text-white sm:text-3xl">
+              Ready to run your studio like a pro?
+            </h2>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-slate-200/80">
+              14 days free, fully featured, no credit card needed. Set up takes under 5 minutes.
+            </p>
+            <a
+              href="#/start-trial"
+              className="mt-7 inline-block rounded-full bg-white px-10 py-3.5 text-sm font-black uppercase tracking-wide text-slate-950 transition hover:bg-slate-100"
+            >
+              Start Your Free Trial
+            </a>
+            <p className="mt-3 text-xs text-slate-500">
+              No credit card required · No commitment · Cancel anytime
+            </p>
+          </div>
+        </section>
+
+        {/* ── FOOTER ─────────────────────────────────────────────────────── */}
+        <footer className="mt-24 border-t border-white/10 pt-12">
+          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr]">
+            {/* Brand */}
+            <div>
+              <div className="mb-4 flex items-center gap-3">
+                <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/10 ring-1 ring-white/20">
+                  <span className="text-base font-black">F</span>
+                </div>
+                <p className="font-display text-sm uppercase tracking-[0.2em] text-cyan-200/80">
+                  {landingContent.brandName}
+                </p>
+              </div>
+              <p className="max-w-xs text-sm leading-6 text-slate-300/75">
+                {landingContent.footer.tagline}
+              </p>
+              <p className="mt-3 text-xs text-slate-500">
+                <a href={`mailto:${landingContent.footer.email}`} className="hover:text-slate-300 transition">
+                  {landingContent.footer.email}
+                </a>
+              </p>
+              <div className="mt-5 flex gap-2">
+                {landingContent.footer.social.map((s) => (
+                  <a
+                    key={s.label}
+                    href={s.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={s.label}
+                    className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-white/5 text-xs font-bold text-slate-300 transition hover:border-white/30 hover:text-white"
+                  >
+                    {s.icon}
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* Link columns */}
+            {(Object.entries(landingContent.footer.links) as [string, { label: string; href: string }[]][]).map(
+              ([colTitle, links]) => (
+                <div key={colTitle}>
+                  <p className="mb-4 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    {colTitle}
+                  </p>
+                  <ul className="space-y-2.5">
+                    {links.map((link) => (
+                      <li key={link.label}>
+                        <a
+                          href={link.href}
+                          className="text-sm text-slate-300 transition hover:text-white"
+                        >
+                          {link.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            )}
+          </div>
+
+          <div className="mt-12 flex flex-col gap-2 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-500">
+              © {new Date().getFullYear()} {landingContent.footer.company}. All rights reserved.
+            </p>
+            <p className="text-xs text-slate-600">{landingContent.footer.address}</p>
+          </div>
+        </footer>
+
       </div>
     </div>
   );

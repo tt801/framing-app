@@ -12,6 +12,10 @@ type CompanyAccountRecord = {
   trial_started_at: string;
   trial_ends_at: string;
   plan_status: PlanStatus;
+  stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
+  subscription_renewed_at?: string | null;
+  subscription_cancel_at?: string | null;
 };
 
 export type TrialStatus = {
@@ -68,7 +72,9 @@ export const ensureCompanyTrialAccount = async (): Promise<TrialStatus | null> =
 
   const { data, error } = await supabase
     .from("company_accounts")
-    .select("id, owner_user_id, company_name, trial_started_at, trial_ends_at, plan_status")
+    .select(
+      "id, owner_user_id, company_name, trial_started_at, trial_ends_at, plan_status, stripe_customer_id, stripe_subscription_id, subscription_renewed_at, subscription_cancel_at"
+    )
     .eq("owner_user_id", user.id)
     .single();
 
@@ -95,7 +101,9 @@ export const ensureCompanyTrialAccount = async (): Promise<TrialStatus | null> =
     const { data: created, error: createError } = await supabase
       .from("company_accounts")
       .insert(insertPayload)
-      .select("id, owner_user_id, company_name, trial_started_at, trial_ends_at, plan_status")
+      .select(
+        "id, owner_user_id, company_name, trial_started_at, trial_ends_at, plan_status, stripe_customer_id, stripe_subscription_id, subscription_renewed_at, subscription_cancel_at"
+      )
       .single();
 
     if (createError) {
@@ -107,7 +115,8 @@ export const ensureCompanyTrialAccount = async (): Promise<TrialStatus | null> =
 
   const trialStatus = toTrialStatus(data as CompanyAccountRecord);
 
-  if (trialStatus.expired && data.plan_status !== "expired") {
+  // Auto-expire if past end date AND no active subscription
+  if (trialStatus.expired && data.plan_status === "trialing") {
     await supabase
       .from("company_accounts")
       .update({ plan_status: "expired" })
@@ -171,4 +180,58 @@ export const useTrialStatus = (enabled = true) => {
       setTrial(status);
     },
   };
+};
+
+export const useStripeCheckout = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const startCheckout = async (priceId: string) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const session = await getCurrentUser();
+      if (!session) throw new Error("Not authenticated");
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("No session token");
+
+      const res = await fetch("/api/billing/create-checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ priceId }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to create checkout session");
+      }
+
+      const data = await res.json();
+
+      // Redirect to Stripe Hosted Checkout
+      if (data.sessionId) {
+        const { loadStripe } = await import("@stripe/stripe-js");
+        const stripe = await loadStripe(
+          import.meta.env.VITE_STRIPE_PUBLIC_KEY || ""
+        );
+        if (stripe) {
+          await stripe.redirectToCheckout({ sessionId: data.sessionId });
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Checkout failed";
+      setError(msg);
+      console.error("[useStripeCheckout]", msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { startCheckout, loading, error };
 };
