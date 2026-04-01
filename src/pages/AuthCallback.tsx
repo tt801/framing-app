@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+const authLogoSrc = "/framersapp-logo-lightblue.png";
+const authTagline = "Business OS for modern framing studios";
+
 export default function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Confirming your account...");
@@ -66,9 +69,14 @@ export default function AuthCallbackPage() {
     <div className="landing-root min-h-dvh text-slate-100">
       <div className="mx-auto flex min-h-dvh w-full max-w-3xl items-center justify-center px-4 py-12 sm:px-6">
         <div className="w-full rounded-[1.75rem] border border-white/15 bg-slate-950/65 p-8 text-center shadow-2xl backdrop-blur">
-          <p className="font-display text-sm uppercase tracking-[0.22em] text-cyan-200/90">
-            Framers App
-          </p>
+          <div className="flex flex-col items-center">
+            <img
+              src={authLogoSrc}
+              alt="Framers App"
+              className="h-10 w-auto object-contain"
+            />
+            <p className="mt-2 text-xs text-slate-300/80">{authTagline}</p>
+          </div>
           <h1 className="mt-3 text-3xl font-black text-white">Auth callback</h1>
           <p className="mt-3 text-sm leading-6 text-slate-200/90">{error || status}</p>
           <div className="mt-6">

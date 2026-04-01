@@ -474,16 +474,13 @@ export default function WebsiteLanding() {
         <header className="mb-12 flex flex-col gap-4 sm:mb-16">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <img
-                src={logoSrc}
-                alt={landingContent.brandName}
-                className="h-11 w-auto object-contain"
-              />
-              <div>
-                <p className="font-display text-sm uppercase tracking-[0.22em] text-cyan-200/90">
-                  {landingContent.brandName}
-                </p>
-                <p className="text-xs text-slate-300/80">{landingContent.brandTagline}</p>
+              <div className="flex flex-col items-start">
+                <img
+                  src={logoSrc}
+                  alt={landingContent.brandName}
+                  className="h-11 w-auto object-contain"
+                />
+                <p className="mt-2 text-xs text-slate-300/80">{landingContent.brandTagline}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -760,11 +757,14 @@ export default function WebsiteLanding() {
             {/* Brand */}
             <div>
               <div className="mb-4 flex items-center gap-3">
-                <img
-                  src={logoSrc}
-                  alt={landingContent.brandName}
-                  className="h-10 w-auto object-contain"
-                />
+                <div className="flex flex-col items-start">
+                  <img
+                    src={logoSrc}
+                    alt={landingContent.brandName}
+                    className="h-10 w-auto object-contain"
+                  />
+                  <p className="mt-2 text-xs text-slate-400/90">{landingContent.brandTagline}</p>
+                </div>
               </div>
               <p className="max-w-xs text-sm leading-6 text-slate-300/75">
                 {landingContent.footer.tagline}

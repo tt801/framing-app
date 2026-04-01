@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+const authLogoSrc = "/framersapp-logo-lightblue.png";
+const authTagline = "Business OS for modern framing studios";
+
 type AuthMode = "signup" | "login";
 
 type AuthPageProps = {
@@ -110,9 +113,14 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
             >
               Back to site
             </a>
-            <p className="mt-6 font-display text-sm uppercase tracking-[0.22em] text-cyan-200/90">
-              Framers App
-            </p>
+            <div className="mt-6 flex flex-col items-start">
+              <img
+                src={authLogoSrc}
+                alt="Framers App"
+                className="h-10 w-auto object-contain"
+              />
+              <p className="mt-2 text-xs text-slate-300/80">{authTagline}</p>
+            </div>
             <h1 className="mt-3 font-display text-4xl leading-[1.05] text-white sm:text-5xl">
               {title}
             </h1>
