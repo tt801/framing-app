@@ -2,7 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useToast } from '@/lib/toast';
 import { supabase, getCurrentUser, getUserCredentials, saveUserCredentials } from '@/lib/supabase';
 
-export default function APISettingsPage() {
+type APISettingsPageProps = {
+  embedded?: boolean;
+};
+
+export default function APISettingsPage({ embedded = false }: APISettingsPageProps) {
   const { add: toast } = useToast();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -75,20 +79,31 @@ export default function APISettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className={`flex items-center justify-center ${embedded ? "min-h-[240px]" : "min-h-screen"}`}>
         <div className="text-slate-600">Loading settings...</div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <header className="pb-6 border-b border-slate-200">
-        <h1 className="text-3xl font-bold text-slate-900 mb-1">🔑 API Settings</h1>
-        <p className="text-sm text-slate-600">
-          Configure your API credentials for WhatsApp, Email, and Marketing integrations.
-        </p>
-      </header>
+    <div className={embedded ? "space-y-6" : "p-6 space-y-6"}>
+      {!embedded && (
+        <header className="pb-6 border-b border-slate-200">
+          <h1 className="text-3xl font-bold text-slate-900 mb-1">🔑 API Settings</h1>
+          <p className="text-sm text-slate-600">
+            Configure your API credentials for WhatsApp, Email, and Marketing integrations.
+          </p>
+        </header>
+      )}
+
+      {embedded && (
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">Connected apps</h3>
+          <p className="text-sm text-slate-500">
+            Configure your WhatsApp, Mailchimp, and Outlook credentials here.
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-8 max-w-2xl">
         {/* Twilio Section */}
@@ -232,7 +247,7 @@ export default function APISettingsPage() {
           disabled={saving}
           className="w-full rounded-lg bg-blue-600 text-white px-4 py-3 font-medium hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition"
         >
-          {saving ? 'Saving...' : 'Save API Credentials'}
+          {saving ? 'Saving...' : embedded ? 'Save connected apps' : 'Save API Credentials'}
         </button>
 
         {/* Info Box */}
