@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/auth/callback",
+      "destination": "/"
+    },
+    {
       "source": "/api/billing/summary",
       "destination": "/api/billing/manage?billingAction=summary"
     },
