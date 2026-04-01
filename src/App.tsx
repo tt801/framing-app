@@ -10,6 +10,7 @@ import UpgradeModal from "./components/UpgradeModal";
 import { useTrialStatus } from "@/lib/trial";
 import { getCurrentUser, supabase } from "@/lib/supabase";
 import { BillingAccessProvider } from "@/lib/billingAccess";
+import { useUsers } from "@/lib/users";
 
 const VisualizerApp = React.lazy(() => import("./VisualizerApp"));
 const Admin = React.lazy(() => import("./pages/Admin"));
@@ -102,8 +103,10 @@ function ErrorCatcher({
 function App() {
   const route = useHashRoute();
   const { layoutMode, toggleLayoutMode } = useLayout();
+  const { users } = useUsers();
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
   const isLanding = route === "/" || route === "";
   const isLogin = route.startsWith("/login");
@@ -150,6 +153,7 @@ function App() {
       const user = await getCurrentUser();
       if (!mounted) return;
       setIsAuthenticated(Boolean(user));
+      setCurrentUserEmail(user?.email?.toLowerCase() || null);
       setAuthLoading(false);
     };
 
@@ -162,6 +166,7 @@ function App() {
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
       setIsAuthenticated(Boolean(session?.user));
+      setCurrentUserEmail(session?.user?.email?.toLowerCase() || null);
       setAuthLoading(false);
     });
 
@@ -179,6 +184,12 @@ function App() {
   }, [authLoading, isAuthenticated, isPublicRoute]);
 
   const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding && isAuthenticated);
+  const matchedWorkspaceUser = users.find((user) => {
+    if (!currentUserEmail || !user.active || !user.email) return false;
+    return user.email.toLowerCase() === currentUserEmail;
+  });
+  const hasAdminRole = matchedWorkspaceUser?.role === "owner" || matchedWorkspaceUser?.role === "manager";
+  const hasAdminAccess = Boolean(trial || hasAdminRole);
   const billingAccess = trial
     ? {
         readOnly: trial.readOnly,
@@ -234,7 +245,7 @@ function App() {
     { label: "Calendar", href: "#/calendar", active: isCalendar },
     { label: "Marketing", href: "#/marketing", active: isMarketing },
     { label: "Stock", href: "#/stock", active: isStock },
-    { label: "Admin", href: "#/admin", active: isAdmin },
+    ...(hasAdminAccess ? [{ label: "Admin", href: "#/admin", active: isAdmin }] : []),
   ];
 
   const createOptions = [
@@ -323,6 +334,30 @@ function App() {
         <ErrorBoundary>
           <BillingSuccessPage />
         </ErrorBoundary>
+      </BillingAccessProvider>
+    );
+  }
+
+  if (isAdmin && !authLoading && !trialLoading && !hasAdminAccess) {
+    return (
+      <BillingAccessProvider value={billingAccess}>
+        <div className="flex min-h-dvh items-center justify-center bg-slate-50 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Admin access required</p>
+            <h1 className="mt-2 text-2xl font-black text-slate-950">You do not have access to Admin</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Admin is limited to workspace owners and managers. To gain access, sign in as the workspace owner or make sure your login email matches an active owner or manager record in Admin &gt; Users.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <a
+                href="#/dashboard"
+                className="inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Back to dashboard
+              </a>
+            </div>
+          </div>
+        </div>
       </BillingAccessProvider>
     );
   }
