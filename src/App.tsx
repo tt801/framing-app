@@ -3,6 +3,7 @@ import React, { useEffect, useState, Suspense } from "react";
 import { LoadingSpinner } from "./components/LoadingSpinner";
 import ToastContainer from "./components/ToastContainer";
 import CommandPalette from "./components/CommandPalette";
+import HelpAssistant from "./components/HelpAssistant";
 import { useLayout } from "@/lib/layout";
 import TrialBanner from "./components/TrialBanner";
 import UpgradeModal from "./components/UpgradeModal";
@@ -258,6 +259,26 @@ function App() {
   const primaryCreate =
     createOptions.find((o) => o.key === preferredCreateKey) || createOptions[0];
 
+  const currentHelpArea = isAdmin
+    ? "admin"
+    : isCustomers
+    ? "customers"
+    : isQuotes
+    ? "quotes"
+    : isInvoices
+    ? "invoices"
+    : isJobs
+    ? "jobs"
+    : isMarketing
+    ? "marketing"
+    : isStock
+    ? "stock"
+    : isCalendar
+    ? "calendar"
+    : isVisualizer
+    ? "app"
+    : "dashboard";
+
   const showCreateButton = !billingAccess.readOnly && !(isMarketing || isStock || isAdmin || isDashboard || isVisualizer || isCalendar || isAPISettings);
 
   function triggerCreate(key: string) {
@@ -332,15 +353,12 @@ function App() {
           <div className="flex items-center justify-between gap-3 py-2">
             {/* LEFT: Logo + nav */}
             <div className="flex items-center gap-3 overflow-x-auto">
-              <a href="#/dashboard" className="flex shrink-0 flex-col items-start justify-center">
+              <a href="#/dashboard" className="flex shrink-0 items-center">
                 <img
                   src={appLogoSrc}
                   alt="Framers App"
                   className="h-9 w-auto object-contain"
                 />
-                <span className="mt-1 text-[11px] font-medium text-slate-500">
-                  {appTagline}
-                </span>
               </a>
               <nav className="flex items-center gap-1 text-sm">
                 {navItems.map((item) => (
@@ -436,6 +454,7 @@ function App() {
       {/* Global UI Components */}
       <ToastContainer />
       <CommandPalette />
+      <HelpAssistant currentArea={currentHelpArea} />
       </div>
     </BillingAccessProvider>
   );

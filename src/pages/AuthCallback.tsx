@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 const authLogoSrc = "/framersapp-logo-lightblue.png";
-const authTagline = "Business OS for modern framing studios";
 
 export default function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +74,6 @@ export default function AuthCallbackPage() {
               alt="Framers App"
               className="h-10 w-auto object-contain"
             />
-            <p className="mt-2 text-xs text-slate-300/80">{authTagline}</p>
           </div>
           <h1 className="mt-3 text-3xl font-black text-white">Auth callback</h1>
           <p className="mt-3 text-sm leading-6 text-slate-200/90">{error || status}</p>
