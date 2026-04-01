@@ -433,6 +433,7 @@ function AutomationMockup() {
 export default function WebsiteLanding() {
   const [currency, setCurrency] = useState<CurrencyCode>("ZAR");
   const { startCheckout, loading: checkoutLoading } = useStripeCheckout();
+  const logoSrc = "/framersapp-logo-lightblue.png";
 
   const stripePriceIds = {
     Starter: import.meta.env.VITE_STRIPE_PRICE_STARTER || "",
@@ -473,9 +474,11 @@ export default function WebsiteLanding() {
         <header className="mb-12 flex flex-col gap-4 sm:mb-16">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 ring-1 ring-white/30 backdrop-blur">
-                <span className="text-lg font-black">F</span>
-              </div>
+              <img
+                src={logoSrc}
+                alt={landingContent.brandName}
+                className="h-11 w-auto object-contain"
+              />
               <div>
                 <p className="font-display text-sm uppercase tracking-[0.22em] text-cyan-200/90">
                   {landingContent.brandName}
@@ -757,12 +760,11 @@ export default function WebsiteLanding() {
             {/* Brand */}
             <div>
               <div className="mb-4 flex items-center gap-3">
-                <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/10 ring-1 ring-white/20">
-                  <span className="text-base font-black">F</span>
-                </div>
-                <p className="font-display text-sm uppercase tracking-[0.2em] text-cyan-200/80">
-                  {landingContent.brandName}
-                </p>
+                <img
+                  src={logoSrc}
+                  alt={landingContent.brandName}
+                  className="h-10 w-auto object-contain"
+                />
               </div>
               <p className="max-w-xs text-sm leading-6 text-slate-300/75">
                 {landingContent.footer.tagline}

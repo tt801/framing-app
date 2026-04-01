@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import type { TrialStatus } from "@/lib/trial";
 
 type TrialBannerProps = {
@@ -7,7 +7,32 @@ type TrialBannerProps = {
 };
 
 export default function TrialBanner({ trial, loading = false }: TrialBannerProps) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (!trial) {
+      setVisible(false);
+      return;
+    }
+
+    setVisible(true);
+
+    const shouldAutoDismiss = trial.hasFullAccess && (trial.planStatus === "active" || trial.isFounder);
+    if (!shouldAutoDismiss) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setVisible(false);
+    }, 10000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [trial?.companyName, trial?.hasFullAccess, trial?.isFounder, trial?.planStatus]);
+
   if (loading || !trial) return null;
+  if (!visible) return null;
 
   if (trial.isPastDue) {
     return (

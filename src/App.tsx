@@ -26,6 +26,7 @@ const AuthPage = React.lazy(() => import("./pages/Auth"));
 const AuthCallbackPage = React.lazy(() => import("./pages/AuthCallback"));
 const BillingPage = React.lazy(() => import("./pages/Billing"));
 const BillingSuccessPage = React.lazy(() => import("./pages/BillingSuccess"));
+const appLogoSrc = "/framersapp-logo-lightblue.png";
 
 // ---------- Hash Router ----------
 function useHashRoute() {
@@ -330,7 +331,13 @@ function App() {
           <div className="flex items-center justify-between gap-3 py-2">
             {/* LEFT: Logo + nav */}
             <div className="flex items-center gap-3 overflow-x-auto">
-              <span className="text-sm font-semibold text-slate-900">Framing app</span>
+              <a href="#/dashboard" className="flex items-center gap-2 shrink-0">
+                <img
+                  src={appLogoSrc}
+                  alt="Framers App"
+                  className="h-9 w-auto object-contain"
+                />
+              </a>
               <nav className="flex items-center gap-1 text-sm">
                 {navItems.map((item) => (
                   <a
