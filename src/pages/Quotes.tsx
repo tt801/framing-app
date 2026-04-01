@@ -408,6 +408,58 @@ export default function QuotesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusOverride, setStatusOverride] = useState<Record<string, QuoteStatus>>({});
 
+  const handleNewQuote = React.useCallback(() => {
+    setSearch("");
+    setStatusFilter("All");
+    setSortBy("date");
+
+    const quotePayload = {
+      customerId: "",
+      items: [],
+      notes: "",
+      status: "Draft",
+      customerName: "",
+      customerEmail: "",
+      customerPhone: "",
+      subtotal: 0,
+      total: 0,
+      currency: settingsCurrencyCode,
+      details: {
+        status: "Draft",
+        items: [],
+        total: 0,
+      },
+    } as any;
+
+    let created: any = null;
+    if (typeof qStore?.add === "function") {
+      created = qStore.add(quotePayload);
+    } else if (typeof qStore?.createQuote === "function") {
+      created = qStore.createQuote(quotePayload);
+    } else if (typeof qStore?.setQuotes === "function") {
+      const id = `quote-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      created = { id, createdAt: new Date().toISOString(), ...quotePayload };
+      qStore.setQuotes((rows: any[]) => [created, ...rows]);
+    }
+
+    if (created?.id) {
+      setSelectedId(String(created.id));
+      toast("New quote created. Fill in customer details and line items.", "success");
+    }
+  }, [qStore, settingsCurrencyCode, toast]);
+
+  React.useEffect(() => {
+    const onGlobalNew = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { type?: string };
+      if (detail?.type === "quote") {
+        handleNewQuote();
+      }
+    };
+
+    window.addEventListener("frameapp:new", onGlobalNew as EventListener);
+    return () => window.removeEventListener("frameapp:new", onGlobalNew as EventListener);
+  }, [handleNewQuote]);
+
   const rows = useMemo(() => {
     const arr = storeQuotes as any[];
     return arr.map((row) => {
@@ -929,6 +981,12 @@ export default function QuotesPage() {
         <aside className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold">Quotes</h2>
+            <button
+              onClick={handleNewQuote}
+              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50"
+            >
+              New quote
+            </button>
           </div>
 
           <div className="grid gap-2 mb-3">

@@ -239,12 +239,13 @@ function App() {
 
   const createOptions = [
     { key: "invoice", label: "New invoice", href: "#/invoices" },
+    { key: "quote", label: "New quote", href: "#/quotes" },
     { key: "customer", label: "New customer", href: "#/customers" },
     { key: "job", label: "New job", href: "#/jobs" },
   ];
 
   const preferredCreateKey = isQuotes
-    ? "invoice"
+    ? "quote"
     : isInvoices
     ? "invoice"
     : isCustomers

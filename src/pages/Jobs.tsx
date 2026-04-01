@@ -268,6 +268,28 @@ export default function JobsPage() {
   });
   const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
 
+  const handleNewJob = useCallback(() => {
+    setSearchInput("");
+    setSearchTerm("");
+    setStatusFilter("all");
+    setSortBy("recent");
+
+    const id = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+    jobsStore?.add?.({
+      id,
+      status: "new",
+      customer: {},
+      artwork: {},
+      frame: {},
+      checklist: [],
+      notes: "",
+    });
+
+    setSelectedId(id);
+    toast("New job created. Fill in the job details on the right.", "success");
+  }, [jobsStore, toast]);
+
     // Phase 3: Timeline, templates, communication log
     const [timeline, setTimeline] = useState<Record<string, JobTimelineEvent[]>>(() => {
       try {
@@ -385,6 +407,18 @@ export default function JobsPage() {
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    const onGlobalNew = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { type?: string };
+      if (detail?.type === "job") {
+        handleNewJob();
+      }
+    };
+
+    window.addEventListener("frameapp:new", onGlobalNew as EventListener);
+    return () => window.removeEventListener("frameapp:new", onGlobalNew as EventListener);
+  }, [handleNewJob]);
 
   // Persist filters
   useEffect(() => {
@@ -812,10 +846,20 @@ export default function JobsPage() {
     <div className="min-h-screen bg-slate-50">
       <main className="w-full p-6 space-y-6">
         <header className="pb-6 border-b border-slate-200">
-          <h1 className="text-3xl font-bold text-slate-900 mb-1">💼 Jobs</h1>
-          <p className="text-sm text-slate-600">
-            Track job progress, deadlines, and production status in one place.
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900 mb-1">💼 Jobs</h1>
+              <p className="text-sm text-slate-600">
+                Track job progress, deadlines, and production status in one place.
+              </p>
+            </div>
+            <button
+              onClick={handleNewJob}
+              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50"
+            >
+              New job
+            </button>
+          </div>
         </header>
         {/* OVERVIEW SECTION – matches Quotes style */}
         <section className="rounded-2xl ring-1 ring-slate-200 bg-white p-4 md:p-5">

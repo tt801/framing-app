@@ -447,9 +447,13 @@ export default function CustomersPage() {
   }
 
   const handleNewCustomer = useCallback(() => {
+    setSearchInput("");
+    setSearchTerm("");
+    setListFilter("all");
     const id = addCustomerToStore({});
     setSelectedId(id);
-  }, [addCustomerToStore]);
+    toast("New customer created. Fill in their details on the right.", "success");
+  }, [addCustomerToStore, toast]);
 
   useEffect(() => {
     const onGlobalNew = (event: Event) => {
