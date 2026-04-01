@@ -1608,8 +1608,25 @@ function IntegrationsPanel({
       <div>
         <h2 className="text-lg font-semibold">Integrations</h2>
         <p className="text-sm text-slate-500">
-          UI-only for now. Actual API / OAuth wiring comes later.
+          Manage your connected apps, messaging tools, and billing access in one place.
         </p>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Connected apps</h3>
+            <p className="text-xs text-slate-600">
+              Set up WhatsApp, Mailchimp, and Outlook credentials for your workspace.
+            </p>
+          </div>
+          <a
+            href="#/api-settings"
+            className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+          >
+            Open connected apps
+          </a>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">

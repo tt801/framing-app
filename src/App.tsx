@@ -27,7 +27,7 @@ const AuthCallbackPage = React.lazy(() => import("./pages/AuthCallback"));
 const BillingPage = React.lazy(() => import("./pages/Billing"));
 const BillingSuccessPage = React.lazy(() => import("./pages/BillingSuccess"));
 const appLogoSrc = "/framersapp-logo-lightblue.png";
-const appTagline = "Run your framing studio from first enquiry to final collection.";
+const appTagline = "Frame. Quote. Grow.";
 
 // ---------- Hash Router ----------
 function useHashRoute() {
@@ -234,7 +234,6 @@ function App() {
     { label: "Marketing", href: "#/marketing", active: isMarketing },
     { label: "Stock", href: "#/stock", active: isStock },
     { label: "Admin", href: "#/admin", active: isAdmin },
-    { label: "API Settings", href: "#/api-settings", active: isAPISettings },
   ];
 
   const createOptions = [
