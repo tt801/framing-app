@@ -14,7 +14,7 @@ import { useBillingPortal, useBillingSummary } from "@/lib/billing";
 import { useToast } from "@/lib/toast";
 import APISettingsPage from "@/pages/APISettings";
 import { helpSections } from "@/lib/helpContent";
-import { useUsers, type AppUserRole } from "@/lib/users";
+import { useUsers, type AppUserRole, type AppUser } from "@/lib/users";
 
 /* ------------------------------------------------------------------
    Currency options (central list)
@@ -70,6 +70,32 @@ const num = (v: any, d = 0) => {
 const money = (v: any, symbol = "£") => `${symbol}${num(v, 0).toFixed(2)}`;
 
 const rid = () => Math.random().toString(36).slice(2, 10);
+
+const ROLE_OPTIONS: Array<{ value: AppUserRole; label: string; summary: string }> = [
+  { value: "owner", label: "Owner", summary: "Full control over billing, setup, and team decisions." },
+  { value: "manager", label: "Manager", summary: "Runs day-to-day operations, scheduling, and approvals." },
+  { value: "sales", label: "Sales", summary: "Focused on customer quoting, follow-up, and conversion." },
+  { value: "workshop", label: "Workshop", summary: "Focused on production, fitting, and completion workflow." },
+  { value: "staff", label: "Staff", summary: "General team access for routine operational tasks." },
+];
+
+const USER_FILTER_OPTIONS = [
+  { value: "all", label: "All users" },
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+  { value: "pending", label: "Pending invite" },
+] as const;
+
+function getRoleSummary(role: AppUserRole) {
+  return ROLE_OPTIONS.find((option) => option.value === role)?.summary || "General workspace access.";
+}
+
+function matchesUserFilter(user: AppUser, filter: (typeof USER_FILTER_OPTIONS)[number]["value"]) {
+  if (filter === "active") return user.active;
+  if (filter === "inactive") return !user.active;
+  if (filter === "pending") return user.inviteStatus === "pending";
+  return true;
+}
 
 /* Backer board type (local to this file) */
 type BackerBoard = {
@@ -1849,17 +1875,38 @@ function IntegrationsPanel({
 }
 
 function UsersPanel() {
-  const { users, addUser, updateUser, removeUser } = useUsers();
+  const { users, addUser, updateUser, removeUser, resendInvite, markInviteAccepted } = useUsers();
   const { add: toast } = useToast();
   const [draft, setDraft] = useState({
     name: "",
     email: "",
+    phone: "",
     color: "#0ea5e9",
     role: "staff" as AppUserRole,
+    sendInvite: true,
   });
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<(typeof USER_FILTER_OPTIONS)[number]["value"]>("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | AppUserRole>("all");
 
   const ownerCount = users.filter((user) => user.role === "owner" && user.active).length;
   const activeCount = users.filter((user) => user.active).length;
+  const pendingInviteCount = users.filter((user) => user.inviteStatus === "pending").length;
+  const filteredUsers = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return users.filter((user) => {
+      const matchesSearch =
+        !query ||
+        user.name.toLowerCase().includes(query) ||
+        (user.email || "").toLowerCase().includes(query) ||
+        (user.phone || "").toLowerCase().includes(query) ||
+        user.id.toLowerCase().includes(query);
+      const matchesStatus = matchesUserFilter(user, statusFilter);
+      const matchesRole = roleFilter === "all" || user.role === roleFilter;
+      return matchesSearch && matchesStatus && matchesRole;
+    });
+  }, [roleFilter, search, statusFilter, users]);
 
   const handleAddUser = () => {
     if (!draft.name.trim()) {
@@ -1870,8 +1917,10 @@ function UsersPanel() {
     const created = addUser({
       name: draft.name.trim(),
       email: draft.email.trim(),
+      phone: draft.phone.trim(),
       color: draft.color,
       role: draft.role,
+      sendInvite: draft.sendInvite,
     });
 
     if (!created) {
@@ -1879,8 +1928,8 @@ function UsersPanel() {
       return;
     }
 
-    setDraft({ name: "", email: "", color: "#0ea5e9", role: "staff" });
-    toast(`${created.name} added to the workspace.`, "success");
+    setDraft({ name: "", email: "", phone: "", color: "#0ea5e9", role: "staff", sendInvite: true });
+    toast(draft.sendInvite ? `${created.name} added with a pending invite.` : `${created.name} added to the workspace.`, "success");
   };
 
   const handleRemoveUser = (id: string, name: string) => {
@@ -1900,11 +1949,11 @@ function UsersPanel() {
       <div>
         <h2 className="text-lg font-semibold">Users</h2>
         <p className="text-sm text-slate-500">
-          Manage local workspace users, roles, and assignment options for scheduling and operations.
+          Manage local workspace users, roles, invite state, and assignment options for scheduling and operations.
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Users</p>
           <p className="mt-1 text-2xl font-black text-slate-950">{users.length}</p>
@@ -1917,17 +1966,21 @@ function UsersPanel() {
           <p className="text-xs uppercase tracking-wide text-slate-500">Owners</p>
           <p className="mt-1 text-2xl font-black text-slate-950">{ownerCount}</p>
         </div>
+        <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-sky-700">Pending invites</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{pendingInviteCount}</p>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 space-y-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">Add workspace user</h3>
+          <h3 className="text-sm font-semibold text-slate-900">Invite or add workspace user</h3>
           <p className="mt-1 text-sm text-slate-600">
-            This first version stores users locally for workspace operations such as assignment, scheduling, and admin setup.
+            This admin section stores users locally for assignments, scheduling, and setup. You can track pending invites here before full account-based team management is connected.
           </p>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <input
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
             placeholder="Full name"
@@ -1940,16 +1993,20 @@ function UsersPanel() {
             value={draft.email}
             onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))}
           />
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Phone number"
+            value={draft.phone}
+            onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))}
+          />
           <select
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
             value={draft.role}
             onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value as AppUserRole }))}
           >
-            <option value="owner">Owner</option>
-            <option value="manager">Manager</option>
-            <option value="sales">Sales</option>
-            <option value="workshop">Workshop</option>
-            <option value="staff">Staff</option>
+            {ROLE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
           </select>
           <div className="flex items-center gap-2">
             <input
@@ -1958,115 +2015,239 @@ function UsersPanel() {
               value={draft.color}
               onChange={(event) => setDraft((current) => ({ ...current, color: event.target.value }))}
             />
-            <button
-              type="button"
-              onClick={handleAddUser}
-              className="inline-flex flex-1 items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Add user
-            </button>
+            <label className="flex flex-1 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={draft.sendInvite}
+                onChange={(event) => setDraft((current) => ({ ...current, sendInvite: event.target.checked }))}
+              />
+              Mark as pending invite
+            </label>
           </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">{ROLE_OPTIONS.find((option) => option.value === draft.role)?.label}</p>
+            <p className="text-xs text-slate-500">{getRoleSummary(draft.role)}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleAddUser}
+            className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            {draft.sendInvite ? "Add pending invite" : "Add active user"}
+          </button>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">Workspace users</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              Roles and status here feed local workflow assignment and future permission controls.
-            </p>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_320px]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Workspace users</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Roles and status here feed local workflow assignment and future permission controls.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                placeholder="Search name, email, phone or ID"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+              <select
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as (typeof USER_FILTER_OPTIONS)[number]["value"])}
+              >
+                {USER_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <select
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={roleFilter}
+                onChange={(event) => setRoleFilter(event.target.value as "all" | AppUserRole)}
+              >
+                <option value="all">All roles</option>
+                {ROLE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
 
-        <div className="mt-4 space-y-3">
-          {users.map((user) => {
-            const isProtectedOwner = user.role === "owner" && user.active && ownerCount <= 1;
+          <div className="mt-4 space-y-3">
+            {filteredUsers.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                No users match the current search or filters.
+              </div>
+            ) : (
+              filteredUsers.map((user) => {
+                const isProtectedOwner = user.role === "owner" && user.active && ownerCount <= 1;
 
-            return (
-              <div key={user.id} className="rounded-xl border border-slate-200 p-4">
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_160px_120px_110px] lg:items-center">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-white"
-                      style={{ backgroundColor: user.color }}
-                    >
-                      {user.name.slice(0, 1).toUpperCase()}
-                    </span>
-                    <div className="min-w-0 flex-1">
+                return (
+                  <div key={user.id} className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-white"
+                          style={{ backgroundColor: user.color }}
+                        >
+                          {user.name.slice(0, 1).toUpperCase()}
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{user.name}</p>
+                          <p className="text-xs text-slate-500">ID: {user.id}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${user.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>
+                          {user.active ? "Active" : "Inactive"}
+                        </span>
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${user.inviteStatus === "pending" ? "bg-sky-100 text-sky-700" : "bg-violet-100 text-violet-700"}`}>
+                          {user.inviteStatus === "pending" ? "Pending invite" : "Joined"}
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                          {ROLE_OPTIONS.find((option) => option.value === user.role)?.label || user.role}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_170px_130px_120px]">
                       <input
                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
                         value={user.name}
                         onChange={(event) => updateUser(user.id, { name: event.target.value })}
                       />
-                      <p className="mt-1 text-xs text-slate-500">ID: {user.id}</p>
+                      <input
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Email address"
+                        value={user.email || ""}
+                        onChange={(event) => updateUser(user.id, { email: event.target.value })}
+                      />
+                      <input
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Phone number"
+                        value={user.phone || ""}
+                        onChange={(event) => updateUser(user.id, { phone: event.target.value })}
+                      />
+                      <select
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                        value={user.role}
+                        onChange={(event) => updateUser(user.id, { role: event.target.value as AppUserRole })}
+                      >
+                        {ROLE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <label className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={user.active}
+                          onChange={(event) => {
+                            if (!event.target.checked && isProtectedOwner) {
+                              toast("You must keep at least one active owner.", "warning");
+                              return;
+                            }
+                            updateUser(user.id, { active: event.target.checked });
+                          }}
+                        />
+                        {user.active ? "Active" : "Inactive"}
+                      </label>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                      <span>Invited: {new Date(user.invitedAt).toLocaleDateString()}</span>
+                      <span>Last invite: {user.lastInviteSentAt ? new Date(user.lastInviteSentAt).toLocaleDateString() : "Not sent"}</span>
+                      <span>Last active: {user.lastActiveAt ? new Date(user.lastActiveAt).toLocaleDateString() : "Not tracked yet"}</span>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs text-slate-500">{getRoleSummary(user.role)}</p>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="color"
+                          className="h-10 w-12 rounded border border-slate-300 bg-white p-1"
+                          value={user.color}
+                          onChange={(event) => updateUser(user.id, { color: event.target.value })}
+                        />
+                        {user.inviteStatus === "pending" ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!resendInvite(user.id)) {
+                                toast("Could not refresh invite status.", "error");
+                                return;
+                              }
+                              toast(`Invite refreshed for ${user.name}.`, "success");
+                            }}
+                            className="rounded-lg border border-sky-300 px-3 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-50"
+                          >
+                            Resend invite
+                          </button>
+                        ) : null}
+                        {user.inviteStatus === "pending" ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!markInviteAccepted(user.id)) {
+                                toast("Could not mark user as joined.", "error");
+                                return;
+                              }
+                              toast(`${user.name} marked as joined.`, "success");
+                            }}
+                            className="rounded-lg border border-emerald-300 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+                          >
+                            Mark joined
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveUser(user.id, user.name)}
+                          className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={isProtectedOwner}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   </div>
+                );
+              })
+            )}
+          </div>
+        </div>
 
-                  <input
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Email address"
-                    value={user.email || ""}
-                    onChange={(event) => updateUser(user.id, { email: event.target.value })}
-                  />
-
-                  <select
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    value={user.role}
-                    onChange={(event) => updateUser(user.id, { role: event.target.value as AppUserRole })}
-                  >
-                    <option value="owner">Owner</option>
-                    <option value="manager">Manager</option>
-                    <option value="sales">Sales</option>
-                    <option value="workshop">Workshop</option>
-                    <option value="staff">Staff</option>
-                  </select>
-
-                  <label className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={user.active}
-                      onChange={(event) => {
-                        if (!event.target.checked && isProtectedOwner) {
-                          toast("You must keep at least one active owner.", "warning");
-                          return;
-                        }
-                        updateUser(user.id, { active: event.target.checked });
-                      }}
-                    />
-                    {user.active ? "Active" : "Inactive"}
-                  </label>
-
-                  <div className="flex items-center justify-between gap-2">
-                    <input
-                      type="color"
-                      className="h-10 w-12 rounded border border-slate-300 bg-white p-1"
-                      value={user.color}
-                      onChange={(event) => updateUser(user.id, { color: event.target.value })}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveUser(user.id, user.name)}
-                      className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={isProtectedOwner}
-                    >
-                      Remove
-                    </button>
-                  </div>
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <h3 className="text-sm font-semibold text-slate-900">Role guide</h3>
+            <div className="mt-4 space-y-3">
+              {ROLE_OPTIONS.map((option) => (
+                <div key={option.value} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="text-sm font-semibold text-slate-900">{option.label}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">{option.summary}</p>
                 </div>
+              ))}
+            </div>
+          </div>
 
-                <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
-                  <span>Invited: {new Date(user.invitedAt).toLocaleDateString()}</span>
-                  <span>Last active: {user.lastActiveAt ? new Date(user.lastActiveAt).toLocaleDateString() : "Not tracked yet"}</span>
-                </div>
-              </div>
-            );
-          })}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <h3 className="text-sm font-semibold text-slate-900">Next phase</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              This version manages workspace users locally. The next step would connect this section to authenticated team accounts, real invitations, and enforced permissions.
+            </p>
+          </div>
         </div>
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-        This is the first real user-management phase: local users, roles, and active status. The next phase would connect this to authenticated team accounts and invitation flows.
+        This is still a local-first user-management phase, but it now supports admin search, filtering, invite tracking, role guidance, and richer day-to-day team management. The next phase would connect this to authenticated team accounts and live invitation flows.
       </div>
     </div>
   );

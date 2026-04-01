@@ -26,88 +26,129 @@ export type HelpSection = {
   entries: HelpEntry[];
 };
 
+const synonymMap: Record<string, string[]> = {
+  add: ["new", "create", "start", "make"],
+  admin: ["settings", "setup", "configuration"],
+  billing: ["subscription", "plan", "payment", "stripe"],
+  calendar: ["schedule", "scheduled", "planner"],
+  campaign: ["marketing", "broadcast", "outreach"],
+  connect: ["link", "setup", "configure", "integrate"],
+  customer: ["client", "buyer"],
+  invoice: ["bill", "payment"],
+  job: ["order", "work", "production"],
+  quote: ["estimate", "proposal"],
+  send: ["share", "email", "message"],
+  stock: ["inventory", "catalogue", "catalog"],
+  user: ["staff", "team", "member"],
+  visualizer: ["mockup", "design", "preview", "room"],
+  whatsapp: ["twilio", "message"],
+};
+
+const stopWords = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "can",
+  "do",
+  "for",
+  "from",
+  "how",
+  "i",
+  "in",
+  "is",
+  "me",
+  "my",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "what",
+  "where",
+  "with",
+]);
+
+function normalizeText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function tokenize(value: string) {
+  const tokens = normalizeText(value)
+    .split(" ")
+    .filter((token) => token && !stopWords.has(token));
+
+  const expanded = new Set<string>();
+  for (const token of tokens) {
+    expanded.add(token);
+    for (const [root, synonyms] of Object.entries(synonymMap)) {
+      if (token === root || synonyms.includes(token)) {
+        expanded.add(root);
+        for (const synonym of synonyms) expanded.add(synonym);
+      }
+    }
+  }
+
+  return Array.from(expanded);
+}
+
+function makeEntry(question: string, answer: string, keywords: string[]): HelpEntry {
+  return { question, answer, keywords };
+}
+
 export const helpSections: Record<HelpArea, HelpSection> = {
   dashboard: {
     area: "dashboard",
     title: "Dashboard",
-    summary: "Overview of your framing business, key workflow areas, and next actions.",
+    summary: "Overview of your business, priorities, and shortcuts into the main workflow areas.",
     quickPrompts: [
       "What can I do from the dashboard?",
       "Where are my integrations?",
       "How do I get to billing?",
+      "What should I check first each day?",
     ],
     entries: [
-      {
-        question: "What can I do from the dashboard?",
-        answer:
-          "Use Dashboard as your starting point for the day. It gives you a high-level view and quick paths into customers, quotes, invoices, jobs, calendar, stock, marketing, and admin.",
-        keywords: ["dashboard", "overview", "home", "start", "summary"],
-      },
-      {
-        question: "Where are my integrations?",
-        answer:
-          "Open Admin, then go to Integrations. Connected apps such as WhatsApp, Mailchimp, and Outlook credentials live there now.",
-        keywords: ["integration", "connected apps", "mailchimp", "outlook", "whatsapp", "admin"],
-      },
-      {
-        question: "How do I get to billing?",
-        answer:
-          "Use the Billing page for subscription status, upgrades, and Stripe management. Admin > Integrations also shows a billing overview and a shortcut into Stripe management.",
-        keywords: ["billing", "subscription", "stripe", "founder", "upgrade"],
-      },
+      makeEntry("What can I do from the dashboard?", "Use Dashboard as the main starting point for the day. It gives you quick access into customers, quotes, invoices, jobs, calendar, stock, marketing, billing, and admin.", ["dashboard", "overview", "home", "start", "summary"]),
+      makeEntry("What should I check first each day?", "Start with Dashboard for the overview, then move into Jobs for production work, Calendar for scheduled items, and Quotes or Invoices for anything waiting on customer or payment action.", ["today", "daily", "check first", "morning", "priorities"]),
+      makeEntry("Where are my integrations?", "Open Admin and go to Integrations. Connected apps such as WhatsApp, Mailchimp, Outlook, QuickBooks, and Xero live there now.", ["integration", "connected apps", "mailchimp", "outlook", "whatsapp", "quickbooks", "xero"]),
+      makeEntry("How do I get to billing?", "Use the Billing page for subscription status, upgrades, and Stripe management. Admin > Integrations also shows a billing overview and a shortcut into the Stripe portal.", ["billing", "subscription", "stripe", "founder", "upgrade"]),
+      makeEntry("How do I create something quickly?", "Use the global create button from the app header to jump straight into a new customer, quote, invoice, or job without leaving your current area.", ["create", "quick create", "new record", "new item", "header"]),
     ],
   },
   app: {
     area: "app",
     title: "Visualizer",
-    summary: "Design mockups, preview framing choices, and move work into quotes or jobs.",
+    summary: "Design mockups, preview framing choices, and prepare work for quotes or production.",
     quickPrompts: [
       "How do I start a visual mockup?",
       "How do I add a design to jobs?",
+      "Can I save a design?",
+      "How do I change the room backdrop?",
     ],
     entries: [
-      {
-        question: "How do I start a visual mockup?",
-        answer:
-          "Open App to build a room or artwork mockup, choose frame and mat options, and preview the finished look before quoting or producing it.",
-        keywords: ["visualizer", "mockup", "room", "frame preview", "start"],
-      },
-      {
-        question: "How do I add a design to jobs?",
-        answer:
-          "Use the visualizer to build the design first, then move it into the operational workflow when you are ready to quote or produce it.",
-        keywords: ["add design", "jobs", "visualizer", "workflow", "quote"],
-      },
+      makeEntry("How do I start a visual mockup?", "Open App to build a room or artwork mockup, then choose frame, mount, and presentation options so you can preview the finished look before quoting or producing it.", ["visualizer", "mockup", "room", "frame preview", "start"]),
+      makeEntry("How do I add a design to jobs?", "Build the design in the visualizer first, then move it into the workflow when you are ready to quote, invoice, or produce it.", ["add design", "jobs", "visualizer", "workflow", "quote"]),
+      makeEntry("Can I save a design?", "Yes. Save the work once the framing setup looks right so you can come back to it later or reuse it when preparing a quote or job.", ["save", "saved design", "preset", "favorite", "reuse"]),
+      makeEntry("How do I change the room backdrop?", "Use the room or backdrop controls inside the visualizer to swap the wall or scene so customers can preview the design in a different environment.", ["backdrop", "room", "wall", "scene", "background"]),
+      makeEntry("How do I show a customer a preview?", "Use the visualizer preview as the design reference while pricing or discussing options. Once the design is agreed, move it into the quote or job workflow.", ["preview", "show customer", "presentation", "design approval"]),
     ],
   },
   customers: {
     area: "customers",
     title: "Customers",
-    summary: "Create and maintain customer records, contact details, history, and linked invoices.",
+    summary: "Create and maintain customer records, contact details, history, and linked commercial activity.",
     quickPrompts: [
       "How do I add a new customer?",
       "How do I edit customer details?",
       "Where can I export customers?",
+      "How do I find an existing customer?",
     ],
     entries: [
-      {
-        question: "How do I add a new customer?",
-        answer:
-          "Use New customer in Customers. A blank customer is created and selected immediately so you can complete the details panel on the right.",
-        keywords: ["customer", "new customer", "add customer", "create customer"],
-      },
-      {
-        question: "How do I edit customer details?",
-        answer:
-          "Select a customer in the left list, then update their details in the right-hand panel and save the record there.",
-        keywords: ["edit customer", "details", "save customer", "customer form"],
-      },
-      {
-        question: "Where can I export customers?",
-        answer:
-          "Use the export customers control on the Customers page to download the currently filtered list.",
-        keywords: ["export customers", "csv", "download customers"],
-      },
+      makeEntry("How do I add a new customer?", "Use New customer in Customers. A blank customer is created and selected immediately so you can complete the details panel on the right.", ["customer", "new customer", "add customer", "create customer"]),
+      makeEntry("How do I edit customer details?", "Select a customer in the left list, then update their details in the right-hand panel and save the record there.", ["edit customer", "details", "save customer", "customer form"]),
+      makeEntry("Where can I export customers?", "Use the export customers control on the Customers page to download the currently filtered list.", ["export customers", "csv", "download customers"]),
+      makeEntry("How do I find an existing customer?", "Use the customer search and filters on the Customers page. Once you select a customer, their details open in the right-hand panel.", ["find customer", "search customer", "filter customer", "existing customer"]),
+      makeEntry("How do quotes or invoices link to customers?", "Customer records are the base for quoting and invoicing. Once selected on a quote or invoice, that work stays tied back to the customer history.", ["link customer", "customer history", "quotes", "invoices"]),
     ],
   },
   quotes: {
@@ -118,26 +159,14 @@ export const helpSections: Record<HelpArea, HelpSection> = {
       "How do I create a new quote?",
       "How do I turn a quote into an invoice?",
       "How do I send a quote?",
+      "How do I update quote status?",
     ],
     entries: [
-      {
-        question: "How do I create a new quote?",
-        answer:
-          "Use New quote on the Quotes page or the global create button while you are in Quotes. It creates the quote in place and selects it immediately.",
-        keywords: ["new quote", "create quote", "add quote"],
-      },
-      {
-        question: "How do I turn a quote into an invoice?",
-        answer:
-          "Open an existing quote and use Create Invoice when you are ready to convert that accepted work into an invoice.",
-        keywords: ["quote to invoice", "create invoice", "convert quote"],
-      },
-      {
-        question: "How do I send a quote?",
-        answer:
-          "Open the quote, use the send or customer communication actions, and mark the quote as Sent once it has gone out.",
-        keywords: ["send quote", "email quote", "whatsapp quote", "mark sent"],
-      },
+      makeEntry("How do I create a new quote?", "Use New quote on the Quotes page or the global create button while you are in Quotes. It creates the quote in place and selects it immediately.", ["new quote", "create quote", "add quote"]),
+      makeEntry("How do I turn a quote into an invoice?", "Open an existing quote and use Create Invoice when you are ready to convert accepted work into an invoice.", ["quote to invoice", "create invoice", "convert quote"]),
+      makeEntry("How do I send a quote?", "Open the quote, use the send or customer communication actions, and then mark the quote as Sent once it has gone out.", ["send quote", "email quote", "whatsapp quote", "mark sent"]),
+      makeEntry("How do I update quote status?", "Use the quote status field on the selected quote to track draft, sent, accepted, or other workflow states as the quote progresses.", ["quote status", "accepted", "draft", "sent", "won"]),
+      makeEntry("Can I adjust pricing or tax on a quote?", "Yes. Open the quote details and update the line items, pricing values, and tax details before sending it to the customer.", ["price quote", "discount", "tax", "quote total", "line items"]),
     ],
   },
   invoices: {
@@ -148,162 +177,104 @@ export const helpSections: Record<HelpArea, HelpSection> = {
       "How do I create a new invoice?",
       "How do I record a payment?",
       "How do I export an invoice?",
+      "How do I chase unpaid invoices?",
     ],
     entries: [
-      {
-        question: "How do I create a new invoice?",
-        answer:
-          "Use New invoice on the Invoices page. A blank invoice is created and selected so you can complete customer, pricing, and payment details.",
-        keywords: ["new invoice", "create invoice", "add invoice"],
-      },
-      {
-        question: "How do I record a payment?",
-        answer:
-          "Open the invoice you want to update, then use the payment section on that invoice to record amounts received and keep the status accurate.",
-        keywords: ["payment", "record payment", "invoice payment", "paid"],
-      },
-      {
-        question: "How do I export an invoice?",
-        answer:
-          "Open the invoice details and use the PDF or export action to generate the invoice document.",
-        keywords: ["invoice pdf", "export invoice", "download invoice"],
-      },
+      makeEntry("How do I create a new invoice?", "Use New invoice on the Invoices page. A blank invoice is created and selected so you can complete customer, pricing, and payment details.", ["new invoice", "create invoice", "add invoice"]),
+      makeEntry("How do I record a payment?", "Open the invoice you want to update, then use the payment section on that invoice to record amounts received and keep the status accurate.", ["payment", "record payment", "invoice payment", "paid"]),
+      makeEntry("How do I export an invoice?", "Open the invoice details and use the PDF or export action to generate the invoice document.", ["invoice pdf", "export invoice", "download invoice"]),
+      makeEntry("How do I chase unpaid invoices?", "Use invoice status and communication actions to follow up with customers whose invoices are still outstanding, then update the record once payment arrives.", ["unpaid", "overdue", "reminder", "chase payment", "outstanding"]),
+      makeEntry("Can invoices come from quotes?", "Yes. Start from the accepted quote and use Create Invoice so the invoice is created from the quote workflow rather than starting from scratch.", ["invoice from quote", "convert accepted quote", "quote invoice"]),
     ],
   },
   jobs: {
     area: "jobs",
     title: "Jobs",
-    summary: "Track production work, deadlines, checklists, and completion communications.",
+    summary: "Track production work, deadlines, checklists, and customer completion communications.",
     quickPrompts: [
       "How do I create a new job?",
       "How do I send a ready message?",
       "Where do I edit default job steps?",
+      "How do I assign work?",
     ],
     entries: [
-      {
-        question: "How do I create a new job?",
-        answer:
-          "Use New job on the Jobs page. A blank job is created and selected immediately so you can fill in the details panel.",
-        keywords: ["new job", "create job", "add job"],
-      },
-      {
-        question: "How do I send a ready message?",
-        answer:
-          "When a job is ready, open it in Jobs and use the customer communication actions to send the ready notification by email or WhatsApp.",
-        keywords: ["ready message", "job ready", "whatsapp", "email customer"],
-      },
-      {
-        question: "Where do I edit default job steps?",
-        answer:
-          "Go to Admin > Jobs to manage the default job checklist and ready-message template that new jobs inherit.",
-        keywords: ["job defaults", "checklist", "admin jobs", "ready template"],
-      },
+      makeEntry("How do I create a new job?", "Use New job on the Jobs page. A blank job is created and selected immediately so you can fill in the details panel.", ["new job", "create job", "add job"]),
+      makeEntry("How do I send a ready message?", "When a job is ready, open it in Jobs and use the customer communication actions to send the ready notification by email or WhatsApp.", ["ready message", "job ready", "whatsapp", "email customer"]),
+      makeEntry("Where do I edit default job steps?", "Go to Admin > Jobs to manage the default job checklist and ready-message template that new jobs inherit.", ["job defaults", "checklist", "admin jobs", "ready template"]),
+      makeEntry("How do I assign work?", "Open the job and use the assignment fields to set responsibility for the work. The Users setup in Admin feeds local assignment options used across the workspace.", ["assign", "staff", "team", "owner", "workshop", "responsibility"]),
+      makeEntry("How do I track job progress?", "Use the job checklist, status, and dates to keep production moving and to see what is waiting, in progress, or ready for collection.", ["progress", "status", "production", "checklist", "ready"]),
     ],
   },
   calendar: {
     area: "calendar",
     title: "Calendar",
-    summary: "Schedule and review work in a date-based view linked back to jobs.",
+    summary: "Schedule and review work in a date-based view linked back to jobs and assignments.",
     quickPrompts: [
       "How do I link calendar events to jobs?",
       "How do I find a scheduled job?",
+      "Can I filter by staff?",
+      "How do I plan the week?",
     ],
     entries: [
-      {
-        question: "How do I link calendar events to jobs?",
-        answer:
-          "Use Calendar to work with scheduled job items, then jump back into the linked operational record when you need to update production details.",
-        keywords: ["calendar", "event", "link job", "schedule"],
-      },
-      {
-        question: "How do I find a scheduled job?",
-        answer:
-          "Select the event in Calendar and use the linked job navigation to open the related record in Jobs.",
-        keywords: ["scheduled job", "calendar job", "open job"],
-      },
+      makeEntry("How do I link calendar events to jobs?", "Use Calendar to work with scheduled job items, then jump back into the linked record when you need to update production details.", ["calendar", "event", "link job", "schedule"]),
+      makeEntry("How do I find a scheduled job?", "Select the event in Calendar and use the linked job navigation to open the related record in Jobs.", ["scheduled job", "calendar job", "open job"]),
+      makeEntry("Can I filter by staff?", "Yes. Use the assignment or staff filters in Calendar to focus on one person or area of responsibility at a time.", ["staff filter", "assigned to", "team filter", "calendar users"]),
+      makeEntry("How do I plan the week?", "Use Calendar as the planning view for deadlines, workshop loading, and scheduled fitting or collection work, then jump back into Jobs for detailed updates.", ["week planning", "planner", "deadlines", "schedule week"]),
+      makeEntry("What does Calendar connect to?", "Calendar works with job scheduling so planned work can be viewed by date and followed back into the underlying job record.", ["calendar connect", "jobs", "linked records"]),
     ],
   },
   marketing: {
     area: "marketing",
     title: "Marketing",
-    summary: "Build campaigns, choose audiences, and manage customer outreach tools.",
+    summary: "Build campaigns, choose audiences, and manage customer outreach tools and automations.",
     quickPrompts: [
       "How do I send a campaign?",
       "Where do I connect Mailchimp?",
       "How do I choose recipients?",
+      "Can I automate follow-ups?",
     ],
     entries: [
-      {
-        question: "How do I send a campaign?",
-        answer:
-          "Use Marketing to build your campaign, pick the audience, review the message, and then trigger the send action from there.",
-        keywords: ["campaign", "send campaign", "marketing"],
-      },
-      {
-        question: "Where do I connect Mailchimp?",
-        answer:
-          "Open Admin > Integrations. Mailchimp credentials are stored there alongside your other connected apps.",
-        keywords: ["mailchimp", "integrations", "connected apps"],
-      },
-      {
-        question: "How do I choose recipients?",
-        answer:
-          "In Marketing, use the audience controls to target all customers, filtered groups, or a custom list of selected recipients.",
-        keywords: ["recipients", "audience", "segment", "customers"],
-      },
+      makeEntry("How do I send a campaign?", "Use Marketing to build your campaign, choose the audience, review the content, and then trigger the send action from there.", ["campaign", "send campaign", "marketing"]),
+      makeEntry("Where do I connect Mailchimp?", "Open Admin > Integrations. Mailchimp credentials are stored there alongside your other connected apps.", ["mailchimp", "integrations", "connected apps"]),
+      makeEntry("How do I choose recipients?", "In Marketing, use the audience controls to target all customers, filtered groups, or a custom list of selected recipients.", ["recipients", "audience", "segment", "customers"]),
+      makeEntry("Can I automate follow-ups?", "Yes. Automations are intended for recurring marketing and customer follow-up actions such as quote follow-ups or review requests once the relevant integrations are connected.", ["automate", "follow up", "review request", "automation", "quote followup"]),
+      makeEntry("What does Marketing depend on?", "Marketing works best once customer data is clean and integrations such as Mailchimp or messaging tools are connected in Admin > Integrations.", ["depends on", "requirements", "mailchimp", "data"]),
     ],
   },
   stock: {
     area: "stock",
     title: "Stock",
-    summary: "Monitor stock levels and manage day-to-day inventory information.",
+    summary: "Monitor stock levels and handle day-to-day inventory updates, with catalog setup managed in Admin.",
     quickPrompts: [
       "How do I manage stock?",
       "Where do I edit catalog pricing?",
+      "How do I check low stock?",
+      "Where do frames and mats live?",
     ],
     entries: [
-      {
-        question: "How do I manage stock?",
-        answer:
-          "Use Stock for everyday inventory management. That is where you work with stock records and operational stock updates.",
-        keywords: ["stock", "inventory", "manage stock"],
-      },
-      {
-        question: "Where do I edit catalog pricing?",
-        answer:
-          "Use Admin for catalog setup and pricing such as frames, mats, glazing, printing materials, and backer boards.",
-        keywords: ["catalog", "pricing", "frames", "mats", "glazing", "backers"],
-      },
+      makeEntry("How do I manage stock?", "Use Stock for everyday inventory management. That is where you work with stock records and operational stock updates.", ["stock", "inventory", "manage stock"]),
+      makeEntry("Where do I edit catalog pricing?", "Use Admin for catalog setup and pricing such as frames, mats, glazing, printing materials, and backer boards.", ["catalog", "pricing", "frames", "mats", "glazing", "backers"]),
+      makeEntry("How do I check low stock?", "Use the Stock area to review current quantities and identify items that need replenishment before they affect production.", ["low stock", "reorder", "stock level", "quantity"]),
+      makeEntry("Where do frames and mats live?", "Frames, mats, glazing, printing materials, and backer boards are managed from Admin, while Stock handles the day-to-day inventory side.", ["frames", "mats", "glazing", "backers", "catalog setup"]),
+      makeEntry("Can I update stock after a job?", "Yes. Stock is where operational inventory updates should be recorded so usage stays aligned with current availability.", ["adjust stock", "stock after job", "usage", "inventory update"]),
     ],
   },
   admin: {
     area: "admin",
     title: "Admin",
-    summary: "Control centre for company settings, catalog setup, integrations, billing visibility, and future user/help management.",
+    summary: "Control centre for company settings, catalog setup, integrations, billing visibility, users, and help coverage.",
     quickPrompts: [
       "Where are connected apps?",
       "How do I manage billing?",
-      "Where will user management live?",
+      "Where is user management?",
+      "Where do I update company settings?",
     ],
     entries: [
-      {
-        question: "Where are connected apps?",
-        answer:
-          "Go to Admin > Integrations. WhatsApp, Mailchimp, Outlook credentials, and billing overview are managed there.",
-        keywords: ["connected apps", "integrations", "mailchimp", "outlook", "twilio", "whatsapp"],
-      },
-      {
-        question: "How do I manage billing?",
-        answer:
-          "Use the Billing page for plan and subscription management. Admin > Integrations also includes the billing overview and Stripe portal access.",
-        keywords: ["billing", "subscription", "stripe", "billing overview"],
-      },
-      {
-        question: "Where will user management live?",
-        answer:
-          "User management is planned for Admin as its own section so team members, roles, and access controls can be managed from one place.",
-        keywords: ["users", "roles", "team", "admin users"],
-      },
+      makeEntry("Where are connected apps?", "Go to Admin > Integrations. WhatsApp, Mailchimp, Outlook, QuickBooks, Xero credentials, and the billing overview are managed there.", ["connected apps", "integrations", "mailchimp", "outlook", "twilio", "whatsapp", "quickbooks", "xero"]),
+      makeEntry("How do I manage billing?", "Use the Billing page for plan and subscription management. Admin > Integrations also includes a billing overview and Stripe portal access.", ["billing", "subscription", "stripe", "billing overview"]),
+      makeEntry("Where is user management?", "Open Admin > Users. That section is now the first-pass workspace user manager for local team members, roles, colors, and active status.", ["users", "roles", "team", "admin users", "staff"]),
+      makeEntry("Where do I update company settings?", "Use the company-related tabs in Admin for workspace settings, catalog setup, and operational defaults that apply across the system.", ["company settings", "workspace settings", "admin setup"]),
+      makeEntry("Where do I manage help assistant content?", "Open Admin > Help assistant to review current coverage. Content is still code-based for now, but the Admin area is the intended long-term home for managing it.", ["help assistant", "help content", "assistant admin", "knowledge base"]),
     ],
   },
   billing: {
@@ -313,20 +284,15 @@ export const helpSections: Record<HelpArea, HelpSection> = {
     quickPrompts: [
       "How do I upgrade my plan?",
       "How do I manage Stripe subscription?",
+      "What happens if billing is overdue?",
+      "What is the Founder plan?",
     ],
     entries: [
-      {
-        question: "How do I upgrade my plan?",
-        answer:
-          "Open the Billing page to review available plans and start checkout for the subscription or Founder option that fits your account.",
-        keywords: ["upgrade", "plan", "billing", "subscription"],
-      },
-      {
-        question: "How do I manage Stripe subscription?",
-        answer:
-          "Use the billing management controls to open the Stripe customer portal when your account is eligible for portal access.",
-        keywords: ["stripe", "portal", "manage subscription", "billing"],
-      },
+      makeEntry("How do I upgrade my plan?", "Open the Billing page to review available plans and start checkout for the subscription or Founder option that fits your account.", ["upgrade", "plan", "billing", "subscription"]),
+      makeEntry("How do I manage Stripe subscription?", "Use the billing management controls to open the Stripe customer portal when your account is eligible for portal access.", ["stripe", "portal", "manage subscription", "billing"]),
+      makeEntry("What happens if billing is overdue?", "Past-due and expired accounts are intended to become read-only rather than fully blocked, so data remains visible while billing is resolved.", ["overdue", "past due", "expired", "read only", "access"]),
+      makeEntry("What is the Founder plan?", "The Founder option is treated as a one-time lifetime-style purchase and is tracked separately from recurring subscription plans.", ["founder", "lifetime", "one time", "one-off"]),
+      makeEntry("Where do I see billing inside Admin?", "Admin > Integrations includes a billing overview, while the dedicated Billing page is where plan selection and management actions live.", ["billing admin", "billing overview", "integrations billing"]),
     ],
   },
   integrations: {
@@ -337,26 +303,14 @@ export const helpSections: Record<HelpArea, HelpSection> = {
       "Where do I connect WhatsApp?",
       "Where do I connect Outlook?",
       "Where do I connect Mailchimp?",
+      "Where do QuickBooks and Xero live?",
     ],
     entries: [
-      {
-        question: "Where do I connect WhatsApp?",
-        answer:
-          "Open Admin > Integrations and enter your Twilio WhatsApp credentials in the Connected apps section.",
-        keywords: ["whatsapp", "twilio", "integrations", "connected apps"],
-      },
-      {
-        question: "Where do I connect Outlook?",
-        answer:
-          "Open Admin > Integrations and enter your Microsoft and Outlook details in the Connected apps section.",
-        keywords: ["outlook", "microsoft", "email", "integrations"],
-      },
-      {
-        question: "Where do I connect Mailchimp?",
-        answer:
-          "Open Admin > Integrations and add your Mailchimp API key and server value in the Connected apps section.",
-        keywords: ["mailchimp", "email marketing", "integrations"],
-      },
+      makeEntry("Where do I connect WhatsApp?", "Open Admin > Integrations and enter your Twilio WhatsApp credentials in the Connected apps section.", ["whatsapp", "twilio", "integrations", "connected apps"]),
+      makeEntry("Where do I connect Outlook?", "Open Admin > Integrations and enter your Microsoft and Outlook details in the Connected apps section.", ["outlook", "microsoft", "email", "integrations"]),
+      makeEntry("Where do I connect Mailchimp?", "Open Admin > Integrations and add your Mailchimp API key and server value in the Connected apps section.", ["mailchimp", "email marketing", "integrations"]),
+      makeEntry("Where do QuickBooks and Xero live?", "QuickBooks and Xero connection and sync controls belong in Admin > Integrations alongside the other connected services.", ["quickbooks", "xero", "accounting", "sync", "integrations"]),
+      makeEntry("Why is an integration not working?", "Start by checking the credentials in Admin > Integrations, then confirm the connected service account is active and the required keys or IDs were saved correctly.", ["integration not working", "broken integration", "credentials", "api key", "setup issue"]),
     ],
   },
 };
@@ -366,44 +320,69 @@ export function getHelpSection(area: string): HelpSection {
   return helpSections[key];
 }
 
+function scoreEntry(question: string, entry: HelpEntry, currentArea: HelpArea, sectionArea: HelpArea) {
+  const normalizedQuestion = normalizeText(question);
+  const questionTokens = tokenize(question);
+  const entryTokens = tokenize(`${entry.question} ${entry.keywords.join(" ")}`);
+  let score = 0;
+
+  if (normalizedQuestion.includes(normalizeText(entry.question))) {
+    score += 8;
+  }
+
+  for (const keyword of entry.keywords) {
+    const normalizedKeyword = normalizeText(keyword);
+    if (normalizedKeyword && normalizedQuestion.includes(normalizedKeyword)) {
+      score += normalizedKeyword.includes(" ") ? 5 : 3;
+    }
+  }
+
+  for (const token of questionTokens) {
+    if (entryTokens.includes(token)) {
+      score += 2;
+    }
+  }
+
+  if (sectionArea === currentArea) {
+    score += 2;
+  }
+
+  return score;
+}
+
 export function findBestHelpReply(question: string, area: string): string {
-  const normalizedQuestion = question.toLowerCase();
   const current = getHelpSection(area);
   const sections = [current, ...Object.values(helpSections).filter((section) => section.area !== current.area)];
 
-  let bestAnswer = "";
-  let bestScore = -1;
+  let bestEntry: HelpEntry | null = null;
+  let bestScore = 0;
+  let bestSection = current;
 
   for (const section of sections) {
     for (const entry of section.entries) {
-      let score = 0;
-
-      if (normalizedQuestion.includes(entry.question.toLowerCase())) {
-        score += 5;
-      }
-
-      for (const keyword of entry.keywords) {
-        if (normalizedQuestion.includes(keyword.toLowerCase())) {
-          score += 2;
-        }
-      }
-
-      if (section.area === current.area) {
-        score += 1;
-      }
-
+      const score = scoreEntry(question, entry, current.area, section.area);
       if (score > bestScore) {
         bestScore = score;
-        bestAnswer = entry.answer;
+        bestEntry = entry;
+        bestSection = section;
       }
     }
   }
 
-  if (bestScore > 0) {
-    return bestAnswer;
+  if (bestEntry && bestScore >= 4) {
+    if (bestSection.area === current.area) {
+      return bestEntry.answer;
+    }
+
+    return `${bestEntry.answer} If you are looking in the wrong place, try ${bestSection.title}.`;
   }
 
-  return `I do not have a precise answer for that yet, but I can help with ${current.title.toLowerCase()} topics such as ${current.quickPrompts
-    .slice(0, 2)
-    .join(" and ")}.`;
+  const suggestions = [
+    ...current.quickPrompts.slice(0, 2),
+    ...Object.values(helpSections)
+      .filter((section) => section.area !== current.area)
+      .flatMap((section) => section.quickPrompts.slice(0, 1)),
+  ].slice(0, 4);
+
+  return `I do not have a precise answer for that yet. I can help with ${current.title.toLowerCase()} and related workflow questions. Try asking: ${suggestions.join(" | ")}.`;
 }
