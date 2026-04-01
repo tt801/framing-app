@@ -1,4 +1,30 @@
 {
+  "rewrites": [
+    {
+      "source": "/api/billing/summary",
+      "destination": "/api/billing/manage?billingAction=summary"
+    },
+    {
+      "source": "/api/billing/create-portal",
+      "destination": "/api/billing/manage?billingAction=create-portal"
+    },
+    {
+      "source": "/api/integrations/quickbooks/connect",
+      "destination": "/api/integrations/quickbooks?integrationAction=connect"
+    },
+    {
+      "source": "/api/integrations/quickbooks/sync",
+      "destination": "/api/integrations/quickbooks?integrationAction=sync"
+    },
+    {
+      "source": "/api/integrations/xero/connect",
+      "destination": "/api/integrations/xero?integrationAction=connect"
+    },
+    {
+      "source": "/api/integrations/xero/sync",
+      "destination": "/api/integrations/xero?integrationAction=sync"
+    }
+  ],
   "crons": [
     {
       "path": "/api/automations/scheduled-check",
