@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase, getCurrentUser } from "@/lib/supabase";
 import type { BillingAccess } from "@/lib/billingAccess";
+import type { AppUserRole } from "@/lib/users";
 
 export const TRIAL_DAYS = 14;
 
@@ -20,8 +21,21 @@ type CompanyAccountRecord = {
   subscription_cancel_at?: string | null;
 };
 
+type CompanyMemberRecord = {
+  id: string;
+  company_account_id: string;
+  user_id: string | null;
+  email: string;
+  role: AppUserRole;
+  status: "invited" | "active" | "inactive";
+  invited_at: string;
+  joined_at?: string | null;
+};
+
 export type TrialStatus = {
+  companyAccountId: string;
   companyName: string;
+  workspaceRole: AppUserRole;
   planStatus: PlanStatus;
   trialStartedAt: string;
   trialEndsAt: string;
@@ -36,6 +50,14 @@ export type TrialStatus = {
 };
 
 const FOUNDER_PRICE_ID = "founder_lifetime";
+
+const normalizeEmail = (email?: string | null) => (email || "").trim().toLowerCase();
+const isCompanyMembersMissing = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String((error as { code?: unknown }).code || "") : "";
+  const message = "message" in error ? String((error as { message?: unknown }).message || "") : "";
+  return code === "42P01" || code === "PGRST205" || message.toLowerCase().includes("company_members");
+};
 
 export const getBillingAccessFromRecord = (
   record: Pick<
@@ -95,13 +117,15 @@ const daysRemainingFromEndDate = (trialEndsAtIso: string) => {
   return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 };
 
-const toTrialStatus = (record: CompanyAccountRecord): TrialStatus => {
+const toTrialStatus = (record: CompanyAccountRecord, workspaceRole: AppUserRole): TrialStatus => {
   const daysRemaining = daysRemainingFromEndDate(record.trial_ends_at);
   const expiredByDate = new Date(record.trial_ends_at).getTime() < Date.now();
   const expiredByStatus = record.plan_status === "expired";
   const billingAccess = getBillingAccessFromRecord(record);
   return {
+    companyAccountId: record.id,
     companyName: record.company_name || "My Framing Business",
+    workspaceRole,
     planStatus: record.plan_status,
     trialStartedAt: record.trial_started_at,
     trialEndsAt: record.trial_ends_at,
@@ -109,6 +133,79 @@ const toTrialStatus = (record: CompanyAccountRecord): TrialStatus => {
     expired: expiredByDate || expiredByStatus,
     ...billingAccess,
   };
+};
+
+const ensureOwnerMembership = async (record: CompanyAccountRecord, user: Awaited<ReturnType<typeof getCurrentUser>>) => {
+  if (!supabase || !user?.email) return;
+
+  const { error } = await supabase.from("company_members").upsert(
+    {
+      company_account_id: record.id,
+      user_id: user.id,
+      email: normalizeEmail(user.email),
+      full_name:
+        typeof user.user_metadata?.full_name === "string"
+          ? user.user_metadata.full_name
+          : null,
+      role: "owner",
+      status: "active",
+      invited_at: new Date().toISOString(),
+      joined_at: new Date().toISOString(),
+      last_invite_sent_at: new Date().toISOString(),
+    },
+    { onConflict: "company_account_id,email" }
+  );
+
+  if (error && !isCompanyMembersMissing(error)) {
+    throw error;
+  }
+};
+
+const fetchMembershipForUser = async (user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>) => {
+  if (!supabase) return null;
+
+  const { data: directMembership, error: directMembershipError } = await supabase
+    .from("company_members")
+    .select("id, company_account_id, user_id, email, role, status, invited_at, joined_at")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (directMembershipError) {
+    if (isCompanyMembersMissing(directMembershipError)) return null;
+    throw directMembershipError;
+  }
+  if (directMembership) return directMembership as CompanyMemberRecord;
+
+  if (!user.email) return null;
+
+  const { data: emailMembership, error: emailMembershipError } = await supabase
+    .from("company_members")
+    .select("id, company_account_id, user_id, email, role, status, invited_at, joined_at")
+    .eq("email", normalizeEmail(user.email))
+    .maybeSingle();
+
+  if (emailMembershipError) {
+    if (isCompanyMembersMissing(emailMembershipError)) return null;
+    throw emailMembershipError;
+  }
+  if (!emailMembership) return null;
+
+  const { data: claimedMembership, error: claimError } = await supabase
+    .from("company_members")
+    .update({
+      user_id: user.id,
+      status: emailMembership.status === "inactive" ? "inactive" : "active",
+      joined_at: emailMembership.joined_at || new Date().toISOString(),
+    })
+    .eq("id", emailMembership.id)
+    .select("id, company_account_id, user_id, email, role, status, invited_at, joined_at")
+    .single();
+
+  if (claimError) {
+    if (isCompanyMembersMissing(claimError)) return null;
+    throw claimError;
+  }
+  return claimedMembership as CompanyMemberRecord;
 };
 
 export const ensureCompanyTrialAccount = async (): Promise<TrialStatus | null> => {
@@ -129,7 +226,26 @@ export const ensureCompanyTrialAccount = async (): Promise<TrialStatus | null> =
     throw error;
   }
 
+  if (data) {
+    await ensureOwnerMembership(data as CompanyAccountRecord, user);
+  }
+
   if (!data) {
+    const membership = await fetchMembershipForUser(user);
+
+    if (membership && membership.status !== "inactive") {
+      const { data: memberAccount, error: memberAccountError } = await supabase
+        .from("company_accounts")
+        .select(
+          "id, owner_user_id, company_name, trial_started_at, trial_ends_at, plan_status, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_renewed_at, subscription_cancel_at"
+        )
+        .eq("id", membership.company_account_id)
+        .single();
+
+      if (memberAccountError) throw memberAccountError;
+      return toTrialStatus(memberAccount as CompanyAccountRecord, membership.role);
+    }
+
     const now = new Date();
     const trialEndsAt = addDays(now, TRIAL_DAYS).toISOString();
     const companyNameFromMetadata =
@@ -157,10 +273,11 @@ export const ensureCompanyTrialAccount = async (): Promise<TrialStatus | null> =
       throw createError;
     }
 
-    return toTrialStatus(created as CompanyAccountRecord);
+    await ensureOwnerMembership(created as CompanyAccountRecord, user);
+    return toTrialStatus(created as CompanyAccountRecord, "owner");
   }
 
-  const trialStatus = toTrialStatus(data as CompanyAccountRecord);
+  const trialStatus = toTrialStatus(data as CompanyAccountRecord, "owner");
 
   // Auto-expire if past end date AND no active subscription
   if (trialStatus.expired && data.plan_status === "trialing") {

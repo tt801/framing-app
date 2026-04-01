@@ -15,6 +15,7 @@ import { useToast } from "@/lib/toast";
 import APISettingsPage from "@/pages/APISettings";
 import { helpSections } from "@/lib/helpContent";
 import { useUsers, type AppUserRole, type AppUser } from "@/lib/users";
+import { deleteCompanyMember, inviteCompanyMember, updateCompanyMember, useCompanyMembers } from "@/lib/companyMembers";
 
 /* ------------------------------------------------------------------
    Currency options (central list)
@@ -1953,6 +1954,8 @@ function UsersPanel() {
         </p>
       </div>
 
+      <CompanyAccessPanel />
+
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Users</p>
@@ -1974,9 +1977,9 @@ function UsersPanel() {
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 space-y-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">Invite or add workspace user</h3>
+          <h3 className="text-sm font-semibold text-slate-900">Local assignments roster</h3>
           <p className="mt-1 text-sm text-slate-600">
-            This admin section stores users locally for assignments, scheduling, and setup. You can track pending invites here before full account-based team management is connected.
+            These records stay on this workspace for assignments, scheduling, and operational planning. Use the access panel above for real sign-in accounts and Admin permissions.
           </p>
         </div>
 
@@ -2248,6 +2251,231 @@ function UsersPanel() {
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
         This is still a local-first user-management phase, but it now supports admin search, filtering, invite tracking, role guidance, and richer day-to-day team management. The next phase would connect this to authenticated team accounts and live invitation flows.
+      </div>
+    </div>
+  );
+}
+
+function CompanyAccessPanel() {
+  const { members, companyName, loading, error, refresh } = useCompanyMembers();
+  const { add: toast } = useToast();
+  const [draft, setDraft] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    role: "manager" as AppUserRole,
+  });
+  const [saving, setSaving] = useState(false);
+
+  const activeMembers = members.filter((member) => member.status === "active").length;
+  const invitedMembers = members.filter((member) => member.status === "invited").length;
+  const ownerMembers = members.filter((member) => member.role === "owner" && member.status === "active").length;
+
+  const handleInvite = async () => {
+    if (!draft.email.trim()) {
+      toast("Email address is required for a real access invite.", "error");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const result = await inviteCompanyMember({
+        email: draft.email.trim(),
+        fullName: draft.fullName.trim(),
+        phone: draft.phone.trim(),
+        role: draft.role,
+      });
+      setDraft({ fullName: "", email: "", phone: "", role: "manager" });
+      await refresh();
+      if (result.warning) {
+        toast(result.note || result.warning, "warning");
+      } else {
+        toast(`Access invite sent to ${result.member.email}.`, "success");
+      }
+    } catch (inviteError) {
+      toast(inviteError instanceof Error ? inviteError.message : "Could not send invite.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMemberUpdate = async (memberId: string, patch: { role?: AppUserRole; status?: "invited" | "active" | "inactive"; fullName?: string; phone?: string }) => {
+    try {
+      await updateCompanyMember({ memberId, ...patch });
+      await refresh();
+      toast("Workspace access updated.", "success");
+    } catch (updateError) {
+      toast(updateError instanceof Error ? updateError.message : "Could not update workspace access.", "error");
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string, email: string) => {
+    if (!window.confirm(`Remove ${email} from workspace access?`)) return;
+
+    try {
+      await deleteCompanyMember(memberId);
+      await refresh();
+      toast(`${email} removed from workspace access.`, "success");
+    } catch (deleteError) {
+      toast(deleteError instanceof Error ? deleteError.message : "Could not remove member.", "error");
+    }
+  };
+
+  return (
+    <div className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900">Workspace access</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          Invite real sign-in users to {companyName || "this workspace"} and control who gets Admin access.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Real users</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{members.length}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Active access</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{activeMembers}</p>
+        </div>
+        <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-sky-700">Invites pending</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{invitedMembers}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Owners</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{ownerMembers}</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-900">Invite sign-in user</h4>
+          <p className="mt-1 text-sm text-slate-600">
+            This sends a real authentication invite. Owners and managers get Admin access once they join with the invited email address.
+          </p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Full name"
+            value={draft.fullName}
+            onChange={(event) => setDraft((current) => ({ ...current, fullName: event.target.value }))}
+          />
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Email address"
+            value={draft.email}
+            onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))}
+          />
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Phone number"
+            value={draft.phone}
+            onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))}
+          />
+          <div className="flex gap-2">
+            <select
+              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={draft.role}
+              onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value as AppUserRole }))}
+            >
+              {ROLE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleInvite()}
+              disabled={saving}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+            >
+              Invite
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-slate-500">{getRoleSummary(draft.role)}</p>
+      </div>
+
+      <div className="space-y-3">
+        {loading ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+            Loading workspace access...
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-4 text-sm text-rose-700">
+            {error}
+          </div>
+        ) : members.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+            No real sign-in users have been added yet.
+          </div>
+        ) : (
+          members.map((member) => (
+            <div key={member.id} className="rounded-xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{member.full_name || member.email}</p>
+                  <p className="text-xs text-slate-500">{member.email}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${member.status === "active" ? "bg-emerald-100 text-emerald-700" : member.status === "invited" ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-700"}`}>
+                    {member.status}
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                    {ROLE_OPTIONS.find((option) => option.value === member.role)?.label || member.role}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px_150px]">
+                <input
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="Phone number"
+                  defaultValue={member.phone || ""}
+                  onBlur={(event) => {
+                    if ((member.phone || "") === event.target.value) return;
+                    void handleMemberUpdate(member.id, { phone: event.target.value });
+                  }}
+                />
+                <select
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={member.role}
+                  onChange={(event) => void handleMemberUpdate(member.id, { role: event.target.value as AppUserRole })}
+                >
+                  {ROLE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <select
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={member.status}
+                  onChange={(event) => void handleMemberUpdate(member.id, { status: event.target.value as "invited" | "active" | "inactive" })}
+                >
+                  <option value="invited">Invited</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+                  <span>Invited: {new Date(member.invited_at).toLocaleDateString()}</span>
+                  <span>Joined: {member.joined_at ? new Date(member.joined_at).toLocaleDateString() : "Not yet"}</span>
+                  <span>{getRoleSummary(member.role)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleRemoveMember(member.id, member.email)}
+                  className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                >
+                  Remove access
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
