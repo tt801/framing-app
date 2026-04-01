@@ -10,7 +10,7 @@ type CompanyAccountRecord = {
   id: string;
   owner_user_id: string;
   trial_ends_at: string;
-  plan_status: 'trialing' | 'active' | 'expired';
+  plan_status: 'trialing' | 'active' | 'past_due' | 'expired';
 };
 
 const createSupabaseServerClient = () => {
@@ -87,22 +87,23 @@ const ensureActiveTrialForUser = async (userId: string) => {
     record = created as CompanyAccountRecord;
   }
 
-  if (record.plan_status === 'active') {
+  if (record.plan_status === 'active' || record.plan_status === 'trialing') {
     return;
   }
 
   const expiredByDate = new Date(record.trial_ends_at).getTime() < Date.now();
-  const expiredByStatus = record.plan_status === 'expired';
+  const expiredByStatus = record.plan_status === 'expired' || record.plan_status === 'past_due';
 
   if (expiredByDate || expiredByStatus) {
     if (record.plan_status !== 'expired') {
+      const nextStatus = expiredByDate ? 'expired' : record.plan_status;
       await supabase
         .from('company_accounts')
-        .update({ plan_status: 'expired' })
+        .update({ plan_status: nextStatus })
         .eq('id', record.id);
     }
 
-    throw new Error('Trial expired');
+    throw new Error(record.plan_status === 'past_due' ? 'Account is read-only' : 'Trial expired');
   }
 };
 

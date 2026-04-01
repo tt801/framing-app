@@ -69,7 +69,7 @@ export default function BillingSuccess() {
         <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-600">Success!</p>
         <h1 className="mt-2 text-2xl font-black text-slate-900">Subscription activated</h1>
         <p className="mt-3 text-sm text-slate-600">
-          Welcome to {trial?.companyName}! You're all set to use Framers App. Your {trial?.planStatus === "active" ? "subscription" : "trial"} is now {trial?.planStatus === "active" ? "active" : "active"}.
+          Welcome to {trial?.companyName}! You're all set to use Framers App. {trial?.isFounder ? "Your Founder lifetime access is active." : "Your subscription is active."}
         </p>
         <div className="mt-6">
           <a href="#/dashboard" className="inline-block rounded-lg bg-slate-900 px-6 py-2.5 text-sm font-bold text-white hover:bg-black">

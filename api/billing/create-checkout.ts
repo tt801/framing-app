@@ -3,13 +3,24 @@ import Stripe from "stripe";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-12-18.acpi",
+  apiVersion: "2026-03-25.dahlia",
 });
 
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL!,
+  process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const founderPriceId = process.env.VITE_STRIPE_PRICE_FOUNDER || "";
+const allowedPriceIds = new Set(
+  [
+    process.env.VITE_STRIPE_PRICE_STARTER,
+    process.env.VITE_STRIPE_PRICE_GROWTH,
+    process.env.VITE_STRIPE_PRICE_PRO,
+    founderPriceId,
+  ].filter((value): value is string => Boolean(value))
+);
+const founderMaxPurchases = Number(process.env.FOUNDER_MAX_PURCHASES || 10);
 
 // ─ Verify auth and get user/company
 async function requireBillingUser(req: VercelRequest) {
@@ -39,6 +50,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { priceId, isOneTime } = req.body;
 
     if (!priceId) throw new Error("priceId required");
+    if (!allowedPriceIds.has(priceId)) throw new Error("Invalid priceId");
+
+    const isFounderCheckout = priceId === founderPriceId;
+    if (Boolean(isOneTime) !== isFounderCheckout) {
+      throw new Error("Invalid plan configuration");
+    }
+
+    if (isFounderCheckout) {
+      const { count, error: founderError } = await supabase
+        .from("company_accounts")
+        .select("id", { count: "exact", head: true })
+        .eq("stripe_price_id", "founder_lifetime");
+
+      if (founderError) throw founderError;
+      if ((count || 0) >= founderMaxPurchases) {
+        throw new Error("Founder plan is sold out");
+      }
+    }
 
     // Create or retrieve Stripe customer
     let customerId = account.stripe_customer_id;
@@ -75,10 +104,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           quantity: 1,
         },
       ],
-      mode: isOneTime ? "payment" : "subscription",
+      mode: isFounderCheckout ? "payment" : "subscription",
       success_url: `${baseUrl}#/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}#/app`,
-      ...(isOneTime
+      ...(isFounderCheckout
         ? {
             payment_intent_data: {
               metadata: { company_account_id: account.id },
@@ -91,7 +120,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }),
     });
 
-    res.status(200).json({ sessionId: session.id });
+    res.status(200).json({ sessionId: session.id, url: session.url });
   } catch (error) {
     console.error("[create-checkout] Error:", error);
     res.status(400).json({ error: error instanceof Error ? error.message : "Unknown error" });

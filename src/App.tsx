@@ -8,6 +8,7 @@ import TrialBanner from "./components/TrialBanner";
 import UpgradeModal from "./components/UpgradeModal";
 import { useTrialStatus } from "@/lib/trial";
 import { getCurrentUser, supabase } from "@/lib/supabase";
+import { BillingAccessProvider } from "@/lib/billingAccess";
 
 const VisualizerApp = React.lazy(() => import("./VisualizerApp"));
 const Admin = React.lazy(() => import("./pages/Admin"));
@@ -23,6 +24,7 @@ const APISettingsPage = React.lazy(() => import("./pages/APISettings"));
 const WebsiteLanding = React.lazy(() => import("./pages/WebsiteLanding"));
 const AuthPage = React.lazy(() => import("./pages/Auth"));
 const AuthCallbackPage = React.lazy(() => import("./pages/AuthCallback"));
+const BillingPage = React.lazy(() => import("./pages/Billing"));
 const BillingSuccessPage = React.lazy(() => import("./pages/BillingSuccess"));
 
 // ---------- Hash Router ----------
@@ -174,6 +176,23 @@ function App() {
   }, [authLoading, isAuthenticated, isPublicRoute]);
 
   const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding && isAuthenticated);
+  const billingAccess = trial
+    ? {
+        readOnly: trial.readOnly,
+        hasFullAccess: trial.hasFullAccess,
+        canUsePremiumFeatures: trial.canUsePremiumFeatures,
+        isFounder: trial.isFounder,
+        isPastDue: trial.isPastDue,
+        statusMessage: trial.statusMessage,
+      }
+    : {
+        readOnly: false,
+        hasFullAccess: true,
+        canUsePremiumFeatures: true,
+        isFounder: false,
+        isPastDue: false,
+        statusMessage: "",
+      };
 
   if (!isPublicRoute && authLoading) {
     return (
@@ -237,7 +256,7 @@ function App() {
   const primaryCreate =
     createOptions.find((o) => o.key === preferredCreateKey) || createOptions[0];
 
-  const showCreateButton = !(isMarketing || isStock || isAdmin || isDashboard || isVisualizer || isCalendar || isAPISettings);
+  const showCreateButton = !billingAccess.readOnly && !(isMarketing || isStock || isAdmin || isDashboard || isVisualizer || isCalendar || isAPISettings);
 
   function triggerCreate(key: string) {
     const opt = createOptions.find((o) => o.key === key) || primaryCreate;
@@ -253,59 +272,54 @@ function App() {
 
   if (isLanding) {
     return (
-      <ErrorBoundary>
-        <WebsiteLanding />
-      </ErrorBoundary>
+      <BillingAccessProvider value={billingAccess}>
+        <ErrorBoundary>
+          <WebsiteLanding />
+        </ErrorBoundary>
+      </BillingAccessProvider>
     );
   }
 
   if (isAuthRoute) {
     return (
-      <ErrorBoundary>
-        {isAuthCallback ? (
-          <AuthCallbackPage />
-        ) : (
-          <AuthPage defaultMode={isStartTrial ? "signup" : "login"} />
-        )}
-      </ErrorBoundary>
+      <BillingAccessProvider value={billingAccess}>
+        <ErrorBoundary>
+          {isAuthCallback ? (
+            <AuthCallbackPage />
+          ) : (
+            <AuthPage defaultMode={isStartTrial ? "signup" : "login"} />
+          )}
+        </ErrorBoundary>
+      </BillingAccessProvider>
     );
   }
 
   if (isBillingSuccess) {
     return (
-      <ErrorBoundary>
-        <BillingSuccessPage />
-      </ErrorBoundary>
+      <BillingAccessProvider value={billingAccess}>
+        <ErrorBoundary>
+          <BillingSuccessPage />
+        </ErrorBoundary>
+      </BillingAccessProvider>
     );
   }
 
   if (isBilling) {
     return (
-      <div className="min-h-dvh w-full bg-slate-50 text-slate-900">
-        <TrialBanner trial={trial} loading={trialLoading} />
-        <main className="mx-auto flex min-h-[70vh] w-full max-w-4xl items-center justify-center px-4 py-12">
-          <UpgradeModal onClose={() => (window.location.hash = "#/app")} />
-        </main>
-      </div>
-    );
-  }
-
-  if (!trialLoading && isExpired) {
-    return (
-      <div className="min-h-dvh w-full bg-slate-50 text-slate-900">
-        <TrialBanner trial={trial} />
-        <main className="mx-auto flex min-h-[70vh] w-full max-w-3xl items-center justify-center px-4 py-12">
-          <UpgradeModal onClose={() => window.location.hash = "#/"} />
-        </main>
-      </div>
+      <BillingAccessProvider value={billingAccess}>
+        <ErrorBoundary>
+          <BillingPage />
+        </ErrorBoundary>
+      </BillingAccessProvider>
     );
   }
 
   return (
-    <div className="min-h-dvh w-full bg-neutral-50 text-neutral-900">
-      <TrialBanner trial={trial} loading={trialLoading} />
-      {/* ---------- Header ---------- */}
-      <header className="sticky top-0 z-40 w-full border-b border-neutral-200 bg-white/80 backdrop-blur">
+    <BillingAccessProvider value={billingAccess}>
+      <div className="min-h-dvh w-full bg-neutral-50 text-neutral-900">
+        <TrialBanner trial={trial} loading={trialLoading} />
+        {/* ---------- Header ---------- */}
+        <header className="sticky top-0 z-40 w-full border-b border-neutral-200 bg-white/80 backdrop-blur">
         <div
           className={
             layoutMode === "fixed"
@@ -364,7 +378,7 @@ function App() {
             </div>
           </div>
         </div>
-      </header>
+        </header>
 
       {/* ---------- Main Body ---------- */}
       <main className="w-full">
@@ -411,7 +425,8 @@ function App() {
       {/* Global UI Components */}
       <ToastContainer />
       <CommandPalette />
-    </div>
+      </div>
+    </BillingAccessProvider>
   );
 }
 

@@ -270,9 +270,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to send campaign';
     console.error('Campaign send error:', error);
-    if (message === 'Trial expired') {
+    if (message === 'Trial expired' || message === 'Account is read-only') {
       return res.status(403).json({
-        error: 'Trial expired',
+        error: message,
       });
     }
     return res.status(500).json({

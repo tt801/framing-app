@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase, getCurrentUser } from "@/lib/supabase";
+import type { BillingAccess } from "@/lib/billingAccess";
 
 export const TRIAL_DAYS = 14;
 
-export type PlanStatus = "trialing" | "active" | "expired";
+export type PlanStatus = "trialing" | "active" | "past_due" | "expired";
 
 type CompanyAccountRecord = {
   id: string;
@@ -14,6 +15,7 @@ type CompanyAccountRecord = {
   plan_status: PlanStatus;
   stripe_customer_id?: string | null;
   stripe_subscription_id?: string | null;
+  stripe_price_id?: string | null;
   subscription_renewed_at?: string | null;
   subscription_cancel_at?: string | null;
 };
@@ -25,6 +27,49 @@ export type TrialStatus = {
   trialEndsAt: string;
   daysRemaining: number;
   expired: boolean;
+  readOnly: boolean;
+  hasFullAccess: boolean;
+  canUsePremiumFeatures: boolean;
+  isFounder: boolean;
+  isPastDue: boolean;
+  statusMessage: string;
+};
+
+const FOUNDER_PRICE_ID = "founder_lifetime";
+
+export const getBillingAccessFromRecord = (
+  record: Pick<
+    CompanyAccountRecord,
+    "plan_status" | "stripe_price_id" | "company_name"
+  >
+): BillingAccess => {
+  const isFounder = record.stripe_price_id === FOUNDER_PRICE_ID;
+  const hasFullAccess =
+    isFounder || record.plan_status === "trialing" || record.plan_status === "active";
+  const isPastDue = record.plan_status === "past_due";
+  const readOnly = !hasFullAccess;
+
+  let statusMessage = "";
+  if (isFounder) {
+    statusMessage = "Founder access active.";
+  } else if (record.plan_status === "trialing") {
+    statusMessage = "Free trial active.";
+  } else if (record.plan_status === "active") {
+    statusMessage = "Subscription active.";
+  } else if (isPastDue) {
+    statusMessage = "Billing issue detected. Your account is read-only until payment is fixed.";
+  } else {
+    statusMessage = "Subscription expired. Your account is read-only until you upgrade.";
+  }
+
+  return {
+    readOnly,
+    hasFullAccess,
+    canUsePremiumFeatures: hasFullAccess,
+    isFounder,
+    isPastDue,
+    statusMessage,
+  };
 };
 
 const addDays = (date: Date, days: number) => {
@@ -54,6 +99,7 @@ const toTrialStatus = (record: CompanyAccountRecord): TrialStatus => {
   const daysRemaining = daysRemainingFromEndDate(record.trial_ends_at);
   const expiredByDate = new Date(record.trial_ends_at).getTime() < Date.now();
   const expiredByStatus = record.plan_status === "expired";
+  const billingAccess = getBillingAccessFromRecord(record);
   return {
     companyName: record.company_name || "My Framing Business",
     planStatus: record.plan_status,
@@ -61,6 +107,7 @@ const toTrialStatus = (record: CompanyAccountRecord): TrialStatus => {
     trialEndsAt: record.trial_ends_at,
     daysRemaining,
     expired: expiredByDate || expiredByStatus,
+    ...billingAccess,
   };
 };
 
@@ -73,7 +120,7 @@ export const ensureCompanyTrialAccount = async (): Promise<TrialStatus | null> =
   const { data, error } = await supabase
     .from("company_accounts")
     .select(
-      "id, owner_user_id, company_name, trial_started_at, trial_ends_at, plan_status, stripe_customer_id, stripe_subscription_id, subscription_renewed_at, subscription_cancel_at"
+      "id, owner_user_id, company_name, trial_started_at, trial_ends_at, plan_status, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_renewed_at, subscription_cancel_at"
     )
     .eq("owner_user_id", user.id)
     .single();
@@ -102,7 +149,7 @@ export const ensureCompanyTrialAccount = async (): Promise<TrialStatus | null> =
       .from("company_accounts")
       .insert(insertPayload)
       .select(
-        "id, owner_user_id, company_name, trial_started_at, trial_ends_at, plan_status, stripe_customer_id, stripe_subscription_id, subscription_renewed_at, subscription_cancel_at"
+        "id, owner_user_id, company_name, trial_started_at, trial_ends_at, plan_status, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_renewed_at, subscription_cancel_at"
       )
       .single();
 
@@ -126,6 +173,12 @@ export const ensureCompanyTrialAccount = async (): Promise<TrialStatus | null> =
       ...trialStatus,
       planStatus: "expired",
       expired: true,
+      readOnly: true,
+      hasFullAccess: false,
+      canUsePremiumFeatures: false,
+      isFounder: false,
+      isPastDue: false,
+      statusMessage: "Subscription expired. Your account is read-only until you upgrade.",
     };
   }
 
@@ -214,16 +267,12 @@ export const useStripeCheckout = () => {
 
       const data = await res.json();
 
-      // Redirect to Stripe Hosted Checkout
-      if (data.sessionId) {
-        const { loadStripe } = await import("@stripe/stripe-js");
-        const stripe = await loadStripe(
-          import.meta.env.VITE_STRIPE_PUBLIC_KEY || ""
-        );
-        if (stripe) {
-          await stripe.redirectToCheckout({ sessionId: data.sessionId });
-        }
+      if (data.url && typeof data.url === "string") {
+        window.location.assign(data.url);
+        return;
       }
+
+      throw new Error("Stripe checkout URL missing");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Checkout failed";
       setError(msg);

@@ -10,6 +10,8 @@ import {
 } from "@/lib/store";
 import type { Frame, Mat, Glazing, PrintingMaterial } from "@/lib/store";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
+import { useBillingPortal, useBillingSummary } from "@/lib/billing";
+import { useToast } from "@/lib/toast";
 
 /* ------------------------------------------------------------------
    Currency options (central list)
@@ -1577,6 +1579,9 @@ function IntegrationsPanel({
   settings: any;
   onChange: (partial: any) => void;
 }) {
+  const { add: toast } = useToast();
+  const { summary, loading: billingLoading } = useBillingSummary(true);
+  const { openPortal, loading: portalLoading } = useBillingPortal();
   const integrations = settings.integrations || {};
   const qb = integrations.quickbooks || {};
   const xero = integrations.xero || {};
@@ -1590,6 +1595,14 @@ function IntegrationsPanel({
     });
   };
 
+  const handleOpenPortal = async () => {
+    try {
+      await openPortal();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Failed to open billing portal", "error");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -1597,6 +1610,62 @@ function IntegrationsPanel({
         <p className="text-sm text-slate-500">
           UI-only for now. Actual API / OAuth wiring comes later.
         </p>
+      </div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Billing overview</h3>
+            <p className="text-xs text-slate-600">
+              Founder availability and live Stripe subscription access.
+            </p>
+          </div>
+          <a
+            href="#/billing"
+            className="rounded-xl border border-amber-300 px-3 py-1.5 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+          >
+            Open billing
+          </a>
+        </div>
+
+        {billingLoading ? (
+          <p className="text-sm text-slate-600">Loading billing overview...</p>
+        ) : summary ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl bg-white/80 p-3 ring-1 ring-amber-200">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Founder sold</p>
+                <p className="mt-1 text-lg font-black text-slate-950">{summary.founder.purchasedCount}</p>
+              </div>
+              <div className="rounded-xl bg-white/80 p-3 ring-1 ring-amber-200">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Founder remaining</p>
+                <p className="mt-1 text-lg font-black text-slate-950">{summary.founder.remaining}</p>
+              </div>
+              <div className="rounded-xl bg-white/80 p-3 ring-1 ring-amber-200">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Current billing status</p>
+                <p className="mt-1 text-lg font-black capitalize text-slate-950">{summary.account.plan_status.replace("_", " ")}</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleOpenPortal}
+                disabled={!summary.portalEligible || portalLoading}
+                className="rounded-xl bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {portalLoading ? "Opening portal..." : "Manage Stripe subscription"}
+              </button>
+              <p className="self-center text-xs text-slate-600">
+                {summary.founder.soldOut
+                  ? "Founder is sold out."
+                  : `Founder cap is ${summary.founder.maxPurchases}; ${summary.founder.remaining} slots remain.`}
+              </p>
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-slate-600">Billing overview unavailable.</p>
+        )}
       </div>
 
       {/* QuickBooks */}

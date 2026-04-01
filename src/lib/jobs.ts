@@ -1,5 +1,6 @@
 // src/lib/jobs.ts
 import { useEffect, useMemo, useState } from 'react'
+import { useBillingAccess, useBillingWriteGuard } from '@/lib/billingAccess'
 
 export type JobStatus = 'new' | 'in_progress' | 'on_hold' | 'done' | 'cancelled'
 
@@ -163,6 +164,8 @@ function migrateJobs(jobsIn: Job[]): Job[] {
 }
 
 export function useJobs() {
+  const billing = useBillingAccess()
+  const allowWrite = useBillingWriteGuard()
   // initialize with migrated jobs
   const [jobs, setJobs] = useState<Job[]>(() => migrateJobs(readJobsRaw()))
 
@@ -181,7 +184,9 @@ export function useJobs() {
 
   // Add accepts objects that might be missing id/refNo; we’ll assign them.
   const add = (j: Partial<Job> & { id?: string }) =>
-    setJobs((arr) => {
+    {
+      if (!allowWrite('create jobs')) return
+      setJobs((arr) => {
       // Determine/assign numeric ref
       const hasRef = Number.isFinite(j?.refNo as number)
       const refNo = hasRef ? (j!.refNo as number) : nextRefNo()
@@ -217,15 +222,22 @@ export function useJobs() {
       }
 
       return [newJob, ...arr]
-    })
+      })
+    }
 
   const update = (partial: Partial<Job> & { id: string }) =>
-    setJobs((arr) => arr.map(j => j.id === partial.id ? { ...j, ...partial } : j))
+    {
+      if (!allowWrite('edit jobs')) return
+      setJobs((arr) => arr.map(j => j.id === partial.id ? { ...j, ...partial } : j))
+    }
 
   const remove = (id: string) =>
-    setJobs((arr) => arr.filter(j => j.id !== id))
+    {
+      if (!allowWrite('delete jobs')) return
+      setJobs((arr) => arr.filter(j => j.id !== id))
+    }
 
   const byId = useMemo(() => new Map<string, Job>(jobs.map(j => [j.id, j])), [jobs])
 
-  return { jobs, add, update, remove, byId }
+  return { jobs, add, update, remove, byId, readOnly: billing.readOnly }
 }

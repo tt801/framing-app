@@ -1,5 +1,6 @@
 // src/lib/customers.ts
 import { useEffect, useMemo, useState } from 'react'
+import { useBillingAccess, useBillingWriteGuard } from '@/lib/billingAccess'
 
 export type Customer = {
   id: string
@@ -69,6 +70,8 @@ export function downloadCSV(filename: string, csv: string) {
 
 /** React hook for customer CRUD with localStorage persistence. */
 export function useCustomers() {
+  const billing = useBillingAccess()
+  const allowWrite = useBillingWriteGuard()
   const [customers, setCustomers] = useState<Customer[]>(() => load())
 
   useEffect(() => {
@@ -78,14 +81,27 @@ export function useCustomers() {
   const api = useMemo(
     () => ({
       customers,
-      add: (c: Customer) => setCustomers(prev => [{ ...c, id: uid() }, ...prev]),
-      update: (c: Customer) => setCustomers(prev => prev.map(x => (x.id === c.id ? { ...x, ...c } : x))),
-      remove: (id: string) => setCustomers(prev => prev.filter(x => x.id !== id)),
-      clearAll: () => setCustomers([]),
+      readOnly: billing.readOnly,
+      add: (c: Customer) => {
+        if (!allowWrite('add customers')) return
+        setCustomers(prev => [{ ...c, id: uid() }, ...prev])
+      },
+      update: (c: Customer) => {
+        if (!allowWrite('edit customers')) return
+        setCustomers(prev => prev.map(x => (x.id === c.id ? { ...x, ...c } : x)))
+      },
+      remove: (id: string) => {
+        if (!allowWrite('delete customers')) return
+        setCustomers(prev => prev.filter(x => x.id !== id))
+      },
+      clearAll: () => {
+        if (!allowWrite('clear customer data')) return
+        setCustomers([])
+      },
       findByEmail: (email: string) => customers.find(c => c.email === email),
       getById: (id: string) => customers.find(c => c.id === id),
     }),
-    [customers]
+    [allowWrite, billing.readOnly, customers]
   )
 
   return api

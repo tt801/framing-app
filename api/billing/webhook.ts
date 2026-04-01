@@ -3,13 +3,32 @@ import Stripe from "stripe";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-12-18.acpi",
+  apiVersion: "2026-03-25.dahlia",
 });
 
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL!,
+  process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const getSubscriptionPeriodEnd = (subscription: Stripe.Subscription) =>
+  subscription.items.data[0]?.current_period_end ?? null;
+
+const mapSubscriptionStatus = (subscription: Stripe.Subscription) => {
+  if (subscription.status === "past_due" || subscription.status === "unpaid" || subscription.status === "paused") {
+    return "past_due" as const;
+  }
+
+  if (subscription.status === "canceled" || subscription.status === "incomplete_expired") {
+    return "expired" as const;
+  }
+
+  if (subscription.status === "trialing") {
+    return "trialing" as const;
+  }
+
+  return "active" as const;
+};
 
 // Verify webhook signature
 function verifyWebhookSignature(
@@ -53,19 +72,20 @@ async function handleFounderPayment(session: Stripe.Checkout.Session) {
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
   if (!session.subscription) return;
 
-  const companyAccountId = session.subscription instanceof Stripe.Subscription
-    ? (session.subscription.metadata?.company_account_id)
-    : undefined;
+  const subscription = await stripe.subscriptions.retrieve(
+    typeof session.subscription === "string"
+      ? session.subscription
+      : session.subscription.id
+  );
+
+  const companyAccountId = subscription.metadata?.company_account_id;
 
   if (!companyAccountId) {
     console.warn("[webhook] No company_account_id in subscription metadata");
     return;
   }
 
-  // Fetch the subscription to get current period end
-  const subscription = await stripe.subscriptions.retrieve(
-    session.subscription as string
-  );
+  const periodEnd = getSubscriptionPeriodEnd(subscription);
 
   await supabase
     .from("company_accounts")
@@ -73,7 +93,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
       stripe_subscription_id: subscription.id,
       stripe_price_id: subscription.items.data[0]?.price.id,
       plan_status: "active",
-      subscription_renewed_at: new Date(subscription.current_period_end * 1000),
+      subscription_renewed_at: periodEnd ? new Date(periodEnd * 1000) : null,
     })
     .eq("id", companyAccountId);
 
@@ -85,22 +105,19 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const companyAccountId = subscription.metadata?.company_account_id;
   if (!companyAccountId) return;
 
-  const status =
-    subscription.cancel_at_period_end || subscription.status === "canceled"
-      ? "expired"
-      : subscription.status === "active"
-      ? "active"
-      : "trialing";
+  const status = mapSubscriptionStatus(subscription);
+  const periodEnd = getSubscriptionPeriodEnd(subscription);
 
   await supabase
     .from("company_accounts")
     .update({
       stripe_subscription_id: subscription.id,
+      stripe_price_id: subscription.items.data[0]?.price.id,
       plan_status: status,
       subscription_cancel_at: subscription.cancel_at
         ? new Date(subscription.cancel_at * 1000)
         : null,
-      subscription_renewed_at: new Date(subscription.current_period_end * 1000),
+      subscription_renewed_at: periodEnd ? new Date(periodEnd * 1000) : null,
     })
     .eq("id", companyAccountId);
 
@@ -141,6 +158,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   );
 
   if (!event) return res.status(400).json({ error: "Invalid signature" });
+
+  const { data: existingLog, error: existingLogError } = await supabase
+    .from("stripe_webhook_logs")
+    .select("event_id, status")
+    .eq("event_id", event.id)
+    .maybeSingle();
+
+  if (existingLogError) {
+    console.error("[webhook] Failed to query webhook log:", existingLogError);
+    return res.status(500).json({ error: "Webhook log lookup failed" });
+  }
+
+  if (existingLog) {
+    return res.status(200).json({ received: true, duplicate: true });
+  }
 
   // Log webhook
   await supabase.from("stripe_webhook_logs").insert({

@@ -5,7 +5,7 @@ create table if not exists public.company_accounts (
   id uuid primary key default gen_random_uuid(),
   owner_user_id uuid not null references auth.users(id) on delete cascade,
   company_name text,
-  plan_status text not null default 'trialing' check (plan_status in ('trialing', 'active', 'expired')),
+  plan_status text not null default 'trialing' check (plan_status in ('trialing', 'active', 'past_due', 'expired')),
   trial_started_at timestamptz not null default now(),
   trial_ends_at timestamptz not null default (now() + interval '14 days'),
   trial_extended_days integer not null default 0,

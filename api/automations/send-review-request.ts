@@ -264,9 +264,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error: unknown) {
     const details = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error sending review request:', error);
-    if (details === 'Trial expired') {
+    if (details === 'Trial expired' || details === 'Account is read-only') {
       return res.status(403).json({
-        error: 'Trial expired',
+        error: details,
       });
     }
     return res.status(500).json({

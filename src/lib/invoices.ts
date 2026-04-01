@@ -1,6 +1,7 @@
 // src/lib/invoices.ts
 import { useEffect, useState } from 'react'
 import { useCatalog } from './store'
+import { useBillingAccess, useBillingWriteGuard } from '@/lib/billingAccess'
 
 export type InvoiceItem = { id: string; description: string; qty: number; unitPrice: number }
 export type Payment = { id: string; dateISO: string; amount: number; method?: string; notes?: string }
@@ -33,6 +34,8 @@ function extractNum(s: string | undefined): number | null {
 }
 
 export function useInvoices() {
+  const billing = useBillingAccess()
+  const allowWrite = useBillingWriteGuard()
   const { catalog } = useCatalog()
   const [invoices, setInvoices] = useState<Invoice[]>(() => safeParse<Invoice[]>(localStorage.getItem(STORAGE_KEY)) || [])
   const [meta, setMeta] = useState<{ lastSeq?: number }>(() => safeParse(localStorage.getItem(META_KEY)) || {})
@@ -56,6 +59,7 @@ export function useInvoices() {
     total: number
     notes?: string
   }) => {
+    if (!allowWrite('create invoices')) return null
     const now = new Date().toISOString()
     const start = Number(catalog.settings.invoiceStartNumber ?? 1)
     const prefix = String(catalog.settings.invoicePrefix ?? '')
@@ -85,6 +89,7 @@ export function useInvoices() {
   }
 
   const addInvoice = (invoice: Invoice) => {
+    if (!allowWrite('create invoices')) return
     setInvoices(prev => {
       const filtered = prev.filter(x => x.id !== invoice.id)
       return [invoice, ...filtered]
@@ -97,9 +102,18 @@ export function useInvoices() {
     }
   }
 
-  const remove = (id: string) => setInvoices(prev => prev.filter(x => x.id !== id))
-  const addPayment = (invoiceId: string, p: Payment) =>
+  const remove = (id: string) => {
+    if (!allowWrite('delete invoices')) return
+    setInvoices(prev => prev.filter(x => x.id !== id))
+  }
+  const addPayment = (invoiceId: string, p: Payment) => {
+    if (!allowWrite('record payments')) return
     setInvoices(prev => prev.map(inv => inv.id === invoiceId ? { ...inv, payments: [...(inv.payments || []), p] } : inv))
+  }
+  const guardedSetInvoices = (updater: Invoice[] | ((prev: Invoice[]) => Invoice[])) => {
+    if (!allowWrite('edit invoices')) return
+    setInvoices(updater)
+  }
 
-  return { invoices, addInvoice, addFromQuote, remove, addPayment, setInvoices }
+  return { invoices, addInvoice, addFromQuote, remove, addPayment, setInvoices: guardedSetInvoices, readOnly: billing.readOnly }
 }

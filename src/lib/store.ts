@@ -1,5 +1,6 @@
 // src/lib/store.ts
 import { useEffect, useMemo, useState } from "react";
+import { useBillingWriteGuard } from "@/lib/billingAccess";
 
 export type Frame = {
   id: string;
@@ -328,6 +329,7 @@ function migrateCatalog(oldCat: Partial<Catalog> | null): Catalog {
 }
 
 export function useCatalog() {
+  const allowWrite = useBillingWriteGuard();
   const [catalog, _setCatalog] = useState<Catalog>(() =>
     migrateCatalog(loadCatalog())
   );
@@ -336,6 +338,7 @@ export function useCatalog() {
   }, [catalog]);
 
   const setCatalog = (updater: Catalog | ((prev: Catalog) => Catalog)) => {
+    if (!allowWrite("update your catalog")) return;
     _setCatalog((prev) =>
       migrateCatalog(
         typeof updater === "function" ? (updater as any)(prev) : updater
@@ -360,13 +363,17 @@ export function useCatalog() {
   };
 
   const importJSON = async (file: File) => {
+    if (!allowWrite("import catalog data")) return;
     const text = await file.text();
     const parsed = safeParse<Catalog>(text);
     if (!parsed) throw new Error("Invalid JSON");
     setCatalog(migrateCatalog(parsed));
   };
 
-  const resetCatalog = () => setCatalog(defaultCatalog);
+  const resetCatalog = () => {
+    if (!allowWrite("reset your catalog")) return;
+    setCatalog(defaultCatalog);
+  };
 
   const maps = useMemo(() => {
     const frameMap = new Map(catalog.frames.map((f) => [f.id, f]));

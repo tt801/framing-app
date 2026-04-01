@@ -3,6 +3,7 @@ import { useStripeCheckout } from "@/lib/trial";
 
 interface UpgradeModalProps {
   onClose?: () => void;
+  embedded?: boolean;
 }
 
 type PlanId = "starter" | "growth" | "pro" | "founder";
@@ -85,7 +86,7 @@ const PLANS: {
   },
 ];
 
-export default function UpgradeModal({ onClose }: UpgradeModalProps) {
+export default function UpgradeModal({ onClose, embedded = false }: UpgradeModalProps) {
   const { startCheckout, loading, error } = useStripeCheckout();
   const [selectedPlan, setSelectedPlan] = useState<PlanId>("growth");
 
@@ -98,8 +99,8 @@ export default function UpgradeModal({ onClose }: UpgradeModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-4xl rounded-2xl border border-white/20 bg-slate-900 p-6 shadow-2xl sm:p-10">
+    <div className={embedded ? "w-full" : "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"}>
+      <div className={`w-full max-w-4xl rounded-2xl border border-white/20 bg-slate-900 p-6 shadow-2xl sm:p-10 ${embedded ? "mx-auto" : ""}`}>
         <h2 className="font-display text-2xl text-white sm:text-3xl">Choose your plan</h2>
         <p className="mt-2 text-sm text-slate-300">
           Your free trial has ended. Select a plan to continue using Framers App.

@@ -9,6 +9,13 @@ add column if not exists stripe_price_id text,
 add column if not exists subscription_renewed_at timestamptz,
 add column if not exists subscription_cancel_at timestamptz;
 
+alter table if exists public.company_accounts
+drop constraint if exists company_accounts_plan_status_check;
+
+alter table if exists public.company_accounts
+add constraint company_accounts_plan_status_check
+check (plan_status in ('trialing', 'active', 'past_due', 'expired'));
+
 -- Create an index for quick Stripe customer lookup
 create index if not exists idx_company_accounts_stripe_customer_id
   on public.company_accounts(stripe_customer_id);

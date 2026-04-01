@@ -76,6 +76,9 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx...   (empty for now, fill after Step 6)
 VITE_STRIPE_PUBLIC_KEY=pk_live_xxx... (your publishable key)
 VITE_STRIPE_PRICE_STARTER=price_xxx...
 VITE_STRIPE_PRICE_GROWTH=price_xxx...
+VITE_STRIPE_PRICE_PRO=price_xxx...
+VITE_STRIPE_PRICE_FOUNDER=price_xxx...
+FOUNDER_MAX_PURCHASES=10
 ```
 
 ### In `.env.local` (Local Development):
@@ -88,6 +91,9 @@ STRIPE_WEBHOOK_SECRET=whsec_test_xxx...  (empty for now)
 VITE_STRIPE_PUBLIC_KEY=pk_test_xxx...
 VITE_STRIPE_PRICE_STARTER=price_xxx...
 VITE_STRIPE_PRICE_GROWTH=price_xxx...
+VITE_STRIPE_PRICE_PRO=price_xxx...
+VITE_STRIPE_PRICE_FOUNDER=price_xxx...
+FOUNDER_MAX_PURCHASES=10
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_anon_key
 ```
@@ -205,6 +211,7 @@ Once deployed to Vercel:
 
 3. Vercel will auto-deploy
 4. Check that `STRIPE_SECRET_KEY`, `VITE_STRIPE_PUBLIC_KEY`, `VITE_STRIPE_PRICE_STARTER`, `VITE_STRIPE_PRICE_GROWTH`, and `STRIPE_WEBHOOK_SECRET` are set in Vercel
+4. Check that `VITE_STRIPE_PRICE_PRO`, `VITE_STRIPE_PRICE_FOUNDER`, and `FOUNDER_MAX_PURCHASES` are also set in Vercel if you want the full pricing matrix and Founder cap enforced
 
 ---
 
@@ -214,10 +221,12 @@ Once deployed to Vercel:
 - Ensure Stripe CLI is running locally during testing
 - Check webhook URL in Stripe Dashboard → Webhooks
 - View webhook logs in Supabase: `stripe_webhook_logs` table
+- Use [BILLING_VERIFICATION.md](BILLING_VERIFICATION.md) for production verification and SQL checks after deploys
 
 ### Checkout redirects to wrong URL?
 - Verify `VITE_STRIPE_PUBLIC_KEY` is set in `.env.local`
-- Verify `VITE_STRIPE_PRICE_STARTER` and `VITE_STRIPE_PRICE_GROWTH` match your Stripe price IDs
+- Verify `VITE_STRIPE_PRICE_STARTER`, `VITE_STRIPE_PRICE_GROWTH`, `VITE_STRIPE_PRICE_PRO`, and `VITE_STRIPE_PRICE_FOUNDER` match your Stripe price IDs
+- If Founder checkout is blocked unexpectedly, verify `FOUNDER_MAX_PURCHASES` is higher than the number of existing `founder_lifetime` accounts in `company_accounts`
 
 ### Trial check shows "not authenticated"?
 - Ensure user is logged in before accessing upgrade flow
