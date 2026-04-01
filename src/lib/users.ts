@@ -1,19 +1,40 @@
 // src/lib/users.ts
 import { create } from "zustand";
 
+export type AppUserRole = "owner" | "manager" | "sales" | "workshop" | "staff";
+
 export type AppUser = {
   id: string;
   name: string;
   color: string;
+  email?: string;
+  role: AppUserRole;
+  active: boolean;
+  invitedAt: string;
+  lastActiveAt?: string;
 };
 
 const LS_KEY = "frameit_users_v1";
+const nowIso = () => new Date().toISOString();
 
 const defaultUsers: AppUser[] = [
-  { id: "alex", name: "Alex", color: "#6366f1" },     // indigo
-  { id: "sarah", name: "Sarah", color: "#ec4899" },   // pink
-  { id: "workshop", name: "Workshop", color: "#22c55e" } // green
+  { id: "alex", name: "Alex", color: "#6366f1", email: "alex@framersapp.local", role: "owner", active: true, invitedAt: nowIso(), lastActiveAt: nowIso() },
+  { id: "sarah", name: "Sarah", color: "#ec4899", email: "sarah@framersapp.local", role: "manager", active: true, invitedAt: nowIso(), lastActiveAt: nowIso() },
+  { id: "workshop", name: "Workshop", color: "#22c55e", email: "workshop@framersapp.local", role: "workshop", active: true, invitedAt: nowIso(), lastActiveAt: nowIso() }
 ];
+
+function migrateUser(raw: any): AppUser {
+  return {
+    id: String(raw?.id || raw?.name || `user-${Math.random().toString(36).slice(2, 8)}`),
+    name: String(raw?.name || "Unnamed user"),
+    color: String(raw?.color || "#64748b"),
+    email: raw?.email ? String(raw.email) : "",
+    role: (raw?.role as AppUserRole) || "staff",
+    active: raw?.active !== false,
+    invitedAt: raw?.invitedAt || nowIso(),
+    lastActiveAt: raw?.lastActiveAt || raw?.invitedAt || nowIso(),
+  };
+}
 
 function loadFromStorage(): AppUser[] {
   if (typeof window === "undefined") return defaultUsers;
@@ -22,7 +43,7 @@ function loadFromStorage(): AppUser[] {
     if (!raw) return defaultUsers;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return defaultUsers;
-    return parsed;
+    return parsed.map(migrateUser);
   } catch {
     return defaultUsers;
   }
@@ -36,19 +57,39 @@ function saveToStorage(users: AppUser[]) {
 
 type UserStore = {
   users: AppUser[];
-  addUser: (name: string, color: string) => void;
+  addUser: (input: { name: string; email?: string; color: string; role: AppUserRole }) => AppUser | null;
   updateUser: (id: string, patch: Partial<AppUser>) => void;
+  removeUser: (id: string) => boolean;
 };
 
 export const useUsers = create<UserStore>((set, get) => ({
   users: loadFromStorage(),
 
-  addUser(name, color) {
-    const id = name.toLowerCase().replace(/\s+/g, "-");
-    const newUser = { id, name, color };
+  addUser(input) {
+    const baseId = input.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || `user-${Math.random().toString(36).slice(2, 7)}`;
+    const existingIds = new Set(get().users.map((user) => user.id));
+    let id = baseId;
+    let suffix = 1;
+
+    while (existingIds.has(id)) {
+      id = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+
+    const newUser: AppUser = {
+      id,
+      name: input.name,
+      email: input.email || "",
+      color: input.color,
+      role: input.role,
+      active: true,
+      invitedAt: nowIso(),
+      lastActiveAt: nowIso(),
+    };
     const next = [...get().users, newUser];
     saveToStorage(next);
     set({ users: next });
+    return newUser;
   },
 
   updateUser(id, patch) {
@@ -57,5 +98,21 @@ export const useUsers = create<UserStore>((set, get) => ({
     );
     saveToStorage(next);
     set({ users: next });
-  }
+  },
+
+  removeUser(id) {
+    const users = get().users;
+    const target = users.find((user) => user.id === id);
+    if (!target) return false;
+
+    const activeOwners = users.filter((user) => user.role === "owner" && user.active);
+    if (target.role === "owner" && target.active && activeOwners.length <= 1) {
+      return false;
+    }
+
+    const next = users.filter((user) => user.id !== id);
+    saveToStorage(next);
+    set({ users: next });
+    return true;
+  },
 }));

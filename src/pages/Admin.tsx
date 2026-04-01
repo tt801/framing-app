@@ -13,6 +13,8 @@ import AddressAutocomplete from "@/components/AddressAutocomplete";
 import { useBillingPortal, useBillingSummary } from "@/lib/billing";
 import { useToast } from "@/lib/toast";
 import APISettingsPage from "@/pages/APISettings";
+import { helpSections } from "@/lib/helpContent";
+import { useUsers, type AppUserRole } from "@/lib/users";
 
 /* ------------------------------------------------------------------
    Currency options (central list)
@@ -91,7 +93,9 @@ type TabId =
   | "printing"
   | "backers"
   | "jobs"
-  | "integrations";
+  | "integrations"
+  | "users"
+  | "help";
 
 export default function AdminPage() {
   // ✅ Match the pattern used in Stock.tsx so catalog + updates are consistent
@@ -146,6 +150,8 @@ export default function AdminPage() {
               ["backers", "Backer boards"],
               ["jobs", "Jobs"],
               ["integrations", "Integrations"],
+              ["users", "Users"],
+              ["help", "Help assistant"],
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -252,6 +258,10 @@ export default function AdminPage() {
               }
             />
           )}
+
+          {activeTab === "users" && <UsersPanel />}
+
+          {activeTab === "help" && <HelpAssistantAdminPanel />}
         </section>
       </section>
     </main>
@@ -1833,6 +1843,293 @@ function IntegrationsPanel({
             Disconnect
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function UsersPanel() {
+  const { users, addUser, updateUser, removeUser } = useUsers();
+  const { add: toast } = useToast();
+  const [draft, setDraft] = useState({
+    name: "",
+    email: "",
+    color: "#0ea5e9",
+    role: "staff" as AppUserRole,
+  });
+
+  const ownerCount = users.filter((user) => user.role === "owner" && user.active).length;
+  const activeCount = users.filter((user) => user.active).length;
+
+  const handleAddUser = () => {
+    if (!draft.name.trim()) {
+      toast("User name is required.", "error");
+      return;
+    }
+
+    const created = addUser({
+      name: draft.name.trim(),
+      email: draft.email.trim(),
+      color: draft.color,
+      role: draft.role,
+    });
+
+    if (!created) {
+      toast("Could not create user.", "error");
+      return;
+    }
+
+    setDraft({ name: "", email: "", color: "#0ea5e9", role: "staff" });
+    toast(`${created.name} added to the workspace.`, "success");
+  };
+
+  const handleRemoveUser = (id: string, name: string) => {
+    if (!window.confirm(`Remove ${name} from this workspace?`)) return;
+
+    const removed = removeUser(id);
+    if (!removed) {
+      toast("You must keep at least one active owner.", "warning");
+      return;
+    }
+
+    toast(`${name} removed.`, "success");
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-lg font-semibold">Users</h2>
+        <p className="text-sm text-slate-500">
+          Manage local workspace users, roles, and assignment options for scheduling and operations.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Users</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{users.length}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Active</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{activeCount}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Owners</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{ownerCount}</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">Add workspace user</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            This first version stores users locally for workspace operations such as assignment, scheduling, and admin setup.
+          </p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Full name"
+            value={draft.name}
+            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+          />
+          <input
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Email address"
+            value={draft.email}
+            onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))}
+          />
+          <select
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            value={draft.role}
+            onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value as AppUserRole }))}
+          >
+            <option value="owner">Owner</option>
+            <option value="manager">Manager</option>
+            <option value="sales">Sales</option>
+            <option value="workshop">Workshop</option>
+            <option value="staff">Staff</option>
+          </select>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              className="h-10 w-14 rounded border border-slate-300 bg-white p-1"
+              value={draft.color}
+              onChange={(event) => setDraft((current) => ({ ...current, color: event.target.value }))}
+            />
+            <button
+              type="button"
+              onClick={handleAddUser}
+              className="inline-flex flex-1 items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Add user
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Workspace users</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Roles and status here feed local workflow assignment and future permission controls.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {users.map((user) => {
+            const isProtectedOwner = user.role === "owner" && user.active && ownerCount <= 1;
+
+            return (
+              <div key={user.id} className="rounded-xl border border-slate-200 p-4">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_160px_120px_110px] lg:items-center">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-white"
+                      style={{ backgroundColor: user.color }}
+                    >
+                      {user.name.slice(0, 1).toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <input
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
+                        value={user.name}
+                        onChange={(event) => updateUser(user.id, { name: event.target.value })}
+                      />
+                      <p className="mt-1 text-xs text-slate-500">ID: {user.id}</p>
+                    </div>
+                  </div>
+
+                  <input
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="Email address"
+                    value={user.email || ""}
+                    onChange={(event) => updateUser(user.id, { email: event.target.value })}
+                  />
+
+                  <select
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={user.role}
+                    onChange={(event) => updateUser(user.id, { role: event.target.value as AppUserRole })}
+                  >
+                    <option value="owner">Owner</option>
+                    <option value="manager">Manager</option>
+                    <option value="sales">Sales</option>
+                    <option value="workshop">Workshop</option>
+                    <option value="staff">Staff</option>
+                  </select>
+
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={user.active}
+                      onChange={(event) => {
+                        if (!event.target.checked && isProtectedOwner) {
+                          toast("You must keep at least one active owner.", "warning");
+                          return;
+                        }
+                        updateUser(user.id, { active: event.target.checked });
+                      }}
+                    />
+                    {user.active ? "Active" : "Inactive"}
+                  </label>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <input
+                      type="color"
+                      className="h-10 w-12 rounded border border-slate-300 bg-white p-1"
+                      value={user.color}
+                      onChange={(event) => updateUser(user.id, { color: event.target.value })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveUser(user.id, user.name)}
+                      className="rounded-lg border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={isProtectedOwner}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+                  <span>Invited: {new Date(user.invitedAt).toLocaleDateString()}</span>
+                  <span>Last active: {user.lastActiveAt ? new Date(user.lastActiveAt).toLocaleDateString() : "Not tracked yet"}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+        This is the first real user-management phase: local users, roles, and active status. The next phase would connect this to authenticated team accounts and invitation flows.
+      </div>
+    </div>
+  );
+}
+
+function HelpAssistantAdminPanel() {
+  const sections = Object.values(helpSections);
+  const totalQuestions = sections.reduce((count, section) => count + section.entries.length, 0);
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-lg font-semibold">Help assistant</h2>
+        <p className="text-sm text-slate-500">
+          Review the current in-app help coverage and prepare for future Admin-based content management.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Help areas</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{sections.length}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Guided questions</p>
+          <p className="mt-1 text-2xl font-black text-slate-950">{totalQuestions}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Storage</p>
+          <p className="mt-1 text-sm font-semibold text-slate-950">Code-based content library</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+        <h3 className="text-sm font-semibold text-slate-900">Current storage model</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Help content is currently stored in the codebase so it can be version-controlled, reviewed, and expanded quickly before building a full Admin editor.
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          File: src/lib/helpContent.ts
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <h3 className="text-sm font-semibold text-slate-900">Coverage by area</h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {sections.map((section) => (
+            <div key={section.area} className="rounded-xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate-900">{section.title}</p>
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
+                  {section.entries.length} answers
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">{section.summary}</p>
+              <p className="mt-3 text-xs text-slate-500">Prompts: {section.quickPrompts.join(" · ")}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+        Future phase: replace the code-based library with an Admin-managed editor so help content can be updated without code changes.
       </div>
     </div>
   );
