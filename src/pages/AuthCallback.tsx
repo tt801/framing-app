@@ -37,7 +37,7 @@ export default function AuthCallbackPage() {
           if (active) {
             setStatus("Email confirmed. Please sign in to continue.");
             window.setTimeout(() => {
-              window.location.replace(`${window.location.origin}${window.location.pathname}#/login`);
+              window.location.replace(`${window.location.origin}/#/login`);
             }, 1200);
           }
           return;
@@ -45,7 +45,7 @@ export default function AuthCallbackPage() {
 
         if (active) {
           setStatus("Success. Taking you to your dashboard...");
-          window.location.replace(`${window.location.origin}${window.location.pathname}#/dashboard`);
+          window.location.replace(`${window.location.origin}/#/dashboard`);
         }
       } catch (callbackError: unknown) {
         if (!active) return;
