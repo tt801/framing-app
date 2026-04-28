@@ -50,6 +50,25 @@ const getAction = (req: VercelRequest) => {
   return Array.isArray(action) ? action[0] : action;
 };
 
+function getBaseUrl(req: VercelRequest) {
+  const configured = (process.env.APP_BASE_URL || "").trim().replace(/\/$/, "");
+  if (configured) return configured;
+
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  const host = req.headers.host;
+
+  if (proto && host) {
+    return `${proto}://${host}`;
+  }
+
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+
+  return "http://localhost:5173";
+}
+
 async function handleSummary(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).end();
 
@@ -95,9 +114,7 @@ async function handleCreatePortal(req: VercelRequest, res: VercelResponse) {
     throw new Error("Founder plan does not use the billing portal");
   }
 
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : "http://localhost:5173";
+  const baseUrl = getBaseUrl(req);
 
   const session = await stripe.billingPortal.sessions.create({
     customer: account.stripe_customer_id,

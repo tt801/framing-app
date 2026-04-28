@@ -1,4 +1,17 @@
 {
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.framersapp.com"
+        }
+      ],
+      "destination": "https://framersapp.com/$1",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/auth/callback",

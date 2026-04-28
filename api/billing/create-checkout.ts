@@ -42,6 +42,25 @@ async function requireBillingUser(req: VercelRequest) {
   return { user: data.user, account };
 }
 
+function getBaseUrl(req: VercelRequest) {
+  const configured = (process.env.APP_BASE_URL || "").trim().replace(/\/$/, "");
+  if (configured) return configured;
+
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  const host = req.headers.host;
+
+  if (proto && host) {
+    return `${proto}://${host}`;
+  }
+
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+
+  return "http://localhost:5173";
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).end();
 
@@ -91,9 +110,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Create checkout session
     // Founder plan is a one-time payment, all others are recurring subscriptions
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:5173";
+    const baseUrl = getBaseUrl(req);
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
