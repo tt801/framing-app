@@ -112,8 +112,11 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
     } catch (forgotError: unknown) {
       const msg = forgotError instanceof Error ? forgotError.message : "Could not send reset email.";
       if (msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("email rate")) {
-        setError("Too many reset requests — please wait a few minutes before trying again.");
-        setResetCooldown(120);
+        const retryAfter = new Date(Date.now() + 60 * 60 * 1000);
+        const retryTime = retryAfter.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        setError(`Supabase has rate-limited password reset emails for this address (limit: 1 per hour). Please try again after ${retryTime}.`);
+        const waitSecs = 3600;
+        setResetCooldown(waitSecs);
         if (cooldownRef.current) clearInterval(cooldownRef.current);
         cooldownRef.current = setInterval(() => {
           setResetCooldown((prev) => {
@@ -397,7 +400,13 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
                   disabled={loading || resetCooldown > 0}
                   className="text-sm font-semibold text-cyan-200 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {resetCooldown > 0 ? `Resend in ${resetCooldown}s` : "Forgot password?"}
+                  {resetCooldown > 0
+                    ? resetCooldown >= 3600
+                      ? "Rate limited (1 hr)"
+                      : resetCooldown >= 60
+                      ? `Resend in ${Math.ceil(resetCooldown / 60)}m`
+                      : `Resend in ${resetCooldown}s`
+                    : "Forgot password?"}
                 </button>
               )}
 
