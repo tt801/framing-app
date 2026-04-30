@@ -19,16 +19,44 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [recoverySessionReady, setRecoverySessionReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const href = window.location.href;
-    if (href.includes("type=recovery") || href.includes("recovery_token") || href.includes("reset=1")) {
-      setIsRecoveryFlow(true);
-      setMode("login");
-      setMessage("Password recovery detected. Enter your new password below.");
+    const isReset = href.includes("type=recovery") || href.includes("recovery_token") || href.includes("reset=1");
+    if (!isReset) return;
+
+    setIsRecoveryFlow(true);
+    setMode("login");
+
+    // Supabase stores the recovery session in localStorage after code exchange.
+    // onAuthStateChange fires synchronously with the stored session on init,
+    // so listen for it to confirm the session is live before allowing updateUser.
+    if (!supabase) {
+      setError("Supabase is not configured.");
+      return;
     }
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if ((event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") && session) {
+        setRecoverySessionReady(true);
+        setMessage("Enter your new password below.");
+        subscription.unsubscribe();
+      }
+    });
+
+    // Also check if a session already exists right now (handles page reload case)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setRecoverySessionReady(true);
+        setMessage("Enter your new password below.");
+        subscription.unsubscribe();
+      }
+    });
+
+    return () => { subscription.unsubscribe(); };
   }, []);
 
   const title = useMemo(
@@ -267,7 +295,13 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
                 </>
               )}
 
-              {isRecoveryFlow && (
+              {isRecoveryFlow && !recoverySessionReady && (
+                <div className="rounded-xl border border-cyan-300/20 bg-cyan-300/5 px-4 py-3 text-sm text-cyan-200">
+                  Verifying your reset link… please wait.
+                </div>
+              )}
+
+              {isRecoveryFlow && recoverySessionReady && (
                 <>
                   <div>
                     <label className="mb-1 block text-sm font-semibold text-slate-200">
@@ -350,7 +384,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (isRecoveryFlow && !recoverySessionReady)}
                 className="w-full rounded-2xl bg-cyan-300 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-cyan-200/60"
               >
                 {loading
