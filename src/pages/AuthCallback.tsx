@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-const authLogoSrc = "/framersapp-logo-lightblue.png";
+const authLogoSrc = "/Framers%20App%20Logo%20v2.png";
 
 export default function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);

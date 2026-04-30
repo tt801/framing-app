@@ -4,7 +4,9 @@ import { LoadingSpinner } from "./components/LoadingSpinner";
 import ToastContainer from "./components/ToastContainer";
 import CommandPalette from "./components/CommandPalette";
 import HelpAssistant from "./components/HelpAssistant";
+import CookieConsentBanner from "./components/CookieConsentBanner";
 import { useLayout } from "@/lib/layout";
+import { useTheme } from "@/lib/theme";
 import TrialBanner from "./components/TrialBanner";
 import UpgradeModal from "./components/UpgradeModal";
 import { useTrialStatus } from "@/lib/trial";
@@ -23,18 +25,43 @@ const CalendarPage = React.lazy(() => import("./pages/Calendar"));
 const DashboardPage = React.lazy(() => import("./pages/Dashboard"));
 const APISettingsPage = React.lazy(() => import("./pages/APISettings"));
 const WebsiteLanding = React.lazy(() => import("./pages/WebsiteLanding"));
+const LegalPolicyPage = React.lazy(() => import("./pages/LegalPolicy"));
 const AuthPage = React.lazy(() => import("./pages/Auth"));
 const AuthCallbackPage = React.lazy(() => import("./pages/AuthCallback"));
 const BillingPage = React.lazy(() => import("./pages/Billing"));
 const BillingSuccessPage = React.lazy(() => import("./pages/BillingSuccess"));
-const appLogoSrc = "/framersapp-logo-lightblue.png";
+const SupportPage = React.lazy(() => import("./pages/Support"));
+const appLogoSrc = "/Framers%20App%20Logo%20v2.png";
 const appTagline = "Frame. Quote. Grow.";
 
 // ---------- Hash Router ----------
 function useHashRoute() {
   const getRoute = () => {
-    if (window.location.hash) {
-      return window.location.hash.replace(/^#/, "");
+    const hashValue = window.location.hash.replace(/^#/, "");
+
+    // Supabase recovery links can land with token params in the hash instead
+    // of a route (e.g. #access_token=...&type=recovery). Normalize these
+    // into the login reset route so the UI can complete password recovery.
+    if (
+      hashValue &&
+      (/^(access_token|refresh_token|expires_in|token_type|type)=/.test(hashValue) ||
+        hashValue.includes("type=recovery") ||
+        hashValue.includes("recovery_token="))
+    ) {
+      return "/login?reset=1";
+    }
+
+    if (hashValue) {
+      return hashValue;
+    }
+
+    const searchValue = window.location.search || "";
+    if (
+      searchValue.includes("type=recovery") ||
+      searchValue.includes("recovery_token=") ||
+      searchValue.includes("access_token=")
+    ) {
+      return "/login?reset=1";
     }
 
     if (window.location.pathname && window.location.pathname !== "/") {
@@ -102,13 +129,16 @@ function ErrorCatcher({
 function App() {
   const route = useHashRoute();
   const { layoutMode, toggleLayoutMode } = useLayout();
+  const { themeMode, toggleThemeMode } = useTheme();
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const isLanding = route === "/" || route === "";
+  const isLegal = route.startsWith("/legal");
   const isLogin = route.startsWith("/login");
   const isStartTrial = route.startsWith("/start-trial");
   const isAuthCallback = route.startsWith("/auth/callback");
+  const isSupport = route.startsWith("/support");
   const isAuthRoute = isLogin || isStartTrial || isAuthCallback;
 
   const isAdmin = route.startsWith("/admin");
@@ -141,7 +171,12 @@ function App() {
     !isBilling &&
     !isBillingSuccess;
 
-  const isPublicRoute = isLanding || isAuthRoute;
+  const isPublicRoute = isLanding || isLegal || isAuthRoute;
+  const isPublicOrSupport = isPublicRoute || isSupport;
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+  }, [themeMode]);
 
   useEffect(() => {
     let mounted = true;
@@ -173,10 +208,10 @@ function App() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isPublicRoute && !isAuthenticated) {
+    if (!isPublicOrSupport && !isAuthenticated) {
       window.location.hash = "#/login";
     }
-  }, [authLoading, isAuthenticated, isPublicRoute]);
+  }, [authLoading, isAuthenticated, isPublicOrSupport]);
 
   const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding && isAuthenticated);
   const hasAdminAccess = trial?.workspaceRole === "owner" || trial?.workspaceRole === "manager";
@@ -198,7 +233,7 @@ function App() {
         statusMessage: "",
       };
 
-  if (!isPublicRoute && authLoading) {
+  if (!isPublicOrSupport && authLoading) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-slate-50">
         <LoadingSpinner size="lg" />
@@ -206,7 +241,7 @@ function App() {
     );
   }
 
-  if (!isPublicRoute && !isAuthenticated) {
+  if (!isPublicOrSupport && !isAuthenticated) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-slate-50 px-4">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
@@ -300,6 +335,18 @@ function App() {
         <ErrorBoundary>
           <WebsiteLanding />
         </ErrorBoundary>
+        <CookieConsentBanner />
+      </BillingAccessProvider>
+    );
+  }
+
+  if (isLegal) {
+    return (
+      <BillingAccessProvider value={billingAccess}>
+        <ErrorBoundary>
+          <LegalPolicyPage />
+        </ErrorBoundary>
+        <CookieConsentBanner />
       </BillingAccessProvider>
     );
   }
@@ -314,6 +361,18 @@ function App() {
             <AuthPage defaultMode={isStartTrial ? "signup" : "login"} />
           )}
         </ErrorBoundary>
+        <CookieConsentBanner />
+      </BillingAccessProvider>
+    );
+  }
+
+  if (isSupport) {
+    return (
+      <BillingAccessProvider value={billingAccess}>
+        <ErrorBoundary>
+          <SupportPage />
+        </ErrorBoundary>
+        <CookieConsentBanner />
       </BillingAccessProvider>
     );
   }
@@ -324,6 +383,7 @@ function App() {
         <ErrorBoundary>
           <BillingSuccessPage />
         </ErrorBoundary>
+        <CookieConsentBanner />
       </BillingAccessProvider>
     );
   }
@@ -364,10 +424,22 @@ function App() {
 
   return (
     <BillingAccessProvider value={billingAccess}>
-      <div className="min-h-dvh w-full bg-neutral-50 text-neutral-900">
+      <div
+        className={`app-shell min-h-dvh w-full ${
+          themeMode === "dark"
+            ? "app-theme-dark bg-slate-950 text-slate-100"
+            : "bg-neutral-50 text-neutral-900"
+        }`}
+      >
         <TrialBanner trial={trial} loading={trialLoading} />
         {/* ---------- Header ---------- */}
-        <header className="sticky top-0 z-40 w-full border-b border-neutral-200 bg-white/80 backdrop-blur">
+        <header
+          className={`sticky top-0 z-40 w-full border-b backdrop-blur ${
+            themeMode === "dark"
+              ? "border-slate-800 bg-slate-950/85"
+              : "border-neutral-200 bg-white/80"
+          }`}
+        >
         <div
           className={
             layoutMode === "fixed"
@@ -377,7 +449,7 @@ function App() {
         >
           <div className="flex items-center justify-between gap-3 py-2">
             {/* LEFT: Logo + nav */}
-            <div className="flex items-center gap-3 overflow-x-auto">
+            <div className="flex min-w-0 flex-1 items-center gap-3 overflow-x-auto">
               <a href="#/dashboard" className="flex shrink-0 items-center">
                 <img
                   src={appLogoSrc}
@@ -393,7 +465,11 @@ function App() {
                     aria-current={item.active ? "page" : undefined}
                     className={`whitespace-nowrap rounded-full px-3 py-1.5 transition ${
                       item.active
-                        ? "bg-slate-900 text-white shadow-sm"
+                        ? themeMode === "dark"
+                          ? "bg-cyan-300 text-slate-950 shadow-sm"
+                          : "bg-slate-900 text-white shadow-sm"
+                        : themeMode === "dark"
+                        ? "text-slate-300 hover:bg-slate-800"
                         : "text-slate-700 hover:bg-slate-100"
                     }`}
                   >
@@ -403,13 +479,17 @@ function App() {
               </nav>
             </div>
 
-            {/* RIGHT: Primary create (optional) + layout toggle */}
-            <div className="flex items-center gap-3">
+            {/* RIGHT: Primary create (optional) + theme toggle + layout toggle */}
+            <div className="flex shrink-0 items-center gap-2">
               {showCreateButton && (
                 <button
                   type="button"
                   onClick={() => triggerCreate(primaryCreate.key)}
-                  className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 shadow-sm"
+                  className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium shadow-sm ${
+                    themeMode === "dark"
+                      ? "bg-cyan-300 text-slate-950 hover:bg-cyan-200"
+                      : "bg-slate-900 text-white hover:bg-slate-800"
+                  }`}
                 >
                   <span className="text-base leading-none">+</span>
                   <span>{primaryCreate.label}</span>
@@ -418,10 +498,36 @@ function App() {
 
               <button
                 type="button"
-                onClick={toggleLayoutMode}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+                onClick={toggleThemeMode}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm ${
+                  themeMode === "dark"
+                    ? "border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800"
+                    : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                }`}
               >
-                <span className="text-[11px] text-slate-500">Layout</span>
+                <span className={`text-[11px] ${themeMode === "dark" ? "text-slate-400" : "text-slate-500"}`}>
+                  Theme
+                </span>
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    themeMode === "dark" ? "bg-cyan-300" : "bg-amber-400"
+                  }`}
+                />
+                <span>{themeMode === "dark" ? "Dark" : "Light"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleLayoutMode}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm ${
+                  themeMode === "dark"
+                    ? "border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800"
+                    : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <span className={`text-[11px] ${themeMode === "dark" ? "text-slate-400" : "text-slate-500"}`}>
+                  Layout
+                </span>
                 <span
                   className={`h-2.5 w-2.5 rounded-full ${
                     layoutMode === "fixed" ? "bg-emerald-500" : "bg-slate-400"
@@ -480,6 +586,7 @@ function App() {
       <ToastContainer />
       <CommandPalette />
       <HelpAssistant currentArea={currentHelpArea} />
+      <CookieConsentBanner />
       </div>
     </BillingAccessProvider>
   );

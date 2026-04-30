@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="Xero logo">
+  <rect width="96" height="96" rx="18" fill="#13B5EA"/>
+  <circle cx="48" cy="48" r="27" fill="#ffffff" fill-opacity="0.16"/>
+  <text x="48" y="55" text-anchor="middle" font-size="24" font-family="Arial, sans-serif" font-weight="700" fill="#ffffff">X</text>
+</svg>

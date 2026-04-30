@@ -16,6 +16,16 @@ import APISettingsPage from "@/pages/APISettings";
 import { helpSections } from "@/lib/helpContent";
 import { useUsers, type AppUserRole, type AppUser } from "@/lib/users";
 import { deleteCompanyMember, inviteCompanyMember, updateCompanyMember, useCompanyMembers } from "@/lib/companyMembers";
+import {
+  useAdminSupportTickets,
+  updateAdminSupportTicket,
+  listAdminTicketComments,
+  createAdminTicketComment,
+  type SupportTicket,
+  type SupportTicketPriority,
+  type SupportTicketStatus,
+  type SupportTicketComment,
+} from "@/lib/supportTickets";
 
 /* ------------------------------------------------------------------
    Currency options (central list)
@@ -121,6 +131,7 @@ type TabId =
   | "backers"
   | "jobs"
   | "integrations"
+  | "tickets"
   | "users"
   | "help";
 
@@ -177,6 +188,7 @@ export default function AdminPage() {
               ["backers", "Backer boards"],
               ["jobs", "Jobs"],
               ["integrations", "Integrations"],
+              ["tickets", "Support tickets"],
               ["users", "Users"],
               ["help", "Help assistant"],
             ].map(([id, label]) => (
@@ -285,6 +297,8 @@ export default function AdminPage() {
               }
             />
           )}
+
+          {activeTab === "tickets" && <SupportTicketsPanel />}
 
           {activeTab === "users" && <UsersPanel />}
 
@@ -2477,6 +2491,286 @@ function CompanyAccessPanel() {
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+function SupportTicketsPanel() {
+  const { add: toast } = useToast();
+  const { tickets, loading, error, refresh, setTickets } = useAdminSupportTickets(true);
+  const { members } = useCompanyMembers(true);
+  const [statusFilter, setStatusFilter] = useState<"all" | SupportTicketStatus>("all");
+  const [commentsByTicket, setCommentsByTicket] = useState<Record<string, SupportTicketComment[]>>({});
+  const [commentDraftByTicket, setCommentDraftByTicket] = useState<Record<string, string>>({});
+  const [commentVisibilityByTicket, setCommentVisibilityByTicket] = useState<Record<string, "internal" | "customer">>({});
+  const [loadingCommentsTicketId, setLoadingCommentsTicketId] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    if (statusFilter === "all") return tickets;
+    return tickets.filter((ticket) => ticket.status === statusFilter);
+  }, [statusFilter, tickets]);
+
+  const updateTicket = async (
+    ticketId: string,
+    patch: { status?: SupportTicketStatus; priority?: SupportTicketPriority; assignedToUserId?: string | null }
+  ) => {
+    try {
+      const data = await updateAdminSupportTicket({ ticketId, ...patch });
+      setTickets((current) => current.map((ticket) => (ticket.id === ticketId ? data.ticket : ticket)));
+      toast(`Ticket ${data.ticket.ticket_number} updated.`, "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not update ticket", "error");
+    }
+  };
+
+  const loadComments = async (ticketId: string) => {
+    try {
+      setLoadingCommentsTicketId(ticketId);
+      const data = await listAdminTicketComments(ticketId);
+      setCommentsByTicket((current) => ({ ...current, [ticketId]: data.comments || [] }));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not load ticket comments", "error");
+    } finally {
+      setLoadingCommentsTicketId(null);
+    }
+  };
+
+  const addComment = async (ticketId: string) => {
+    const body = (commentDraftByTicket[ticketId] || "").trim();
+    if (!body) {
+      toast("Add a comment before submitting.", "warning");
+      return;
+    }
+
+    try {
+      const visibility = commentVisibilityByTicket[ticketId] || "internal";
+      const data = await createAdminTicketComment({ ticketId, body, visibility });
+      setCommentsByTicket((current) => ({
+        ...current,
+        [ticketId]: [...(current[ticketId] || []), data.comment],
+      }));
+      setCommentDraftByTicket((current) => ({ ...current, [ticketId]: "" }));
+      toast("Comment added.", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not save comment", "error");
+    }
+  };
+
+  const statusPill = (status: SupportTicketStatus) => {
+    if (status === "open") return "bg-rose-100 text-rose-700";
+    if (status === "in_progress") return "bg-amber-100 text-amber-700";
+    if (status === "waiting_customer") return "bg-sky-100 text-sky-700";
+    if (status === "resolved") return "bg-emerald-100 text-emerald-700";
+    return "bg-slate-200 text-slate-700";
+  };
+
+  const assignableMembers = useMemo(
+    () =>
+      members.filter(
+        (member) =>
+          member.status === "active" &&
+          Boolean(member.user_id) &&
+          (member.role === "owner" || member.role === "manager")
+      ),
+    [members]
+  );
+
+  const getSla = (ticket: SupportTicket) => {
+    const ageHours = Math.floor((Date.now() - new Date(ticket.created_at).getTime()) / 36e5);
+    if (ticket.status === "resolved" || ticket.status === "closed") {
+      return { label: `Resolved in ${ageHours}h`, tone: "bg-emerald-100 text-emerald-700" };
+    }
+    if (ageHours >= 48) {
+      return { label: `SLA overdue · ${ageHours}h`, tone: "bg-rose-100 text-rose-700" };
+    }
+    if (ageHours >= 24) {
+      return { label: `SLA warning · ${ageHours}h`, tone: "bg-amber-100 text-amber-700" };
+    }
+    return { label: `Within SLA · ${ageHours}h`, tone: "bg-sky-100 text-sky-700" };
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Support tickets</h2>
+          <p className="text-sm text-slate-500">Track customer support requests through open, in-progress, waiting, and resolution states.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as "all" | SupportTicketStatus)}
+          >
+            <option value="all">All statuses</option>
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="waiting_customer">Waiting customer</option>
+            <option value="resolved">Resolved</option>
+            <option value="closed">Closed</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+          Loading support tickets...
+        </div>
+      ) : error ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+          No support tickets found.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((ticket: SupportTicket) => (
+            <div key={ticket.id} className="rounded-xl border border-slate-200 p-4">
+              {(() => {
+                const sla = getSla(ticket);
+                const assigneeLabel = ticket.assigned_to_user_id
+                  ? assignableMembers.find((member) => member.user_id === ticket.assigned_to_user_id)?.full_name || "Assigned"
+                  : "Unassigned";
+                return (
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${sla.tone}`}>{sla.label}</span>
+                    <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{assigneeLabel}</span>
+                  </div>
+                );
+              })()}
+
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{ticket.subject}</p>
+                  <p className="text-xs text-slate-500">
+                    {ticket.ticket_number} · {ticket.requester_email || "No email"} · {new Date(ticket.created_at).toLocaleString()}
+                  </p>
+                </div>
+                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusPill(ticket.status)}`}>
+                  {ticket.status.replace("_", " ")}
+                </span>
+              </div>
+
+              <p className="mt-3 text-sm text-slate-700 whitespace-pre-wrap">{ticket.message}</p>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                <select
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={ticket.status}
+                  onChange={(event) => void updateTicket(ticket.id, { status: event.target.value as SupportTicketStatus })}
+                >
+                  <option value="open">Open</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="waiting_customer">Waiting customer</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="closed">Closed</option>
+                </select>
+                <select
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={ticket.priority}
+                  onChange={(event) => void updateTicket(ticket.id, { priority: event.target.value as SupportTicketPriority })}
+                >
+                  <option value="low">Low priority</option>
+                  <option value="normal">Normal priority</option>
+                  <option value="high">High priority</option>
+                  <option value="urgent">Urgent priority</option>
+                </select>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  Category: {ticket.category}
+                </div>
+                <select
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={ticket.assigned_to_user_id || ""}
+                  onChange={(event) =>
+                    void updateTicket(ticket.id, {
+                      assignedToUserId: event.target.value || null,
+                    })
+                  }
+                >
+                  <option value="">Unassigned</option>
+                  {assignableMembers.map((member) => (
+                    <option key={member.id} value={member.user_id || ""}>
+                      {member.full_name || member.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ticket history</p>
+                  <button
+                    type="button"
+                    onClick={() => void loadComments(ticket.id)}
+                    className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-white"
+                  >
+                    {loadingCommentsTicketId === ticket.id ? "Loading..." : "Refresh history"}
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {(commentsByTicket[ticket.id] || []).length === 0 ? (
+                    <p className="text-xs text-slate-500">No comments yet.</p>
+                  ) : (
+                    (commentsByTicket[ticket.id] || []).map((comment) => (
+                      <div key={comment.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-slate-700">
+                            {comment.author_name || comment.author_email || "Support"}
+                          </p>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${comment.visibility === "customer" ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-700"}`}>
+                            {comment.visibility}
+                          </span>
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{comment.body}</p>
+                        <p className="mt-1 text-[11px] text-slate-400">{new Date(comment.created_at).toLocaleString()}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                  <textarea
+                    className="h-20 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                    placeholder="Add internal note or customer-facing update"
+                    value={commentDraftByTicket[ticket.id] || ""}
+                    onChange={(event) =>
+                      setCommentDraftByTicket((current) => ({ ...current, [ticket.id]: event.target.value }))
+                    }
+                  />
+                  <select
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    value={commentVisibilityByTicket[ticket.id] || "internal"}
+                    onChange={(event) =>
+                      setCommentVisibilityByTicket((current) => ({
+                        ...current,
+                        [ticket.id]: event.target.value as "internal" | "customer",
+                      }))
+                    }
+                  >
+                    <option value="internal">Internal note</option>
+                    <option value="customer">Customer-visible</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void addComment(ticket.id)}
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                  >
+                    Add comment
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -51,6 +51,27 @@ const landingContent = {
     { label: "Admin hours saved / week", value: "6 hrs" },
   ],
 
+  valueBanner: [
+    {
+      headline: "Quote in\nminutes.",
+      label: "Quoting & Invoicing",
+      body: "Build complete framing quotes with frame, mat, glass, labour, and markup rules in one clear workflow.",
+      points: ["Professional PDF quotes", "Consistent pricing", "No spreadsheets needed"],
+    },
+    {
+      headline: "Show the\nfinished look.",
+      label: "Room Visualizer",
+      body: "Use the room visualizer with built-in scenes, your own uploaded room photos, or AI-generated backgrounds.",
+      points: ["Built-in room library", "Upload real client spaces", "AI background concepts"],
+    },
+    {
+      headline: "Track every\njob.",
+      label: "Job Board",
+      body: "Move smoothly from quote to active job, then invoice and follow-up without retyping or losing details.",
+      points: ["Visual job board", "Status tracking", "Faster handover to invoicing"],
+    },
+  ],
+
   steps: [
     {
       num: "01",
@@ -100,7 +121,9 @@ const landingContent = {
       tagline: "Help clients say yes faster by showing them the finished result.",
       bullets: [
         "Drop any frame and mat combination into a photorealistic room scene",
-        "Choose from multiple room backdrops: living room, bedroom, gallery wall",
+        "Choose from built-in room backdrops: living room, bedroom, gallery wall",
+        "Upload your own client room photo as a custom background",
+        "Use AI prompt generation to create fresh concept backdrops instantly",
         "Preview updates instantly as you change frame style, mat colour, and size",
         "Export the mockup image to share with clients via email or WhatsApp",
         "Include the room preview in your PDF quote for a premium presentation",
@@ -111,11 +134,13 @@ const landingContent = {
       title: "Follow-up Automations",
       tagline: "Win back lost quotes and grow 5-star reviews — on autopilot.",
       bullets: [
-        "Auto-send a follow-up email when a quote has been open 3 days with no reply",
-        "Send a review request the moment a job is marked Collected",
-        "Schedule marketing campaigns to your customer list, all from inside the app",
-        "Mailchimp integration syncs your customers to your existing email lists",
-        "All emails go out under your business name and branding",
+        "Auto-send quote follow-ups by email and WhatsApp when leads go quiet",
+        "Trigger review requests automatically the moment a job is marked Collected",
+        "Launch monthly campaigns to past customers based on purchase history and season",
+        "Mailchimp sync keeps your audience, tags, and segments up to date",
+        "Pre-built campaign templates help promote upgrades, re-frames, and gifting periods",
+        "Performance tracking shows opens, clicks, replies, and conversion back to booked jobs",
+        "All messages are branded under your studio name with reusable personalization tokens",
       ],
     },
   ],
@@ -214,12 +239,12 @@ const landingContent = {
       Account: [
         { label: "Start Free Trial", href: "#/start-trial" },
         { label: "Log In",           href: "#/login" },
-        { label: "Contact Support",  href: "mailto:support@framersapp.co.za" },
+        { label: "Contact Support",  href: "#/support?auto=1&source=landing&subject=Support%20request" },
       ],
       Legal: [
-        { label: "Privacy Policy",   href: "#" },
-        { label: "Terms of Service", href: "#" },
-        { label: "Cookie Policy",    href: "#" },
+        { label: "Privacy Policy",   href: "#/legal/privacy" },
+        { label: "Terms of Service", href: "#/legal/terms" },
+        { label: "Cookie Policy",    href: "#/legal/cookie" },
       ],
     },
   },
@@ -288,46 +313,124 @@ function QuoteMockup() {
 }
 
 function JobBoardMockup() {
+  const [hoveredCard, setHoveredCard] = React.useState<string | null>(null);
+  const [dragCard, setDragCard] = React.useState<string | null>(null);
+
   const cols = [
     {
       label: "New Quote",
+      count: 2,
       dot: "bg-slate-400",
-      cards: ["Wedding artwork — Smith", "A3 landscape — Jones"],
+      header: "border-slate-500/40 bg-slate-800/60",
+      badge: "bg-slate-700 text-slate-300",
+      cards: [
+        { id: "c1", title: "Wedding artwork", client: "Smith", size: "60×90 cm", priority: "high", due: "Today", priorityColor: "bg-rose-500/20 text-rose-300 border-rose-500/30" },
+        { id: "c2", title: "A3 landscape print", client: "Jones", size: "A3", priority: "normal", due: "Thu", priorityColor: "bg-slate-600/40 text-slate-400 border-slate-600/30" },
+      ],
     },
     {
       label: "In Progress",
+      count: 3,
       dot: "bg-blue-400",
-      cards: ["Oval portrait — Chen", "Diploma set — Park", "Abstract 90×60 — Lim"],
+      header: "border-blue-500/40 bg-blue-950/40",
+      badge: "bg-blue-900/60 text-blue-300",
+      cards: [
+        { id: "c3", title: "Oval portrait", client: "Chen", size: "50×70 cm", priority: "high", due: "Today", priorityColor: "bg-rose-500/20 text-rose-300 border-rose-500/30" },
+        { id: "c4", title: "Diploma set ×3", client: "Park", size: "A4 each", priority: "normal", due: "Fri", priorityColor: "bg-slate-600/40 text-slate-400 border-slate-600/30" },
+        { id: "c5", title: "Abstract 90×60", client: "Lim", size: "90×60 cm", priority: "low", due: "Next wk", priorityColor: "bg-slate-600/40 text-slate-400 border-slate-600/30" },
+      ],
     },
     {
       label: "Ready",
+      count: 1,
       dot: "bg-emerald-400",
-      cards: ["Wildlife print — Adams"],
+      header: "border-emerald-500/40 bg-emerald-950/40",
+      badge: "bg-emerald-900/50 text-emerald-300",
+      cards: [
+        { id: "c6", title: "Wildlife print", client: "Adams", size: "80×60 cm", priority: "done", due: "Pick up", priorityColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" },
+      ],
     },
     {
       label: "Collected",
+      count: 4,
       dot: "bg-slate-600",
-      cards: ["4 jobs this week"],
+      header: "border-slate-600/30 bg-slate-800/30",
+      badge: "bg-slate-800 text-slate-500",
+      cards: [
+        { id: "c7", title: "4 jobs this week", client: "", size: "", priority: "done", due: "", priorityColor: "bg-slate-700/40 text-slate-500 border-slate-700/30" },
+      ],
     },
   ];
+
   return (
     <MockupShell url="app.framersapp.co.za / jobs">
-      <div className="flex gap-2 overflow-x-auto p-3 pb-4">
+      <div className="border-b border-white/8 bg-slate-900/60 px-3 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold text-white">Job Board</span>
+          <span className="rounded-full bg-cyan-300/15 px-2 py-0.5 text-[9px] font-semibold text-cyan-300">10 active</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="rounded-md bg-white/8 px-2 py-0.5 text-[9px] text-slate-400">Filter</span>
+          <span className="rounded-md bg-cyan-300 px-2 py-0.5 text-[9px] font-bold text-slate-900">+ New Job</span>
+        </div>
+      </div>
+      <div className="flex gap-2 overflow-x-auto p-3 pb-3" style={{ minHeight: 220 }}>
         {cols.map((col) => (
-          <div key={col.label} className="w-36 shrink-0">
-            <div className="mb-2 flex items-center gap-1.5 px-1">
-              <span className={`h-2 w-2 rounded-full ${col.dot}`} />
-              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{col.label}</span>
+          <div key={col.label} className="w-[130px] shrink-0 flex flex-col">
+            {/* Column header */}
+            <div className={`mb-2 flex items-center justify-between rounded-lg border px-2 py-1.5 ${col.header}`}>
+              <div className="flex items-center gap-1.5">
+                <span className={`h-2 w-2 rounded-full ${col.dot}`} />
+                <span className="text-[9px] font-bold uppercase tracking-wide text-slate-300">{col.label}</span>
+              </div>
+              <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${col.badge}`}>{col.count}</span>
             </div>
+            {/* Cards */}
             <div className="flex flex-col gap-1.5">
               {col.cards.map((card) => (
                 <div
-                  key={card}
-                  className="rounded-lg border border-white/10 bg-slate-800 px-2.5 py-2 text-[11px] leading-tight text-slate-300"
+                  key={card.id}
+                  onMouseEnter={() => setHoveredCard(card.id)}
+                  onMouseLeave={() => setHoveredCard(null)}
+                  onMouseDown={() => setDragCard(card.id)}
+                  onMouseUp={() => setDragCard(null)}
+                  className={`rounded-lg border px-2.5 py-2 text-[11px] leading-tight cursor-pointer select-none transition-all duration-150 ${
+                    dragCard === card.id
+                      ? "scale-[0.97] rotate-1 border-cyan-400/40 bg-slate-700 shadow-lg shadow-cyan-400/10"
+                      : hoveredCard === card.id
+                      ? "border-white/25 bg-slate-700 shadow-md shadow-black/30 -translate-y-0.5"
+                      : "border-white/10 bg-slate-800"
+                  }`}
                 >
-                  {card}
+                  <p className="font-semibold text-slate-200 leading-snug mb-1">{card.title}</p>
+                  {card.client && (
+                    <p className="text-[9px] text-slate-500 mb-1.5">{card.client}{card.size ? ` · ${card.size}` : ""}</p>
+                  )}
+                  {(card.due || card.priority !== "done") && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {card.due && (
+                        <span className={`rounded border px-1.5 py-0.5 text-[8px] font-semibold ${card.priorityColor}`}>
+                          {card.due}
+                        </span>
+                      )}
+                      {card.priority === "high" && (
+                        <span className="rounded border border-rose-500/30 bg-rose-500/15 px-1.5 py-0.5 text-[8px] font-bold text-rose-300">
+                          Urgent
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {card.priority === "done" && card.client === "" && (
+                    <p className="text-[9px] text-slate-500">↗ View history</p>
+                  )}
                 </div>
               ))}
+              {/* Drop target hint when dragging */}
+              {dragCard && (
+                <div className="rounded-lg border-2 border-dashed border-white/15 py-3 text-center text-[9px] text-slate-600">
+                  drop here
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -336,34 +439,99 @@ function JobBoardMockup() {
   );
 }
 
-function RoomMockup() {
+function RoomMockup({ demoStep = 0 }: { demoStep?: number }) {
+  const sequence = ["living", "office", "ai-home"] as const;
+  const activeBackground = sequence[Math.min(demoStep, sequence.length - 1)];
+  const isAiMode = activeBackground === "ai-home";
+
+  const builtInBackdrops = [
+    { key: "studio", label: "Studio", src: "/room-backdrops/studio.jpg" },
+    { key: "living", label: "Living", src: "/room-backdrops/living.jpg" },
+    { key: "gallery", label: "Gallery", src: "/room-backdrops/gallery.jpg" },
+    { key: "office", label: "Office", src: "/room-backdrops/office.jpg" },
+  ] as const;
+
+  const activeBuiltIn = builtInBackdrops.find((b) => b.key === activeBackground) ?? builtInBackdrops[1];
+
   return (
     <MockupShell url="app.framersapp.co.za / visualizer">
       <div className="p-3">
+        <div className="mb-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-wide text-slate-400">
+          <span>Demo workflow</span>
+          <span className="rounded-full border border-cyan-300/40 bg-cyan-300/15 px-2 py-0.5 text-cyan-200">
+            AI + Custom + Library
+          </span>
+        </div>
+        <div className="mb-3 grid grid-cols-3 gap-1.5 text-[9px]">
+          <div className={`rounded-md border px-2 py-1 text-center ${!isAiMode ? "border-cyan-300/40 bg-cyan-300/15 text-cyan-200" : "border-white/15 bg-white/5 text-slate-300"}`}>Built-in</div>
+          <div className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-center text-slate-300">Upload own</div>
+          <div className={`rounded-md border px-2 py-1 text-center ${isAiMode ? "border-cyan-300/40 bg-cyan-300/15 text-cyan-200" : "border-white/15 bg-white/5 text-slate-300"}`}>AI prompt</div>
+        </div>
+
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-[9px] uppercase tracking-wide text-slate-400">Background source</p>
+          <button className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${isAiMode ? "border-cyan-300/50 bg-cyan-300/20 text-cyan-200" : "border-white/20 bg-white/5 text-slate-300"}`}>
+            Create AI background
+          </button>
+        </div>
+
         <div
-          className="relative mb-3 overflow-hidden rounded-xl bg-gradient-to-b from-slate-600 to-slate-800"
+          className="relative mb-3 overflow-hidden rounded-xl"
           style={{ height: 148 }}
         >
-          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-500/60 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 h-10 bg-amber-900/40" />
+          {!isAiMode && (
+            <img
+              src={activeBuiltIn.src}
+              alt={`${activeBuiltIn.label} backdrop`}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+
+          {isAiMode && (
+            <img
+              src="/Living Room AI.jpg"
+              alt="AI generated room"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+
+          {!isAiMode && <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/35 to-transparent" />}
+          {!isAiMode && <div className="absolute inset-0 bg-black/10" />}
+
           <div
-            className="absolute left-1/2 top-6 -translate-x-1/2 rounded border-[5px] border-amber-700 bg-slate-300/30 shadow-2xl"
-            style={{ width: 82, height: 68 }}
+            className={`absolute top-5 -translate-x-1/2 rounded-[3px] border-[2px] border-[#4a2e1c] bg-[#5b3a24] shadow-[0_4px_10px_rgba(0,0,0,0.38)] ${
+              activeBackground === "office" ? "left-[58%]" : "left-1/2"
+            }`}
+            style={{ width: 98, height: 58 }}
           >
-            <div className="h-full w-full rounded-sm bg-gradient-to-br from-slate-200/30 to-slate-500/20" />
+            <div className="pointer-events-none absolute left-1/2 top-full h-2.5 w-[72%] -translate-x-1/2 rounded-full bg-black/28 blur-[2px]" />
+            <div className="m-[2px] h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-[2px] border border-[#d7d2c7] bg-[#f2eee5] p-[6px]">
+              <img
+                src="/Landscape panorama.jpg"
+                alt="Framed black and white panoramic artwork"
+                className="h-full w-full rounded-[1px] object-cover grayscale"
+                style={{ objectPosition: "center 58%" }}
+              />
+            </div>
           </div>
           <div className="absolute bottom-2 left-3 rounded-full bg-black/30 px-2 py-0.5 text-[9px] text-white backdrop-blur">
-            Oak Natural · Off-white mat
+            Walnut Dark · Antique white mat
           </div>
           <div className="absolute bottom-2 right-3 rounded-full bg-black/30 px-2 py-0.5 text-[9px] text-white backdrop-blur">
             48 × 63 cm
+          </div>
+          <div className="absolute left-3 top-2 rounded-full bg-black/30 px-2 py-0.5 text-[9px] text-white backdrop-blur">
+            {isAiMode ? 'Prompt: "beautiful modern home interior"' : `Backdrop: ${activeBuiltIn.label}`}
+          </div>
+          <div className="absolute inset-x-4 bottom-7 h-1 overflow-hidden rounded-full bg-white/20">
+            <span className={`block h-full rounded-full bg-cyan-300 ${activeBackground === "living" ? "w-1/3" : activeBackground === "office" ? "w-2/3" : "w-full"}`} />
           </div>
         </div>
         <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">Frame style</p>
         <div className="flex gap-1.5 text-[10px]">
           {[
-            { name: "Oak Natural", active: true },
-            { name: "Walnut Dark", active: false },
+            { name: "Oak Natural", active: false },
+            { name: "Walnut Dark", active: true },
             { name: "Gloss Black", active: false },
           ].map((f) => (
             <div
@@ -377,6 +545,17 @@ function RoomMockup() {
               {f.name}
             </div>
           ))}
+        </div>
+        <div className="mt-2 grid grid-cols-6 gap-1.5 text-[9px] text-slate-300">
+          {builtInBackdrops.map((b) => (
+            <div
+              key={b.key}
+              className={`rounded-md border px-2 py-1 text-center ${activeBackground === b.key ? "border-cyan-300/40 bg-cyan-300/15 text-cyan-200" : "border-white/10 bg-white/5"}`}
+            >
+              {b.label}
+            </div>
+          ))}
+          <div className={`rounded-md border px-2 py-1 text-center ${isAiMode ? "border-cyan-300/40 bg-cyan-300/15 text-cyan-200" : "border-white/10 bg-white/5"}`}>AI</div>
         </div>
       </div>
     </MockupShell>
@@ -428,12 +607,113 @@ function AutomationMockup() {
   );
 }
 
+// ─── Demo Cursor ─────────────────────────────────────────────────────────────
+
+function DemoCursor({
+  slide,
+  onStepChange,
+}: {
+  slide: number;
+  onStepChange?: (step: number) => void;
+}) {
+  const cursorTargets = [
+    [
+      { x: 76, y: 34, label: "Select line item" },
+      { x: 33, y: 83, label: "Click Accept Quote" },
+      { x: 52, y: 84, label: "Click Export PDF" },
+    ],
+    [
+      { x: 12, y: 92, label: "Click Living backdrop" },
+      { x: 62, y: 92, label: "Click Office backdrop" },
+      { x: 78, y: 19, label: "Click Create AI background" },
+    ],
+    [
+      { x: 12, y: 21, label: "Open New Quote lane" },
+      { x: 42, y: 47, label: "Open In Progress card" },
+      { x: 72, y: 47, label: "Open Ready card" },
+    ],
+  ] as const;
+
+  const targets = cursorTargets[slide] ?? cursorTargets[0];
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    setStep(0);
+    onStepChange?.(0);
+    const timer = window.setInterval(() => {
+      setStep((prev) => {
+        const next = (prev + 1) % targets.length;
+        onStepChange?.(next);
+        return next;
+      });
+    }, 2300);
+    return () => window.clearInterval(timer);
+  }, [slide, targets.length, onStepChange]);
+
+  const active = targets[step];
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
+      <div
+        className="absolute"
+        style={{
+          left: `${active.x}%`,
+          top: `${active.y}%`,
+          transform: "translate(-50%, -50%)",
+          transition: "left 700ms cubic-bezier(0.22,1,0.36,1), top 700ms cubic-bezier(0.22,1,0.36,1)",
+        }}
+      >
+        <div
+          key={`${slide}-${step}`}
+          className="absolute rounded-full border border-white/60"
+          style={{
+            width: 26,
+            height: 26,
+            top: -13,
+            left: -13,
+            animation: "cursor-ripple 650ms ease-out forwards",
+          }}
+        />
+        <svg
+          width="18"
+          height="22"
+          viewBox="0 0 18 22"
+          fill="none"
+          className="drop-shadow-lg"
+          aria-hidden
+        >
+          <path
+            d="M2 2L2 16.5L5.5 12.8L7.8 18.5L9.8 17.7L7.5 12H12.5L2 2Z"
+            fill="white"
+            stroke="rgba(0,0,0,0.45)"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+
+    </div>
+  );
+}
+
+function SectionDivider() {
+  return (
+    <div className="my-12 flex items-center gap-4" aria-hidden>
+      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-cyan-300/40 to-transparent" />
+      <div className="h-2.5 w-2.5 rotate-45 rounded-[2px] border border-cyan-300/50 bg-cyan-300/20" />
+      <div className="h-px flex-1 bg-gradient-to-r from-transparent via-cyan-300/40 to-transparent" />
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function WebsiteLanding() {
   const [currency, setCurrency] = useState<CurrencyCode>("ZAR");
+  const [activeBanner, setActiveBanner] = useState(0);
+  const [visualizerDemoStep, setVisualizerDemoStep] = useState(0);
   const { startCheckout, loading: checkoutLoading } = useStripeCheckout();
-  const logoSrc = "/framersapp-logo-lightblue.png";
+  const logoSrc = "/Framers%20App%20Logo%20v2.png";
 
   const stripePriceIds = {
     Starter: import.meta.env.VITE_STRIPE_PRICE_STARTER || "",
@@ -444,6 +724,14 @@ export default function WebsiteLanding() {
 
   useEffect(() => {
     setCurrency(detectCurrency());
+  }, []);
+
+  useEffect(() => {
+    const t = window.setInterval(
+      () => setActiveBanner((p) => (p + 1) % landingContent.valueBanner.length),
+      9000,
+    );
+    return () => window.clearInterval(t);
   }, []);
 
   const scrollTo = (id: string) => {
@@ -467,56 +755,177 @@ export default function WebsiteLanding() {
   };
 
   return (
-    <div className="landing-root min-h-dvh text-slate-100">
-      <div className="mx-auto w-full max-w-6xl px-4 pb-24 pt-6 sm:px-6 lg:px-10">
+    <div className="landing-root relative isolate min-h-dvh overflow-hidden text-slate-100">
+      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-6 lg:px-10">
 
         {/* ── HEADER ─────────────────────────────────────────────────────── */}
-        <header className="mb-12 flex flex-col gap-4 sm:mb-16">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
+        <header className="mb-0">
+          <div className="grid gap-3 sm:min-h-[88px] sm:grid-cols-[auto_1fr_auto] sm:items-center">
+            <div className="flex items-center gap-3 sm:h-16">
               <div className="flex items-center">
                 <img
                   src={logoSrc}
                   alt={landingContent.brandName}
-                  className="h-11 w-auto object-contain"
+                  className="h-16 w-auto object-contain"
                 />
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <a
-                href="#/login"
-                className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-100 backdrop-blur transition hover:border-white/40 hover:bg-white/10"
-              >
-                Login
-              </a>
-              <a
-                href="#/start-trial"
-                className="rounded-full bg-cyan-300 px-4 py-2 text-sm font-extrabold text-slate-950 transition hover:bg-cyan-200"
-              >
-                Start Free Trial
-              </a>
+            <div className="flex flex-wrap items-center justify-center self-center gap-1.5 sm:h-10 sm:flex-nowrap sm:gap-2">
+              {[
+                { label: "How It Works", id: "about" },
+                { label: "Integrations", id: "integrations" },
+                { label: "Features",     id: "features" },
+                { label: "Pricing",      id: "pricing" },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => scrollTo(tab.id)}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-white/20 bg-white/5 px-3.5 text-[11px] font-bold uppercase leading-none tracking-wide text-slate-100 transition hover:border-white/40 hover:bg-white/10 sm:text-xs"
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-1.5 sm:h-10 sm:gap-2">
+                <a
+                  href="#/login"
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-white/20 bg-white/5 px-3.5 text-xs font-semibold leading-none text-slate-100 backdrop-blur transition hover:border-white/40 hover:bg-white/10"
+                >
+                  Login
+                </a>
+                <a
+                  href="#/start-trial"
+                  className="inline-flex h-9 items-center justify-center rounded-full bg-cyan-300 px-3.5 text-xs font-extrabold leading-none text-slate-950 transition hover:bg-cyan-200"
+                >
+                  Start Free Trial
+                </a>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {[
-              { label: "How It Works", id: "about" },
-              { label: "Features",     id: "features" },
-              { label: "Pricing",      id: "pricing" },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => scrollTo(tab.id)}
-                className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-100 transition hover:border-white/40 hover:bg-white/10"
-              >
-                {tab.label}
-              </button>
+        </header>
+      </div>
+
+        {/* ── PRODUCT SHOWCASE BANNER ──────────────────────────────── */}
+        <section className="mb-14 w-full bg-white">
+          <div className="mx-auto max-w-7xl bg-white px-5 py-14 sm:px-8 sm:py-20 lg:px-12">
+            {(() => {
+              const slide = landingContent.valueBanner[activeBanner];
+              const mockupNode =
+                activeBanner === 0 ? <QuoteMockup /> : activeBanner === 1 ? <RoomMockup demoStep={visualizerDemoStep} /> : <JobBoardMockup />;
+              return (
+                <div className="relative grid items-center gap-10 lg:grid-cols-[1.05fr_1fr] lg:gap-14">
+                  <button
+                    type="button"
+                    aria-label="Previous slide"
+                    onClick={() =>
+                      setActiveBanner((prev) =>
+                        (prev - 1 + landingContent.valueBanner.length) % landingContent.valueBanner.length,
+                      )
+                    }
+                    className="absolute -left-14 top-1/2 z-10 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-xl text-slate-600 transition hover:bg-slate-50 xl:flex"
+                  >
+                    &lt;
+                  </button>
+
+                  <div key={activeBanner} className="banner-text-enter pr-0 lg:pr-4">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">
+                      0{activeBanner + 1} / 03
+                    </p>
+                    <h2
+                      className="mt-4 font-display text-4xl leading-[1.06] text-slate-700 sm:text-5xl lg:text-6xl"
+                      style={{ whiteSpace: "pre-line" }}
+                    >
+                      {slide.headline}
+                    </h2>
+                    <p className="mt-5 max-w-md text-base leading-7 text-slate-600 sm:text-lg">
+                      {slide.body}
+                    </p>
+
+                    <div className="mt-9 flex flex-wrap items-center gap-3">
+                      {landingContent.valueBanner.map((item, idx) => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          onClick={() => setActiveBanner(idx)}
+                          className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${
+                            activeBanner === idx
+                              ? "bg-slate-800 text-white"
+                              : "bg-white text-slate-600 ring-1 ring-slate-300 hover:bg-slate-100"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-8 h-[2px] w-56 overflow-hidden rounded-full bg-slate-200">
+                      <div key={`pb-${activeBanner}`} className="banner-progress h-full rounded-full bg-slate-700" />
+                    </div>
+                  </div>
+
+                  <div key={`m-${activeBanner}`} className="relative banner-mockup-enter">
+                    <div className="relative overflow-hidden rounded-[1.6rem] border border-slate-300 bg-white p-2 shadow-[0_8px_20px_rgba(15,23,42,0.08)]">
+                      {mockupNode}
+                      <DemoCursor
+                        key={`c-${activeBanner}`}
+                        slide={activeBanner}
+                        onStepChange={activeBanner === 1 ? setVisualizerDemoStep : undefined}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    aria-label="Next slide"
+                    onClick={() =>
+                      setActiveBanner((prev) => (prev + 1) % landingContent.valueBanner.length)
+                    }
+                    className="absolute -right-14 top-1/2 z-10 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-xl text-slate-600 transition hover:bg-slate-50 xl:flex"
+                  >
+                    &gt;
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        </section>
+
+      <div className="relative isolate">
+        <img
+          aria-hidden
+          src="/Wood_Grain%20(17).jpg"
+          alt=""
+          className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover opacity-[0.05]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-slate-950/10 via-transparent to-transparent"
+        />
+        <div className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6 lg:px-10">
+
+        {/* ── HOW IT WORKS ───────────────────────────────────────────────── */}
+        <section id="about" className="mx-auto mt-4 max-w-5xl scroll-mt-6 reveal-up" style={{ animationDelay: "80ms" }}>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">How it works</p>
+          <h2 className="font-display text-3xl text-white sm:text-4xl">Everything connected, end to end.</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300/85">
+            Framers App is built specifically for independent framing studios that need professional workflows without enterprise complexity. Every part of your workflow — from the first enquiry to the final collection — lives in one place.
+          </p>
+          <div className="mt-8 grid gap-5 sm:grid-cols-3">
+            {landingContent.steps.map((step) => (
+              <div key={step.num} className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
+                <p className="font-display text-4xl font-black text-cyan-300/40">{step.num}</p>
+                <p className="mt-2 font-display text-lg text-white">{step.title}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-300/85">{step.body}</p>
+              </div>
             ))}
           </div>
-        </header>
+        </section>
+
+        <SectionDivider />
 
         {/* ── HERO ───────────────────────────────────────────────────────── */}
-        <section className="reveal-up grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
+        <section className="mx-auto mt-16 grid max-w-6xl gap-10 reveal-up lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
           <div>
             <p className="mb-4 inline-flex rounded-full border border-cyan-300/40 bg-cyan-300/15 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-cyan-100">
               {landingContent.heroBadge}
@@ -547,7 +956,7 @@ export default function WebsiteLanding() {
             </p>
           </div>
           <div className="relative">
-            <div className="absolute -inset-8 rounded-[2rem] bg-gradient-to-br from-cyan-400/25 to-orange-300/20 blur-3xl" />
+            <div className="absolute -inset-8 rounded-[2rem] bg-gradient-to-br from-cyan-400/25 to-slate-200/20 blur-3xl" />
             <div className="relative">
               <QuoteMockup />
             </div>
@@ -555,37 +964,108 @@ export default function WebsiteLanding() {
         </section>
 
         {/* ── STATS BAR ──────────────────────────────────────────────────── */}
-        <section className="mt-14 reveal-up" style={{ animationDelay: "60ms" }}>
+        <section className="mx-auto mt-14 max-w-4xl reveal-up" style={{ animationDelay: "60ms" }}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {landingContent.stats.map((s) => (
-              <div key={s.label} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-center backdrop-blur-sm">
-                <p className="font-display text-3xl font-black text-white">{s.value}</p>
-                <p className="mt-1 text-xs text-slate-300">{s.label}</p>
+              <div key={s.label} className="rounded-2xl border border-slate-200/70 bg-white p-5 text-center shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+                <p className="font-display text-3xl font-black text-slate-800">{s.value}</p>
+                <p className="mt-1 text-xs font-semibold tracking-wide text-slate-500">{s.label}</p>
               </div>
             ))}
           </div>
         </section>
 
-        {/* ── HOW IT WORKS ───────────────────────────────────────────────── */}
-        <section id="about" className="mt-24 scroll-mt-6 reveal-up" style={{ animationDelay: "80ms" }}>
-          <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">How it works</p>
-          <h2 className="font-display text-3xl text-white sm:text-4xl">Everything connected, end to end.</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300/85">
-            Framers App is built specifically for independent framing studios that need professional workflows without enterprise complexity. Every part of your workflow — from the first enquiry to the final collection — lives in one place.
+        <SectionDivider />
+
+        {/* ── INTEGRATIONS ──────────────────────────────────────────────── */}
+        <section id="integrations" className="mx-auto mt-16 max-w-5xl scroll-mt-6 reveal-up" style={{ animationDelay: "70ms" }}>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Integrations</p>
+          <h2 className="font-display text-3xl text-white sm:text-4xl">Connect the tools your studio already uses.</h2>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300/85">
+            Framers App links quoting, communication, marketing, and accounting in one flow so your team can move faster without retyping customer data into five different systems.
           </p>
-          <div className="mt-8 grid gap-5 sm:grid-cols-3">
-            {landingContent.steps.map((step) => (
-              <div key={step.num} className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
-                <p className="font-display text-4xl font-black text-cyan-300/40">{step.num}</p>
-                <p className="mt-2 font-display text-lg text-white">{step.title}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-300/85">{step.body}</p>
-              </div>
+
+          <div className="mt-7 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-r from-slate-900/70 via-cyan-950/35 to-slate-900/70 p-4 sm:p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-cyan-200">Connected apps</p>
+              <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">Sync + messaging + marketing</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { name: "Mailchimp", src: "/mailchimp-freddie-logo.png", tone: "from-amber-300/20 to-amber-100/5" },
+                { name: "Outlook", src: "/microsoft_outlook_2025-logo_brandlogos.net_c6m2d.png", tone: "from-blue-400/20 to-cyan-200/5" },
+                { name: "WhatsApp", src: "/whatsapp_2014-logo_brandlogos.net_rbdes.png", tone: "from-emerald-400/20 to-lime-200/5" },
+                { name: "Xero", src: "/xero-logo_brandlogos.net_calbw.png", tone: "from-cyan-400/20 to-sky-200/5" },
+              ].map((brand) => (
+                <div
+                  key={brand.name}
+                  className={`group relative rounded-xl border border-white/15 bg-gradient-to-br ${brand.tone} p-3 transition hover:-translate-y-0.5 hover:border-white/30`}
+                >
+                  <div className="flex h-14 items-center justify-center rounded-lg bg-black/15 p-2 backdrop-blur-sm">
+                    <img src={brand.src} alt={`${brand.name} logo`} className="max-h-10 w-auto object-contain" />
+                  </div>
+                  <p className="mt-2 text-center text-[11px] font-semibold text-slate-200">{brand.name}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                title: "Accounting sync",
+                body: "Push invoices and payment status into your books automatically, with less month-end cleanup.",
+                logos: [
+                  { label: "Xero", src: "/integrations/xero.svg" },
+                  { label: "QuickBooks", src: "/integrations/quickbooks.svg" },
+                ],
+                points: ["Invoice export + status sync", "Cleaner reconciliation", "Fewer manual entries"],
+              },
+              {
+                title: "Client messaging",
+                body: "Send approvals, follow-ups, and pickup updates from the same job record in seconds.",
+                logos: [
+                  { label: "WhatsApp", src: "/integrations/whatsapp.svg" },
+                  { label: "Email", src: "/integrations/email.svg" },
+                ],
+                points: ["Quote reminders via WhatsApp", "Email templates with merge fields", "Unified contact timeline"],
+              },
+              {
+                title: "Marketing engine",
+                body: "Keep your pipeline warm with campaigns that target the right customers at the right time.",
+                logos: [
+                  { label: "Mailchimp", src: "/integrations/mailchimp.svg" },
+                  { label: "Automation", src: "/integrations/email.svg" },
+                ],
+                points: ["Segment by job type and spend", "Seasonal promotions on schedule", "Track opens, clicks, and re-bookings"],
+              },
+            ].map((item) => (
+              <article key={item.title} className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {item.logos.map((logo) => (
+                    <span key={logo.label} className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[10px] font-black tracking-wide text-slate-100">
+                      <img src={logo.src} alt={`${logo.label} logo`} className="h-4 w-4 rounded-sm" />
+                      {logo.label}
+                    </span>
+                  ))}
+                </div>
+                <h3 className="font-display text-xl text-white">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-300/85">{item.body}</p>
+                <ul className="mt-4 space-y-2">
+                  {item.points.map((point) => (
+                    <li key={point} className="flex items-start gap-2 text-sm text-slate-200/85">
+                      <span className="mt-0.5 shrink-0 text-cyan-300">+</span>
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+              </article>
             ))}
           </div>
         </section>
 
         {/* ── FEATURE DETAILS ────────────────────────────────────────────── */}
-        <section id="features" className="mt-24 scroll-mt-6">
+        <section id="features" className="mx-auto mt-24 max-w-6xl scroll-mt-6">
           <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Features</p>
           <h2 className="font-display text-3xl text-white sm:text-4xl">All the tools. None of the bloat.</h2>
 
@@ -604,6 +1084,25 @@ export default function WebsiteLanding() {
                       </li>
                     ))}
                   </ul>
+                  {feature.id === "automation" && (
+                    <div className="mt-6 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 p-4">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-200">Automated marketing outcomes</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <div className="rounded-xl border border-white/15 bg-slate-900/45 p-3">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Lead recovery</p>
+                          <p className="mt-1 text-sm font-bold text-white">Recover quiet quotes automatically</p>
+                        </div>
+                        <div className="rounded-xl border border-white/15 bg-slate-900/45 p-3">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Repeat business</p>
+                          <p className="mt-1 text-sm font-bold text-white">Re-engage past clients each season</p>
+                        </div>
+                        <div className="rounded-xl border border-white/15 bg-slate-900/45 p-3">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Time saved</p>
+                          <p className="mt-1 text-sm font-bold text-white">Replace manual follow-ups with triggers</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {/* Mockup — alternates side */}
                 <div className={`relative ${i % 2 === 1 ? "lg:order-1" : "lg:order-2"}`}>
@@ -620,8 +1119,10 @@ export default function WebsiteLanding() {
           </div>
         </section>
 
+        <SectionDivider />
+
         {/* ── TESTIMONIAL ────────────────────────────────────────────────── */}
-        <section className="mt-20 reveal-up">
+        <section className="mx-auto mt-20 max-w-4xl reveal-up">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-10 text-center backdrop-blur-sm">
             <p className="font-display text-xl text-white sm:text-2xl lg:text-3xl max-w-3xl mx-auto leading-snug">
               "{landingContent.testimonial.quote}"
@@ -631,7 +1132,7 @@ export default function WebsiteLanding() {
         </section>
 
         {/* ── PRICING ────────────────────────────────────────────────────── */}
-        <section id="pricing" className="mt-24 scroll-mt-6 reveal-up">
+        <section id="pricing" className="mx-auto mt-24 max-w-5xl scroll-mt-6 reveal-up">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Pricing</p>
@@ -705,7 +1206,7 @@ export default function WebsiteLanding() {
                   type="button"
                   onClick={() => startPlanCheckout(plan.name as keyof typeof stripePriceIds, plan.oneTime)}
                   disabled={checkoutLoading}
-                  className={`mt-8 block rounded-full py-3 text-center text-sm font-black uppercase tracking-wide transition ${
+                  className={`mt-8 block w-full rounded-full px-4 py-3 text-center text-sm font-black uppercase tracking-wide transition ${
                     plan.featured
                       ? "bg-white text-slate-950 hover:bg-slate-100"
                       : plan.name === "Founder"
@@ -730,7 +1231,7 @@ export default function WebsiteLanding() {
         </section>
 
         {/* ── CTA BANNER ─────────────────────────────────────────────────── */}
-        <section className="mt-20 reveal-up">
+        <section className="mx-auto mt-20 max-w-4xl reveal-up">
           <div className="rounded-3xl border border-orange-200/20 bg-gradient-to-r from-orange-300/20 via-amber-200/10 to-cyan-300/20 p-8 text-center sm:p-12">
             <h2 className="font-display text-2xl text-white sm:text-3xl">
               Ready to run your studio like a pro?
@@ -760,7 +1261,7 @@ export default function WebsiteLanding() {
                   <img
                     src={logoSrc}
                     alt={landingContent.brandName}
-                    className="h-10 w-auto object-contain"
+                    className="h-20 w-auto object-contain"
                   />
                 </div>
               </div>
@@ -820,6 +1321,7 @@ export default function WebsiteLanding() {
           </div>
         </footer>
 
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-const authLogoSrc = "/framersapp-logo-lightblue.png";
+const authLogoSrc = "/Framers%20App%20Logo%20v2.png";
 
 type AuthMode = "signup" | "login";
 
@@ -11,13 +11,25 @@ type AuthPageProps = {
 
 export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
   const [mode, setMode] = useState<AuthMode>(defaultMode);
+  const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const href = window.location.href;
+    if (href.includes("type=recovery") || href.includes("recovery_token") || href.includes("reset=1")) {
+      setIsRecoveryFlow(true);
+      setMode("login");
+      setMessage("Password recovery detected. Enter your new password below.");
+    }
+  }, []);
 
   const title = useMemo(
     () => (mode === "signup" ? "Start your free trial" : "Welcome back"),
@@ -26,11 +38,76 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
 
   const subtitle = useMemo(
     () =>
-      mode === "signup"
+      isRecoveryFlow
+        ? "Set a new password to restore access to your account."
+        : mode === "signup"
         ? "Create your Framers App account and we will set up your 14-day free trial automatically."
         : "Sign in to continue managing your framing business.",
-    [mode]
+    [isRecoveryFlow, mode]
   );
+
+  const handleForgotPassword = async () => {
+    setError(null);
+    setMessage(null);
+
+    if (!supabase) {
+      setError("Supabase is not configured for authentication.");
+      return;
+    }
+
+    if (!email.trim()) {
+      setError("Enter your email address first, then click forgot password.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const redirectTo = `${window.location.origin}/#/login?reset=1`;
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+      if (resetError) throw resetError;
+      setMessage("Password reset email sent. Open the email link, then enter your new password here.");
+    } catch (forgotError: unknown) {
+      setError(forgotError instanceof Error ? forgotError.message : "Could not send reset email.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRecoverySubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setMessage(null);
+
+    if (!supabase) {
+      setError("Supabase is not configured for authentication.");
+      return;
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      setError("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) throw updateError;
+
+      setMessage("Password updated successfully. You can now sign in.");
+      setIsRecoveryFlow(false);
+      setNewPassword("");
+      setConfirmPassword("");
+      window.location.hash = "#/login";
+    } catch (recoveryError: unknown) {
+      setError(recoveryError instanceof Error ? recoveryError.message : "Could not update password.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -136,6 +213,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
           </section>
 
           <section className="rounded-[1.75rem] border border-white/15 bg-slate-950/65 p-6 shadow-2xl backdrop-blur sm:p-8">
+            {!isRecoveryFlow && (
             <div className="mb-6 flex gap-2 rounded-full border border-white/10 bg-white/5 p-1">
               <button
                 type="button"
@@ -156,8 +234,9 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
                 Sign in
               </button>
             </div>
+            )}
 
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            <form className="space-y-4" onSubmit={isRecoveryFlow ? handleRecoverySubmit : handleSubmit}>
               {mode === "signup" && (
                 <>
                   <div>
@@ -187,6 +266,36 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
                 </>
               )}
 
+              {isRecoveryFlow && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-200">
+                      New password
+                    </label>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Minimum 6 characters"
+                      className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-cyan-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-semibold text-slate-200">
+                      Confirm new password
+                    </label>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Repeat new password"
+                      className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-cyan-300"
+                    />
+                  </div>
+                </>
+              )}
+
+              {!isRecoveryFlow && (
               <div>
                 <label className="mb-1 block text-sm font-semibold text-slate-200">
                   Email address
@@ -199,7 +308,9 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
                   className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-cyan-300"
                 />
               </div>
+              )}
 
+              {!isRecoveryFlow && (
               <div>
                 <label className="mb-1 block text-sm font-semibold text-slate-200">
                   Password
@@ -212,6 +323,17 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
                   className="w-full rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-400 focus:border-cyan-300"
                 />
               </div>
+              )}
+
+              {!isRecoveryFlow && mode === "login" && (
+                <button
+                  type="button"
+                  onClick={() => void handleForgotPassword()}
+                  className="text-sm font-semibold text-cyan-200 hover:text-cyan-100"
+                >
+                  Forgot password?
+                </button>
+              )}
 
               {error ? (
                 <div className="rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
@@ -232,6 +354,8 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
               >
                 {loading
                   ? "Please wait..."
+                  : isRecoveryFlow
+                  ? "Update password"
                   : mode === "signup"
                   ? "Create account"
                   : "Sign in"}

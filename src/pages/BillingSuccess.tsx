@@ -49,7 +49,7 @@ export default function BillingSuccess() {
             <a href="#/app" className="flex-1 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-bold text-white">
               Return to App
             </a>
-            <a href="mailto:support@framersapp.co.za" className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-900">
+            <a href="#/support?auto=1&source=billing&subject=Billing%20support%20request" className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-900">
               Contact Support
             </a>
           </div>

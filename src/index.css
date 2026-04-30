@@ -14,12 +14,100 @@ body {
 
 body {
   font-family: "Manrope", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background-color: #f1f5f9; /* slate-100 style background */
+  background-color: #ffffff;
   color: #0f172a; /* slate-900 style text */
+  transition: background-color 180ms ease, color 180ms ease;
 }
 
 #root {
   min-height: 100vh;
+}
+
+#root * {
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+/* Backend dark-mode overrides scoped to internal app shell */
+.app-theme-dark {
+  color-scheme: dark;
+}
+
+.app-theme-dark .bg-white {
+  background-color: #0f172a !important;
+}
+
+.app-theme-dark .bg-slate-50,
+.app-theme-dark .bg-neutral-50 {
+  background-color: #0b1222 !important;
+}
+
+.app-theme-dark .bg-slate-100,
+.app-theme-dark .bg-neutral-100 {
+  background-color: #1e293b !important;
+}
+
+.app-theme-dark .text-slate-900,
+.app-theme-dark .text-neutral-900 {
+  color: #e2e8f0 !important;
+}
+
+.app-theme-dark .text-slate-800,
+.app-theme-dark .text-neutral-800,
+.app-theme-dark .text-slate-700,
+.app-theme-dark .text-neutral-700 {
+  color: #cbd5e1 !important;
+}
+
+.app-theme-dark .text-slate-600,
+.app-theme-dark .text-neutral-600,
+.app-theme-dark .text-slate-500,
+.app-theme-dark .text-neutral-500,
+.app-theme-dark .text-slate-400,
+.app-theme-dark .text-neutral-400 {
+  color: #94a3b8 !important;
+}
+
+.app-theme-dark .border-slate-200,
+.app-theme-dark .border-neutral-200,
+.app-theme-dark .border-slate-300,
+.app-theme-dark .border-neutral-300,
+.app-theme-dark .ring-slate-200,
+.app-theme-dark .ring-neutral-200,
+.app-theme-dark .ring-slate-300,
+.app-theme-dark .ring-neutral-300 {
+  border-color: #334155 !important;
+  --tw-ring-color: #334155 !important;
+}
+
+.app-theme-dark .hover\:bg-slate-50:hover,
+.app-theme-dark .hover\:bg-neutral-50:hover {
+  background-color: #1e293b !important;
+}
+
+.app-theme-dark .hover\:bg-slate-100:hover,
+.app-theme-dark .hover\:bg-neutral-100:hover {
+  background-color: #334155 !important;
+}
+
+.app-theme-dark input,
+.app-theme-dark select,
+.app-theme-dark textarea {
+  background-color: #0b1222 !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+.app-theme-dark input::placeholder,
+.app-theme-dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+.app-theme-dark table thead tr {
+  background-color: #111827 !important;
+}
+
+.app-theme-dark table tbody tr:hover {
+  background-color: rgba(30, 41, 59, 0.45) !important;
 }
 
 .font-display {
@@ -43,5 +131,46 @@ body {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* ── Slide banner ────────────────────────────────────────────────────────── */
+
+.banner-text-enter {
+  animation: banner-slide-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.banner-mockup-enter {
+  animation: banner-fade-right 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+.banner-bullet-enter {
+  opacity: 0;
+  animation: banner-slide-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.banner-progress {
+  transform-origin: left;
+  animation: banner-progress 9s linear forwards;
+}
+
+@keyframes banner-slide-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes banner-fade-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes banner-progress {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+@keyframes cursor-ripple {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2.7);
+    opacity: 0;
   }
 }
