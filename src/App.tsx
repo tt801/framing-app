@@ -56,10 +56,13 @@ function useHashRoute() {
     }
 
     const searchValue = window.location.search || "";
+    // Only short-circuit to reset page if there is no code param that needs exchanging
+    // (PKCE recovery flows must go through /auth/callback first)
     if (
-      searchValue.includes("type=recovery") ||
-      searchValue.includes("recovery_token=") ||
-      searchValue.includes("access_token=")
+      !searchValue.includes("code=") &&
+      (searchValue.includes("type=recovery") ||
+        searchValue.includes("recovery_token=") ||
+        searchValue.includes("access_token="))
     ) {
       return "/login?reset=1";
     }

@@ -21,12 +21,24 @@ export default function AuthCallbackPage() {
       try {
         const url = new URL(window.location.href);
         const code = url.searchParams.get("code");
+        const type = url.searchParams.get("type");
 
         if (code) {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError) {
             throw exchangeError;
           }
+        }
+
+        // Password recovery — session is established, now show the reset form
+        if (type === "recovery") {
+          if (active) {
+            setStatus("Identity verified. Taking you to the password reset form...");
+            window.setTimeout(() => {
+              window.location.replace(`${window.location.origin}/#/login?reset=1`);
+            }, 800);
+          }
+          return;
         }
 
         const {

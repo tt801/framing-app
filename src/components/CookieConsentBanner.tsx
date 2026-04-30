@@ -31,6 +31,7 @@ function writePrefs(prefs: CookiePrefs) {
 
 export default function CookieConsentBanner() {
   const [loaded, setLoaded] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [analytics, setAnalytics] = useState(true);
   const [marketing, setMarketing] = useState(true);
@@ -50,7 +51,7 @@ export default function CookieConsentBanner() {
     setMarketing(existing.marketing);
   }, [existing]);
 
-  if (!loaded || existing) return null;
+  if (!loaded || existing || dismissed) return null;
 
   const acceptAll = () => {
     writePrefs({
@@ -60,6 +61,7 @@ export default function CookieConsentBanner() {
       marketing: true,
       updatedAt: new Date().toISOString(),
     });
+    setDismissed(true);
   };
 
   const rejectNonEssential = () => {
@@ -70,6 +72,7 @@ export default function CookieConsentBanner() {
       marketing: false,
       updatedAt: new Date().toISOString(),
     });
+    setDismissed(true);
   };
 
   const saveCustom = () => {
@@ -80,6 +83,7 @@ export default function CookieConsentBanner() {
       marketing,
       updatedAt: new Date().toISOString(),
     });
+    setDismissed(true);
   };
 
   return (

@@ -62,7 +62,8 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
 
     try {
       setLoading(true);
-      const redirectTo = `${window.location.origin}/#/login?reset=1`;
+      // Use /auth/callback (no hash) so Supabase PKCE can append ?code=&type=recovery
+      const redirectTo = `${window.location.origin}/auth/callback`;
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
       if (resetError) throw resetError;
       setMessage("Password reset email sent. Open the email link, then enter your new password here.");
