@@ -110,6 +110,94 @@ body {
   background-color: rgba(30, 41, 59, 0.45) !important;
 }
 
+/* ── Tinted / pastel background overrides ─────────────────────────────── */
+
+/* rose-50 cards (overdue invoices, smart alerts) */
+.app-theme-dark .bg-rose-50 {
+  background-color: rgba(127, 29, 29, 0.2) !important;
+}
+.app-theme-dark .hover\:bg-rose-100:hover {
+  background-color: rgba(127, 29, 29, 0.32) !important;
+}
+.app-theme-dark .border-rose-200 {
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+.app-theme-dark .text-rose-900,
+.app-theme-dark .text-rose-800,
+.app-theme-dark .text-rose-700 {
+  color: #fca5a5 !important;
+}
+
+/* amber-50 cards (stock alerts, smart alerts) */
+.app-theme-dark .bg-amber-50 {
+  background-color: rgba(120, 53, 15, 0.2) !important;
+}
+.app-theme-dark .hover\:bg-amber-100:hover {
+  background-color: rgba(120, 53, 15, 0.32) !important;
+}
+.app-theme-dark .border-amber-300,
+.app-theme-dark .border-amber-200 {
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+.app-theme-dark .text-amber-900,
+.app-theme-dark .text-amber-800,
+.app-theme-dark .text-amber-700 {
+  color: #fcd34d !important;
+}
+
+/* blue-50 cards (drag-drop tip, smart alerts) */
+.app-theme-dark .bg-blue-50 {
+  background-color: rgba(23, 37, 84, 0.25) !important;
+}
+.app-theme-dark .hover\:bg-blue-100:hover {
+  background-color: rgba(23, 37, 84, 0.38) !important;
+}
+.app-theme-dark .border-blue-200 {
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+.app-theme-dark .text-blue-900,
+.app-theme-dark .text-blue-800,
+.app-theme-dark .text-blue-700 {
+  color: #93c5fd !important;
+}
+
+/* orange-50 cards (smart alerts: stock) */
+.app-theme-dark .bg-orange-50 {
+  background-color: rgba(124, 45, 18, 0.2) !important;
+}
+.app-theme-dark .hover\:bg-orange-100:hover {
+  background-color: rgba(124, 45, 18, 0.32) !important;
+}
+.app-theme-dark .border-orange-200 {
+  border-color: rgba(249, 115, 22, 0.35) !important;
+}
+.app-theme-dark .text-orange-900,
+.app-theme-dark .text-orange-800,
+.app-theme-dark .text-orange-700 {
+  color: #fdba74 !important;
+}
+
+/* emerald-50 (status badges, etc.) */
+.app-theme-dark .bg-emerald-50 {
+  background-color: rgba(6, 78, 59, 0.2) !important;
+}
+.app-theme-dark .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+/* slate-200 pill / progress track overrides */
+.app-theme-dark .bg-slate-200 {
+  background-color: #334155 !important;
+}
+.app-theme-dark .text-slate-200 {
+  color: #334155 !important;
+}
+
+/* Gradient sections: from-slate-50 to-white (Quick Actions header) */
+.app-theme-dark .bg-gradient-to-r {
+  background: #0f172a !important;
+}
+
 .font-display {
   font-family: "Archivo", "Manrope", system-ui, sans-serif;
 }

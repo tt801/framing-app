@@ -501,6 +501,23 @@ function App() {
 
               <button
                 type="button"
+                onClick={async () => {
+                  if (supabase) await supabase.auth.signOut();
+                  window.location.hash = "#/login";
+                }}
+                title="Sign out"
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm ${
+                  themeMode === "dark"
+                    ? "border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800"
+                    : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 opacity-60"><path fillRule="evenodd" d="M3 4.25A2.25 2.25 0 0 1 5.25 2h5.5A2.25 2.25 0 0 1 13 4.25v2a.75.75 0 0 1-1.5 0v-2a.75.75 0 0 0-.75-.75h-5.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 0 0 .75-.75v-2a.75.75 0 0 1 1.5 0v2A2.25 2.25 0 0 1 10.75 18h-5.5A2.25 2.25 0 0 1 3 15.75V4.25Z" clipRule="evenodd" /><path fillRule="evenodd" d="M19 10a.75.75 0 0 0-.75-.75H8.704l1.048-1.068a.75.75 0 1 0-1.064-1.056l-2.25 2.25a.75.75 0 0 0 0 1.05l2.25 2.25a.75.75 0 1 0 1.06-1.06l-1.004-1.006h9.496A.75.75 0 0 0 19 10Z" clipRule="evenodd" /></svg>
+                Sign out
+              </button>
+
+              <button
+                type="button"
                 onClick={toggleThemeMode}
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm ${
                   themeMode === "dark"

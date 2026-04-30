@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 const authLogoSrc = "/Framers%20App%20Logo%20v2.png";
@@ -22,6 +22,8 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
   const [recoverySessionReady, setRecoverySessionReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [resetCooldown, setResetCooldown] = useState(0);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const href = window.location.href;
@@ -95,8 +97,36 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
       if (resetError) throw resetError;
       setMessage("Password reset email sent. Open the email link, then enter your new password here.");
+      // Start 60-second cooldown to prevent hammering the rate limit
+      setResetCooldown(60);
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      cooldownRef.current = setInterval(() => {
+        setResetCooldown((prev) => {
+          if (prev <= 1) {
+            if (cooldownRef.current) clearInterval(cooldownRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     } catch (forgotError: unknown) {
-      setError(forgotError instanceof Error ? forgotError.message : "Could not send reset email.");
+      const msg = forgotError instanceof Error ? forgotError.message : "Could not send reset email.";
+      if (msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("email rate")) {
+        setError("Too many reset requests — please wait a few minutes before trying again.");
+        setResetCooldown(120);
+        if (cooldownRef.current) clearInterval(cooldownRef.current);
+        cooldownRef.current = setInterval(() => {
+          setResetCooldown((prev) => {
+            if (prev <= 1) {
+              if (cooldownRef.current) clearInterval(cooldownRef.current);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -364,9 +394,10 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
                 <button
                   type="button"
                   onClick={() => void handleForgotPassword()}
-                  className="text-sm font-semibold text-cyan-200 hover:text-cyan-100"
+                  disabled={loading || resetCooldown > 0}
+                  className="text-sm font-semibold text-cyan-200 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Forgot password?
+                  {resetCooldown > 0 ? `Resend in ${resetCooldown}s` : "Forgot password?"}
                 </button>
               )}
 
