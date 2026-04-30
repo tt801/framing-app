@@ -9,6 +9,7 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     let active = true;
+    let authSubscription: { unsubscribe: () => void } | null = null;
 
     const completeAuth = async () => {
       if (!supabase) {
@@ -21,7 +22,20 @@ export default function AuthCallbackPage() {
       try {
         const url = new URL(window.location.href);
         const code = url.searchParams.get("code");
-        const type = url.searchParams.get("type");
+        // type=recovery may or may not be present depending on Supabase version
+        const typeParam = url.searchParams.get("type");
+
+        // Listen for the auth event BEFORE exchanging the code so we don't miss it.
+        // Supabase fires PASSWORD_RECOVERY (not SIGNED_IN) when the code is for a
+        // password reset — this is more reliable than checking the type URL param.
+        const recoveryDetected = { value: typeParam === "recovery" };
+
+        const { data } = supabase.auth.onAuthStateChange((event) => {
+          if (event === "PASSWORD_RECOVERY") {
+            recoveryDetected.value = true;
+          }
+        });
+        authSubscription = data.subscription;
 
         if (code) {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
@@ -30,16 +44,22 @@ export default function AuthCallbackPage() {
           }
         }
 
-        // Password recovery — session is established, now show the reset form
-        if (type === "recovery") {
+        // Small tick to let onAuthStateChange fire synchronously after exchange
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        // Password recovery flow — redirect to the reset form
+        if (recoveryDetected.value) {
           if (active) {
             setStatus("Identity verified. Taking you to the password reset form...");
+            authSubscription?.unsubscribe();
             window.setTimeout(() => {
               window.location.replace(`${window.location.origin}/#/login?reset=1`);
             }, 800);
           }
           return;
         }
+
+        authSubscription?.unsubscribe();
 
         const {
           data: { session },
@@ -60,6 +80,7 @@ export default function AuthCallbackPage() {
           window.location.replace(`${window.location.origin}/#/dashboard`);
         }
       } catch (callbackError: unknown) {
+        authSubscription?.unsubscribe();
         if (!active) return;
         setError(
           callbackError instanceof Error
@@ -73,6 +94,7 @@ export default function AuthCallbackPage() {
 
     return () => {
       active = false;
+      authSubscription?.unsubscribe();
     };
   }, []);
 
