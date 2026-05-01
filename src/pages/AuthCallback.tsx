@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-
-const authLogoSrc = "/Framers%20App%20Logo%20v2.png";
+import { useTheme } from "@/lib/theme";
 
 export default function AuthCallbackPage() {
+  const { themeMode } = useTheme();
+  const authLogoSrc =
+    themeMode === "dark"
+      ? "/FramersApp%20Logo%20white.png"
+      : "/Framers%20App%20Logo%20v2.png";
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Confirming your account...");
 

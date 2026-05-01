@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-
-const authLogoSrc = "/Framers%20App%20Logo%20v2.png";
+import { useTheme } from "@/lib/theme";
 
 type AuthMode = "signup" | "login";
 
@@ -10,6 +9,11 @@ type AuthPageProps = {
 };
 
 export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
+  const { themeMode } = useTheme();
+  const authLogoSrc =
+    themeMode === "dark"
+      ? "/FramersApp%20Logo%20white.png"
+      : "/Framers%20App%20Logo%20v2.png";
   const [mode, setMode] = useState<AuthMode>(defaultMode);
   const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
   const [fullName, setFullName] = useState("");

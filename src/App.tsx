@@ -31,7 +31,6 @@ const AuthCallbackPage = React.lazy(() => import("./pages/AuthCallback"));
 const BillingPage = React.lazy(() => import("./pages/Billing"));
 const BillingSuccessPage = React.lazy(() => import("./pages/BillingSuccess"));
 const SupportPage = React.lazy(() => import("./pages/Support"));
-const appLogoSrc = "/Framers%20App%20Logo%20v2.png";
 const appTagline = "Frame. Quote. Grow.";
 
 // ---------- Hash Router ----------
@@ -133,6 +132,10 @@ function App() {
   const route = useHashRoute();
   const { layoutMode, toggleLayoutMode } = useLayout();
   const { themeMode, toggleThemeMode } = useTheme();
+  const appLogoSrc =
+    themeMode === "dark"
+      ? "/FramersApp%20Logo%20white.png"
+      : "/Framers%20App%20Logo%20v2.png";
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
