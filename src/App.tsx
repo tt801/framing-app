@@ -31,6 +31,8 @@ const AuthCallbackPage = React.lazy(() => import("./pages/AuthCallback"));
 const BillingPage = React.lazy(() => import("./pages/Billing"));
 const BillingSuccessPage = React.lazy(() => import("./pages/BillingSuccess"));
 const SupportPage = React.lazy(() => import("./pages/Support"));
+const OnboardingPage = React.lazy(() => import("./pages/Onboarding"));
+import { checkAndAutoMarkExistingUser, isOnboardingDone } from "./pages/Onboarding";
 const appTagline = "Frame. Quote. Grow.";
 
 // ---------- Hash Router ----------
@@ -145,6 +147,7 @@ function App() {
   const isStartTrial = route.startsWith("/start-trial");
   const isAuthCallback = route.startsWith("/auth/callback");
   const isSupport = route.startsWith("/support");
+  const isOnboarding = route.startsWith("/onboarding");
   const isAuthRoute = isLogin || isStartTrial || isAuthCallback;
 
   const isAdmin = route.startsWith("/admin");
@@ -175,10 +178,11 @@ function App() {
     !isVisualizer &&
     !isDashboard &&
     !isBilling &&
-    !isBillingSuccess;
+    !isBillingSuccess &&
+    !isOnboarding;
 
   const isPublicRoute = isLanding || isLegal || isAuthRoute;
-  const isPublicOrSupport = isPublicRoute || isSupport;
+  const isPublicOrSupport = isPublicRoute || isSupport || isOnboarding;
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -216,8 +220,21 @@ function App() {
     if (authLoading) return;
     if (!isPublicOrSupport && !isAuthenticated) {
       window.location.hash = "#/login";
+      return;
     }
-  }, [authLoading, isAuthenticated, isPublicOrSupport]);
+    // After login, check if the user needs onboarding (skip for invited members via role check later)
+    if (isAuthenticated && !isOnboarding && !isPublicRoute) {
+      const checkOnboarding = async () => {
+        const { data } = await supabase.auth.getUser();
+        const userId = data.user?.id;
+        if (!userId) return;
+        if (!checkAndAutoMarkExistingUser(userId) && !isOnboardingDone(userId)) {
+          window.location.hash = "#/onboarding";
+        }
+      };
+      void checkOnboarding();
+    }
+  }, [authLoading, isAuthenticated, isPublicOrSupport, isOnboarding, isPublicRoute]);
 
   const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding && isAuthenticated);
   const hasAdminAccess = trial?.workspaceRole === "owner" || trial?.workspaceRole === "manager";
@@ -379,6 +396,16 @@ function App() {
           <SupportPage />
         </ErrorBoundary>
         <CookieConsentBanner />
+      </BillingAccessProvider>
+    );
+  }
+
+  if (isOnboarding) {
+    return (
+      <BillingAccessProvider value={billingAccess}>
+        <ErrorBoundary>
+          <OnboardingPage />
+        </ErrorBoundary>
       </BillingAccessProvider>
     );
   }
