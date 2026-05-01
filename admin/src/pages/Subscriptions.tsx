@@ -5,7 +5,7 @@ import { RefreshCw, TrendingUp, AlertCircle, Clock } from "lucide-react";
 const PRICE_NAMES: Record<string, { name: string; monthlyUsd: number }> = {
   price_1TH4B24PYXZ7QbRFY7GS9ASi: { name: "Starter", monthlyUsd: 29 },
   price_1TH4FR4PYXZ7QbRFFDEn6KND: { name: "Growth", monthlyUsd: 79 },
-  rice_1TH4Fw4PYXZ7QbRFrPXkfoCT: { name: "Pro", monthlyUsd: 149 },
+  price_1TH4Fw4PYXZ7QbRFrPXkfoCT: { name: "Pro", monthlyUsd: 149 },
   price_1TH4GP4PYXZ7QbRFT7X5wKbU: { name: "Founder", monthlyUsd: 0 },
   founder_lifetime: { name: "Founder Lifetime", monthlyUsd: 0 },
 };

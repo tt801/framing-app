@@ -6,7 +6,7 @@ import {
   deleteAnnouncement,
   type Announcement,
 } from "@/lib/api";
-import { Plus, Trash2, Eye, EyeOff, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, RefreshCw, Pencil } from "lucide-react";
 
 const SQL_SETUP = `-- Run this in your Supabase SQL editor:
 CREATE TABLE platform_announcements (
@@ -257,7 +257,7 @@ export default function CMS() {
                   title="Edit"
                   onClick={() => openEdit(a)}
                 >
-                  Edit
+                  <Pencil size={14} />
                 </button>
                 <button
                   className="btn-icon danger"

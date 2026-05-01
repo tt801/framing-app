@@ -12,7 +12,7 @@ const PLAN_BADGE: Record<string, string> = {
 const PRICE_LABELS: Record<string, string> = {
   price_1TH4B24PYXZ7QbRFY7GS9ASi: "Starter",
   price_1TH4FR4PYXZ7QbRFFDEn6KND: "Growth",
-  rice_1TH4Fw4PYXZ7QbRFrPXkfoCT: "Pro",
+  price_1TH4Fw4PYXZ7QbRFrPXkfoCT: "Pro",
   price_1TH4GP4PYXZ7QbRFT7X5wKbU: "Founder",
   founder_lifetime: "Founder (Lifetime)",
 };
