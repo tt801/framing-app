@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:admin": "npm --prefix admin run dev",
     "build": "vite build",
+    "build:admin": "npm --prefix admin run build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
