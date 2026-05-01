@@ -101,7 +101,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
       const redirectTo = `${window.location.origin}/auth/callback?flow=recovery`;
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
       if (resetError) throw resetError;
-      setMessage("Password reset email sent. Open the email link, then enter your new password here.");
+      setMessage("If this email address is registered, you'll receive a password reset link shortly. Open the email link, then enter your new password here.");
       // Start 60-second cooldown to prevent hammering the rate limit
       setResetCooldown(60);
       if (cooldownRef.current) clearInterval(cooldownRef.current);
