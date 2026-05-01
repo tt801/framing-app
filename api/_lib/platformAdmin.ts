@@ -3,10 +3,26 @@ import type { VercelRequest } from "@vercel/node";
 
 const FALLBACK_PLATFORM_ADMIN_EMAILS = ["alex@stormair.co.uk"];
 
-export const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function makeClient() {
+  const url = (process.env.SUPABASE_URL || "").trim();
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  if (!url || !key) throw new Error("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not configured");
+  return createClient(url, key);
+}
+
+// Lazy singleton — created on first call, not at import time.
+let _client: ReturnType<typeof makeClient> | null = null;
+export function getSupabaseAdmin() {
+  if (!_client) _client = makeClient();
+  return _client;
+}
+
+// Convenience alias kept for backward compat — callers already use supabaseAdmin.from(...)
+// which triggers the getter and lazy-initialises the singleton.
+export const supabaseAdmin = {
+  get from() { return getSupabaseAdmin().from.bind(getSupabaseAdmin()); },
+  get auth() { return getSupabaseAdmin().auth; },
+};
 
 function getBearerToken(req: VercelRequest): string | null {
   const header = req.headers.authorization || "";
