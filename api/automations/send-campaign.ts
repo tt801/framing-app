@@ -15,7 +15,7 @@ type MicrosoftTokenResponse = {
 
 // Import Supabase server client
 import { createClient } from '@supabase/supabase-js';
-import { requireActiveTrialUserId } from '../lib/auth';
+import { requireActiveTrialUserId } from '../lib/auth.js';
 
 const createSupabaseServerClient = () => {
   const url = process.env.SUPABASE_URL;

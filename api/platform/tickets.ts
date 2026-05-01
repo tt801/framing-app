@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin";
+import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin.js";
 
 type TicketStatus = "open" | "in_progress" | "waiting_customer" | "resolved" | "closed";
 type TicketPriority = "low" | "normal" | "high" | "urgent";

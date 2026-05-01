@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getSupportNotificationRecipients, sendSupportEmail } from "../lib/notifications";
+import { getSupportNotificationRecipients, sendSupportEmail } from "../lib/notifications.js";
 
 type TicketStatus = "open" | "in_progress" | "waiting_customer" | "resolved" | "closed";
 type TicketPriority = "low" | "normal" | "high" | "urgent";

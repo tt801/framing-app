@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin";
+import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin.js";
 
 async function handleList(req: VercelRequest, res: VercelResponse) {
   await requirePlatformAdmin(req);
