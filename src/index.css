@@ -189,13 +189,66 @@ body {
 .app-theme-dark .bg-slate-200 {
   background-color: #334155 !important;
 }
+
+.app-theme-dark .bg-slate-300 {
+  background-color: #475569 !important;
+}
+
 .app-theme-dark .text-slate-200 {
   color: #334155 !important;
 }
 
 /* Gradient sections: from-slate-50 to-white (Quick Actions header) */
 .app-theme-dark .bg-gradient-to-r {
-  background: #0f172a !important;
+  background-image: linear-gradient(to right, var(--tw-gradient-stops)) !important;
+}
+
+.app-theme-dark .bg-gradient-to-tr {
+  background-image: linear-gradient(to top right, var(--tw-gradient-stops)) !important;
+}
+
+.app-theme-dark .from-slate-50 {
+  --tw-gradient-from: #111827 var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(17 24 39 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+.app-theme-dark .via-slate-100 {
+  --tw-gradient-to: rgb(30 41 59 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #1e293b var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+.app-theme-dark .to-white {
+  --tw-gradient-to: #0f172a var(--tw-gradient-to-position) !important;
+}
+
+.app-theme-dark .from-slate-200 {
+  --tw-gradient-from: #334155 var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(51 65 85 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+.app-theme-dark .to-slate-50 {
+  --tw-gradient-to: #0f172a var(--tw-gradient-to-position) !important;
+}
+
+.app-theme-dark .from-slate-900 {
+  --tw-gradient-from: #e2e8f0 var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(226 232 240 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+.app-theme-dark .via-slate-700 {
+  --tw-gradient-to: rgb(148 163 184 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #94a3b8 var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+.app-theme-dark .to-slate-500 {
+  --tw-gradient-to: #64748b var(--tw-gradient-to-position) !important;
+}
+
+.app-theme-dark .hover\:ring-slate-300:hover {
+  --tw-ring-color: #475569 !important;
 }
 
 .font-display {
