@@ -152,8 +152,10 @@ body {
 .app-theme-dark .hover\:bg-blue-100:hover {
   background-color: rgba(23, 37, 84, 0.38) !important;
 }
-.app-theme-dark .border-blue-200 {
-  border-color: rgba(59, 130, 246, 0.35) !important;
+.app-theme-dark .border-blue-200,
+.app-theme-dark .ring-blue-200 {
+  border-color: rgba(96, 165, 250, 0.6) !important;
+  --tw-ring-color: rgba(96, 165, 250, 0.6) !important;
 }
 .app-theme-dark .text-blue-900,
 .app-theme-dark .text-blue-800,
@@ -168,8 +170,10 @@ body {
 .app-theme-dark .hover\:bg-orange-100:hover {
   background-color: rgba(124, 45, 18, 0.32) !important;
 }
-.app-theme-dark .border-orange-200 {
-  border-color: rgba(249, 115, 22, 0.35) !important;
+.app-theme-dark .border-orange-200,
+.app-theme-dark .ring-orange-200 {
+  border-color: rgba(251, 146, 60, 0.6) !important;
+  --tw-ring-color: rgba(251, 146, 60, 0.6) !important;
 }
 .app-theme-dark .text-orange-900,
 .app-theme-dark .text-orange-800,
@@ -293,8 +297,8 @@ body {
 }
 .app-theme-dark .border-red-200,
 .app-theme-dark .ring-red-200 {
-  border-color: rgba(239, 68, 68, 0.35) !important;
-  --tw-ring-color: rgba(239, 68, 68, 0.35) !important;
+  border-color: rgba(248, 113, 113, 0.6) !important;
+  --tw-ring-color: rgba(248, 113, 113, 0.6) !important;
 }
 
 /* ── purple-50 stat cards (Marketing) ───────────────────────────────────── */
@@ -310,8 +314,8 @@ body {
 }
 .app-theme-dark .ring-purple-200,
 .app-theme-dark .border-purple-200 {
-  border-color: rgba(139, 92, 246, 0.35) !important;
-  --tw-ring-color: rgba(139, 92, 246, 0.35) !important;
+  border-color: rgba(167, 139, 250, 0.6) !important;
+  --tw-ring-color: rgba(167, 139, 250, 0.6) !important;
 }
 
 /* ── indigo-50 stat cards (Marketing, Calendar integration panel) ────────── */
@@ -333,8 +337,8 @@ body {
 }
 .app-theme-dark .ring-indigo-200,
 .app-theme-dark .border-indigo-200 {
-  border-color: rgba(99, 102, 241, 0.35) !important;
-  --tw-ring-color: rgba(99, 102, 241, 0.35) !important;
+  border-color: rgba(129, 140, 248, 0.6) !important;
+  --tw-ring-color: rgba(129, 140, 248, 0.6) !important;
 }
 
 /* ── Coloured status badge overrides (Invoices, Quotes, Jobs) ────────────── */
@@ -448,7 +452,11 @@ body {
   --tw-ring-color: rgba(16, 185, 129, 0.15) !important;
 }
 .app-theme-dark .ring-emerald-200 {
-  --tw-ring-color: rgba(16, 185, 129, 0.25) !important;
+  --tw-ring-color: rgba(52, 211, 153, 0.6) !important;
+}
+/* bg-emerald-50/70 (App page Dimensions box) */
+.app-theme-dark .bg-emerald-50\/70 {
+  background-color: rgba(6, 78, 59, 0.2) !important;
 }
 .app-theme-dark .border-emerald-100 {
   border-color: rgba(16, 185, 129, 0.15) !important;
