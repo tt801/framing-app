@@ -135,7 +135,7 @@ function App() {
   const appLogoSrc =
     themeMode === "dark"
       ? "/FramersApp%20Logo%20white.png"
-      : "/Framers%20App%20Logo%20v2.png";
+      : "/FramersApp%20logo%20Black.png";
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 

@@ -13,7 +13,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
   const authLogoSrc =
     themeMode === "dark"
       ? "/FramersApp%20Logo%20white.png"
-      : "/Framers%20App%20Logo%20v2.png";
+      : "/FramersApp%20logo%20Black.png";
   const [mode, setMode] = useState<AuthMode>(defaultMode);
   const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
   const [fullName, setFullName] = useState("");
