@@ -22,13 +22,20 @@ export default function AuthCallbackPage() {
       try {
         const url = new URL(window.location.href);
         const code = url.searchParams.get("code");
+        const flow = url.searchParams.get("flow");
         // type=recovery may or may not be present depending on Supabase version
         const typeParam = url.searchParams.get("type");
 
         // Listen for the auth event BEFORE exchanging the code so we don't miss it.
         // Supabase fires PASSWORD_RECOVERY (not SIGNED_IN) when the code is for a
         // password reset — this is more reliable than checking the type URL param.
-        const recoveryDetected = { value: typeParam === "recovery" };
+        const recoveryDetected = {
+          value:
+            flow === "recovery" ||
+            typeParam === "recovery" ||
+            window.location.hash.includes("type=recovery") ||
+            window.location.hash.includes("recovery_token="),
+        };
 
         const { data } = supabase.auth.onAuthStateChange((event) => {
           if (event === "PASSWORD_RECOVERY") {

@@ -92,8 +92,9 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
 
     try {
       setLoading(true);
-      // Use /auth/callback (no hash) so Supabase PKCE can append ?code=&type=recovery
-      const redirectTo = `${window.location.origin}/auth/callback`;
+      // Add an explicit flow marker so callback can always route to reset UI,
+      // even if Supabase omits type=recovery in some PKCE responses.
+      const redirectTo = `${window.location.origin}/auth/callback?flow=recovery`;
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
       if (resetError) throw resetError;
       setMessage("Password reset email sent. Open the email link, then enter your new password here.");
