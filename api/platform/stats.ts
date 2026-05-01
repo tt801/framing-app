@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requirePlatformAdmin, supabaseAdmin, platformAdminError } from "../_lib/platformAdmin";
+import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).end();
@@ -16,19 +16,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       { count: totalTickets },
       { data: recentCompanies },
     ] = await Promise.all([
-      supabaseAdmin.from("company_accounts").select("id", { count: "exact", head: true }),
-      supabaseAdmin.from("company_accounts").select("plan_status"),
-      supabaseAdmin.from("company_members").select("id", { count: "exact", head: true }),
-      supabaseAdmin
+      getSupabaseAdmin().from("company_accounts").select("id", { count: "exact", head: true }),
+      getSupabaseAdmin().from("company_accounts").select("plan_status"),
+      getSupabaseAdmin().from("company_members").select("id", { count: "exact", head: true }),
+      getSupabaseAdmin()
         .from("company_members")
         .select("id", { count: "exact", head: true })
         .eq("status", "active"),
-      supabaseAdmin
+      getSupabaseAdmin()
         .from("support_tickets")
         .select("id", { count: "exact", head: true })
         .eq("status", "open"),
-      supabaseAdmin.from("support_tickets").select("id", { count: "exact", head: true }),
-      supabaseAdmin
+      getSupabaseAdmin().from("support_tickets").select("id", { count: "exact", head: true }),
+      getSupabaseAdmin()
         .from("company_accounts")
         .select("id,company_name,plan_status,created_at")
         .order("created_at", { ascending: false })

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requirePlatformAdmin, supabaseAdmin, platformAdminError } from "../_lib/platformAdmin";
+import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin";
 
 type TicketStatus = "open" | "in_progress" | "waiting_customer" | "resolved" | "closed";
 type TicketPriority = "low" | "normal" | "high" | "urgent";
@@ -9,7 +9,7 @@ async function handleList(req: VercelRequest, res: VercelResponse) {
   const rawStatus = req.query.status;
   const status = (Array.isArray(rawStatus) ? rawStatus[0] : rawStatus || "all") as "all" | TicketStatus;
 
-  let query = supabaseAdmin
+  let query = getSupabaseAdmin()
     .from("support_tickets")
     .select("id,ticket_number,subject,message,category,status,priority,requester_email,requester_name,company_account_id,created_at,updated_at")
     .order("created_at", { ascending: false });
@@ -24,7 +24,7 @@ async function handleList(req: VercelRequest, res: VercelResponse) {
   const accountIds = Array.from(new Set((tickets || []).map((t) => t.company_account_id).filter(Boolean)));
   let companyMap: Record<string, string> = {};
   if (accountIds.length) {
-    const { data: companies, error: companiesError } = await supabaseAdmin
+    const { data: companies, error: companiesError } = await getSupabaseAdmin()
       .from("company_accounts")
       .select("id,company_name")
       .in("id", accountIds);
@@ -61,7 +61,7 @@ async function handleUpdate(req: VercelRequest, res: VercelResponse) {
   if (priority) patch.priority = priority as TicketPriority;
   if (resolutionNote !== undefined) patch.resolution_note = resolutionNote;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from("support_tickets")
     .update(patch)
     .eq("id", ticketId)
@@ -72,7 +72,7 @@ async function handleUpdate(req: VercelRequest, res: VercelResponse) {
 
   let companyName: string | null = null;
   if (data.company_account_id) {
-    const { data: company } = await supabaseAdmin
+    const { data: company } = await getSupabaseAdmin()
       .from("company_accounts")
       .select("company_name")
       .eq("id", data.company_account_id)

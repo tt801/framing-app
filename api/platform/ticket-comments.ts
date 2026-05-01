@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requirePlatformAdmin, supabaseAdmin, platformAdminError } from "../_lib/platformAdmin";
+import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin";
 
 async function handleList(req: VercelRequest, res: VercelResponse) {
   await requirePlatformAdmin(req);
@@ -8,7 +8,7 @@ async function handleList(req: VercelRequest, res: VercelResponse) {
 
   if (!ticketId) throw new Error("ticketId is required");
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from("support_ticket_comments")
     .select("id,ticket_id,author_name,author_email,body,visibility,created_at")
     .eq("ticket_id", ticketId)
@@ -24,7 +24,7 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
 
   if (!ticketId || !body) throw new Error("ticketId and body are required");
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from("support_ticket_comments")
     .insert({
       ticket_id: ticketId,

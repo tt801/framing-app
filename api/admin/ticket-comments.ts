@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getSupportNotificationRecipients, sendSupportEmail } from "../_lib/notifications";
+import { getSupportNotificationRecipients, sendSupportEmail } from "../lib/notifications";
 
 type AppUserRole = "owner" | "manager" | "sales" | "workshop" | "staff";
 

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requirePlatformAdmin, supabaseAdmin, platformAdminError } from "../_lib/platformAdmin";
+import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
@@ -11,7 +11,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (req.method === "GET") {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getSupabaseAdmin()
         .from("platform_announcements")
         .select("id,title,body,is_published,target_plan,created_at,updated_at")
         .order("created_at", { ascending: false });
@@ -37,7 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: "title and body are required" });
       }
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getSupabaseAdmin()
         .from("platform_announcements")
         .insert({ title, body, is_published: isPublished, target_plan: targetPlan })
         .select("id,title,body,is_published,target_plan,created_at,updated_at")
@@ -57,7 +57,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (isPublished !== undefined) updates.is_published = isPublished;
       if (targetPlan !== undefined) updates.target_plan = targetPlan;
 
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getSupabaseAdmin()
         .from("platform_announcements")
         .update(updates)
         .eq("id", id)
@@ -73,7 +73,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const id = Array.isArray(rawId) ? rawId[0] : rawId;
       if (!id) return res.status(400).json({ error: "id is required" });
 
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .from("platform_announcements")
         .delete()
         .eq("id", id);

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requirePlatformAdmin, supabaseAdmin, platformAdminError } from "../_lib/platformAdmin";
+import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).end();
@@ -10,7 +10,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const rawCompanyId = req.query.companyId;
     const companyId = Array.isArray(rawCompanyId) ? rawCompanyId[0] : rawCompanyId;
 
-    let query = supabaseAdmin
+    let query = getSupabaseAdmin()
       .from("company_members")
       .select(
         "id,company_account_id,user_id,email,full_name,phone,role,status,invited_at,joined_at"
@@ -31,7 +31,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let companyMap: Record<string, string> = {};
     if (accountIds.length) {
-      const { data: companies } = await supabaseAdmin
+      const { data: companies } = await getSupabaseAdmin()
         .from("company_accounts")
         .select("id,company_name")
         .in("id", accountIds);

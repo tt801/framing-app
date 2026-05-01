@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requirePlatformAdmin, supabaseAdmin, platformAdminError } from "../_lib/platformAdmin";
+import { getSupabaseAdmin, requirePlatformAdmin, platformAdminError } from "../lib/platformAdmin";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).end();
@@ -7,7 +7,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     await requirePlatformAdmin(req);
 
-    const { data: companies, error } = await supabaseAdmin
+    const { data: companies, error } = await getSupabaseAdmin()
       .from("company_accounts")
       .select(
         "id,company_name,owner_user_id,plan_status,stripe_price_id,stripe_subscription_id,subscription_renewed_at,trial_ends_at,created_at"
@@ -21,14 +21,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Member counts and open ticket counts in parallel
     const [{ data: memberRows }, { data: ticketRows }] = await Promise.all([
       ids.length
-        ? supabaseAdmin
+        ? getSupabaseAdmin()
             .from("company_members")
             .select("company_account_id")
             .in("company_account_id", ids)
             .eq("status", "active")
         : Promise.resolve({ data: [] }),
       ids.length
-        ? supabaseAdmin
+        ? getSupabaseAdmin()
             .from("support_tickets")
             .select("company_account_id")
             .in("company_account_id", ids)

@@ -12,7 +12,7 @@ type VercelResponse = {
   json: (payload: unknown) => VercelResponse;
 };
 import { createClient } from '@supabase/supabase-js';
-import { requireActiveTrialUserId } from '../_lib/auth';
+import { requireActiveTrialUserId } from '../lib/auth';
 
 type UserApiCredentials = {
   twilio_account_sid?: string;
