@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
@@ -14,32 +14,61 @@ export type View = "dashboard" | "companies" | "users" | "tickets" | "subscripti
 export default function App() {
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const allowSignedOutTransitionRef = useRef(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [view, setView] = useState<View>("dashboard");
 
   useEffect(() => {
-    if (!supabase) { setLoadingAuth(false); return; }
+    if (!supabase) {
+      setLoadingAuth(false);
+      return;
+    }
+
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
+
+    const syncSession = async () => {
+      const { data } = await supabase.auth.getSession();
       if (!mounted) return;
       setIsSignedIn(Boolean(data.session));
       setLoadingAuth(false);
-    });
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    };
+
+    void syncSession();
+
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
-      setIsSignedIn(Boolean(session));
+      if (session) {
+        setIsSignedIn(true);
+        allowSignedOutTransitionRef.current = false;
+        setLoadingAuth(false);
+        return;
+      }
+
+      // Only process signed-out transitions if this app initiated sign-out.
+      if (event === "SIGNED_OUT" && allowSignedOutTransitionRef.current) {
+        void syncSession();
+        return;
+      }
+
+      // Ignore transient null-session events to avoid auth flicker.
       setLoadingAuth(false);
     });
-    return () => { mounted = false; data.subscription.unsubscribe(); };
+
+    return () => {
+      mounted = false;
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     if (!supabase) return;
+
     try {
       setAuthError(null);
+      allowSignedOutTransitionRef.current = false;
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
     } catch (err) {
@@ -47,12 +76,20 @@ export default function App() {
     }
   }
 
+  async function handleSignOut() {
+    if (!supabase) return;
+    allowSignedOutTransitionRef.current = true;
+    await supabase.auth.signOut();
+  }
+
   if (!isSupabaseConfigured) {
     return (
       <div className="auth-screen">
         <div className="auth-card">
           <h2>Supabase not configured</h2>
-          <p>Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in <code>admin/.env</code>.</p>
+          <p>
+            Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in <code>admin/.env</code>.
+          </p>
         </div>
       </div>
     );
@@ -62,7 +99,7 @@ export default function App() {
     return (
       <div className="auth-screen">
         <div className="auth-card">
-          <p className="text-muted">Checking session…</p>
+          <p className="text-muted">Checking session...</p>
         </div>
       </div>
     );
@@ -94,7 +131,9 @@ export default function App() {
               required
               autoComplete="current-password"
             />
-            <button type="submit" className="btn-primary">Sign In</button>
+            <button type="submit" className="btn-primary">
+              Sign In
+            </button>
             {authError && <p className="error-text">{authError}</p>}
           </form>
         </div>
@@ -104,16 +143,16 @@ export default function App() {
 
   return (
     <div className="shell">
-      <Sidebar view={view} setView={setView} onSignOut={() => void supabase?.auth.signOut()} />
+      <Sidebar view={view} setView={setView} onSignOut={() => void handleSignOut()} />
       <div className="shell-body">
         <TopBar view={view} />
         <main className="shell-main">
-          {view === "dashboard"     && <Dashboard />}
-          {view === "companies"     && <Companies />}
-          {view === "users"         && <Users />}
-          {view === "tickets"       && <Tickets />}
+          {view === "dashboard" && <Dashboard />}
+          {view === "companies" && <Companies />}
+          {view === "users" && <Users />}
+          {view === "tickets" && <Tickets />}
           {view === "subscriptions" && <Subscriptions />}
-          {view === "cms"           && <CMS />}
+          {view === "cms" && <CMS />}
         </main>
       </div>
     </div>

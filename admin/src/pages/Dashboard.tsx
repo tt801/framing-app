@@ -25,11 +25,14 @@ export default function Dashboard() {
   if (error) return <div className="page-state error">{error}</div>;
   if (!stats) return null;
 
+  const planCounts = stats.planCounts ?? {};
+  const recentCompanies = stats.recentCompanies ?? [];
+
   const statCards = [
     { label: "Total Companies", value: stats.totalCompanies, Icon: Building2, accent: "accent-blue" },
-    { label: "Active Subscriptions", value: stats.planCounts.active ?? 0, Icon: TrendingUp, accent: "accent-green" },
-    { label: "Trialing", value: stats.planCounts.trialing ?? 0, Icon: Activity, accent: "accent-amber" },
-    { label: "Past Due / Expired", value: (stats.planCounts.past_due ?? 0) + (stats.planCounts.expired ?? 0), Icon: AlertCircle, accent: "accent-red" },
+    { label: "Active Subscriptions", value: planCounts.active ?? 0, Icon: TrendingUp, accent: "accent-green" },
+    { label: "Trialing", value: planCounts.trialing ?? 0, Icon: Activity, accent: "accent-amber" },
+    { label: "Past Due / Expired", value: (planCounts.past_due ?? 0) + (planCounts.expired ?? 0), Icon: AlertCircle, accent: "accent-red" },
     { label: "Total Members", value: stats.totalMembers, Icon: Users, accent: "accent-purple" },
     { label: "Open Tickets", value: stats.openTickets, Icon: TicketCheck, accent: "accent-rose" },
   ];
@@ -52,11 +55,11 @@ export default function Dashboard() {
         {/* Plan distribution */}
         <div className="card">
           <h2 className="card-title">Plan Distribution</h2>
-          {Object.keys(stats.planCounts).length === 0 ? (
+          {Object.keys(planCounts).length === 0 ? (
             <p className="text-muted">No data yet.</p>
           ) : (
             <div className="plan-bars">
-              {Object.entries(stats.planCounts)
+              {Object.entries(planCounts)
                 .sort((a, b) => b[1] - a[1])
                 .map(([plan, count]) => {
                   const pct = stats.totalCompanies
@@ -84,7 +87,7 @@ export default function Dashboard() {
         {/* Recent sign-ups */}
         <div className="card">
           <h2 className="card-title">Recent Sign-ups</h2>
-          {stats.recentCompanies.length === 0 ? (
+          {recentCompanies.length === 0 ? (
             <p className="text-muted">No recent sign-ups.</p>
           ) : (
             <table className="table">
@@ -96,7 +99,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {stats.recentCompanies.map((c) => (
+                {recentCompanies.map((c) => (
                   <tr key={c.id}>
                     <td className="cell-primary">{c.company_name ?? <em className="text-muted">Unnamed</em>}</td>
                     <td>

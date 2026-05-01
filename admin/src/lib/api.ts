@@ -99,10 +99,27 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
 
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error((json as { error?: string }).error || "Request failed");
+  const raw = await response.text();
+  let json: unknown = null;
+  if (raw) {
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      json = null;
+    }
   }
+  if (!response.ok) {
+    const message =
+      json && typeof json === "object" && "error" in json
+        ? String((json as { error?: string }).error || "Request failed")
+        : `Request failed (${response.status})`;
+    throw new Error(message);
+  }
+
+  if (!json || typeof json !== "object") {
+    throw new Error(`Invalid API response for ${path}`);
+  }
+
   return json as T;
 }
 
@@ -145,7 +162,16 @@ export async function createPlatformTicketComment(input: {
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
 export async function getPlatformStats() {
-  return apiFetch<PlatformStats>("/api/platform/stats");
+  const d = await apiFetch<Partial<PlatformStats>>("/api/platform/stats");
+  return {
+    totalCompanies: Number(d.totalCompanies ?? 0),
+    totalMembers: Number(d.totalMembers ?? 0),
+    activeMembers: Number(d.activeMembers ?? 0),
+    openTickets: Number(d.openTickets ?? 0),
+    totalTickets: Number(d.totalTickets ?? 0),
+    planCounts: d.planCounts ?? {},
+    recentCompanies: Array.isArray(d.recentCompanies) ? d.recentCompanies : [],
+  } satisfies PlatformStats;
 }
 
 // ─── Companies ────────────────────────────────────────────────────────────────

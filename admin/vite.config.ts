@@ -2,6 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+const apiProxyTarget = process.env.ADMIN_API_PROXY_TARGET || "https://framersapp.com";
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -15,7 +17,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": {
-        target: "http://localhost:5173",
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },
