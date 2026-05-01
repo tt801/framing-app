@@ -251,6 +251,354 @@ body {
   --tw-ring-color: #475569 !important;
 }
 
+/* ── bg-white/95 opacity variant (panels in Visualizer & Calendar) ──────── */
+.app-theme-dark .bg-white\/95 {
+  background-color: rgba(15, 23, 42, 0.97) !important;
+}
+
+/* ── green-50 stat cards (Customers, Invoices, Quotes) ──────────────────── */
+.app-theme-dark .bg-green-50 {
+  background-color: rgba(6, 78, 59, 0.2) !important;
+}
+.app-theme-dark .ring-green-100,
+.app-theme-dark .border-green-100 {
+  border-color: rgba(16, 185, 129, 0.25) !important;
+  --tw-ring-color: rgba(16, 185, 129, 0.25) !important;
+}
+.app-theme-dark .text-green-700,
+.app-theme-dark .text-green-800 {
+  color: #6ee7b7 !important;
+}
+.app-theme-dark .bg-green-100 {
+  background-color: rgba(6, 78, 59, 0.3) !important;
+}
+.app-theme-dark .text-green-800 {
+  color: #6ee7b7 !important;
+}
+.app-theme-dark .ring-green-300,
+.app-theme-dark .border-green-300 {
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  --tw-ring-color: rgba(16, 185, 129, 0.4) !important;
+}
+
+/* ── red-50 / red-100 (Stock low-stock rows, stat cards) ────────────────── */
+.app-theme-dark .bg-red-50 {
+  background-color: rgba(127, 29, 29, 0.2) !important;
+}
+.app-theme-dark .bg-red-100 {
+  background-color: rgba(127, 29, 29, 0.3) !important;
+}
+.app-theme-dark .text-red-700 {
+  color: #fca5a5 !important;
+}
+.app-theme-dark .border-red-200,
+.app-theme-dark .ring-red-200 {
+  border-color: rgba(239, 68, 68, 0.35) !important;
+  --tw-ring-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+/* ── purple-50 stat cards (Marketing) ───────────────────────────────────── */
+.app-theme-dark .bg-purple-50 {
+  background-color: rgba(76, 29, 149, 0.2) !important;
+}
+.app-theme-dark .text-purple-700,
+.app-theme-dark .text-purple-900 {
+  color: #c4b5fd !important;
+}
+.app-theme-dark .text-purple-600 {
+  color: #a78bfa !important;
+}
+.app-theme-dark .ring-purple-200,
+.app-theme-dark .border-purple-200 {
+  border-color: rgba(139, 92, 246, 0.35) !important;
+  --tw-ring-color: rgba(139, 92, 246, 0.35) !important;
+}
+
+/* ── indigo-50 stat cards (Marketing, Calendar integration panel) ────────── */
+.app-theme-dark .bg-indigo-50 {
+  background-color: rgba(49, 46, 129, 0.2) !important;
+}
+.app-theme-dark .bg-indigo-100 {
+  background-color: rgba(49, 46, 129, 0.3) !important;
+}
+.app-theme-dark .text-indigo-700,
+.app-theme-dark .text-indigo-900 {
+  color: #a5b4fc !important;
+}
+.app-theme-dark .text-indigo-800 {
+  color: #a5b4fc !important;
+}
+.app-theme-dark .text-indigo-600 {
+  color: #818cf8 !important;
+}
+.app-theme-dark .ring-indigo-200,
+.app-theme-dark .border-indigo-200 {
+  border-color: rgba(99, 102, 241, 0.35) !important;
+  --tw-ring-color: rgba(99, 102, 241, 0.35) !important;
+}
+
+/* ── Coloured status badge overrides (Invoices, Quotes, Jobs) ────────────── */
+/* blue-100 badges */
+.app-theme-dark .bg-blue-100 {
+  background-color: rgba(23, 37, 84, 0.35) !important;
+}
+.app-theme-dark .text-blue-800 {
+  color: #93c5fd !important;
+}
+.app-theme-dark .ring-blue-300,
+.app-theme-dark .border-blue-300 {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  --tw-ring-color: rgba(59, 130, 246, 0.4) !important;
+}
+/* amber-100 badges */
+.app-theme-dark .bg-amber-100 {
+  background-color: rgba(120, 53, 15, 0.3) !important;
+}
+.app-theme-dark .text-amber-800 {
+  color: #fcd34d !important;
+}
+.app-theme-dark .ring-amber-300,
+.app-theme-dark .border-amber-300 {
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  --tw-ring-color: rgba(245, 158, 11, 0.4) !important;
+}
+/* rose-100 badges */
+.app-theme-dark .bg-rose-100 {
+  background-color: rgba(127, 29, 29, 0.3) !important;
+}
+.app-theme-dark .text-rose-800 {
+  color: #fca5a5 !important;
+}
+.app-theme-dark .ring-rose-300,
+.app-theme-dark .border-rose-300 {
+  border-color: rgba(244, 63, 94, 0.4) !important;
+  --tw-ring-color: rgba(244, 63, 94, 0.4) !important;
+}
+/* green-100 badges */
+.app-theme-dark .bg-green-100 {
+  background-color: rgba(6, 78, 59, 0.3) !important;
+}
+.app-theme-dark .text-green-800 {
+  color: #6ee7b7 !important;
+}
+.app-theme-dark .ring-green-300 {
+  --tw-ring-color: rgba(16, 185, 129, 0.4) !important;
+}
+/* slate-100 badges */
+.app-theme-dark .bg-slate-100 {
+  background-color: #1e293b !important;
+}
+.app-theme-dark .text-slate-800 {
+  color: #cbd5e1 !important;
+}
+.app-theme-dark .ring-slate-300 {
+  --tw-ring-color: #334155 !important;
+}
+
+/* ── Stock gradient stat cards ───────────────────────────────────────────── */
+.app-theme-dark .from-red-50 {
+  --tw-gradient-from: rgba(127, 29, 29, 0.25) var(--tw-gradient-from-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+.app-theme-dark .to-red-100 {
+  --tw-gradient-to: rgba(127, 29, 29, 0.35) var(--tw-gradient-to-position) !important;
+}
+.app-theme-dark .from-emerald-50 {
+  --tw-gradient-from: rgba(6, 78, 59, 0.25) var(--tw-gradient-from-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+.app-theme-dark .to-emerald-100 {
+  --tw-gradient-to: rgba(6, 78, 59, 0.35) var(--tw-gradient-to-position) !important;
+}
+.app-theme-dark .from-slate-100 {
+  --tw-gradient-from: #1e293b var(--tw-gradient-from-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+.app-theme-dark .to-slate-100 {
+  --tw-gradient-to: #334155 var(--tw-gradient-to-position) !important;
+}
+/* text-red-900/emerald-900/slate-900 on stat cards */
+.app-theme-dark .text-red-900 {
+  color: #fca5a5 !important;
+}
+.app-theme-dark .text-emerald-900 {
+  color: #6ee7b7 !important;
+}
+
+/* ── Page wrapper gradients (VisualizerApp & Calendar) ───────────────────── */
+/* from-sky-50 via-emerald-50/40 to-slate-50 → solid dark bg */
+.app-theme-dark .from-sky-50 {
+  --tw-gradient-from: #0b1222 var(--tw-gradient-from-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+.app-theme-dark .via-emerald-50\/40 {
+  --tw-gradient-stops: var(--tw-gradient-from), #0f172a var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+/* from-blue-50 to-indigo-50 (Calendar integration panel) */
+.app-theme-dark .from-blue-50 {
+  --tw-gradient-from: rgba(23, 37, 84, 0.25) var(--tw-gradient-from-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+.app-theme-dark .to-indigo-50 {
+  --tw-gradient-to: rgba(49, 46, 129, 0.25) var(--tw-gradient-to-position) !important;
+}
+
+/* ── ring-emerald-100/200 panel rings ────────────────────────────────────── */
+.app-theme-dark .ring-emerald-100 {
+  --tw-ring-color: rgba(16, 185, 129, 0.15) !important;
+}
+.app-theme-dark .ring-emerald-200 {
+  --tw-ring-color: rgba(16, 185, 129, 0.25) !important;
+}
+.app-theme-dark .border-emerald-100 {
+  border-color: rgba(16, 185, 129, 0.15) !important;
+}
+/* bg-emerald-50/40 (Jobs job detail section) */
+.app-theme-dark .bg-emerald-50\/40 {
+  background-color: rgba(6, 78, 59, 0.15) !important;
+}
+
+/* ── Admin/buttons: bg-slate-900 active pill & CTA buttons ───────────────── */
+/* In dark mode, bg-slate-900 would be invisible on dark bg — lift it */
+.app-theme-dark .bg-slate-900 {
+  background-color: #334155 !important;
+}
+.app-theme-dark .hover\:bg-slate-900:hover {
+  background-color: #3d4f65 !important;
+}
+.app-theme-dark .hover\:bg-slate-800:hover {
+  background-color: #475569 !important;
+}
+
+/* ── bg-slate-50\/60 subtle surfaces ────────────────────────────────────── */
+.app-theme-dark .bg-slate-50\/60 {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+}
+
+/* ── react-big-calendar dark theme ──────────────────────────────────────── */
+.app-theme-dark .rbc-calendar {
+  background-color: #0f172a !important;
+  color: #e2e8f0 !important;
+}
+.app-theme-dark .rbc-toolbar {
+  color: #e2e8f0 !important;
+}
+.app-theme-dark .rbc-toolbar button {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+.app-theme-dark .rbc-toolbar button:hover,
+.app-theme-dark .rbc-toolbar button:focus {
+  background-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+.app-theme-dark .rbc-toolbar button.rbc-active {
+  background-color: #475569 !important;
+  border-color: #64748b !important;
+  color: #f1f5f9 !important;
+}
+.app-theme-dark .rbc-header {
+  background-color: #111827 !important;
+  border-color: #334155 !important;
+  color: #94a3b8 !important;
+}
+.app-theme-dark .rbc-month-view,
+.app-theme-dark .rbc-time-view,
+.app-theme-dark .rbc-agenda-view {
+  border-color: #334155 !important;
+  background-color: #0f172a !important;
+}
+.app-theme-dark .rbc-day-bg {
+  background-color: #0f172a !important;
+}
+.app-theme-dark .rbc-day-bg + .rbc-day-bg,
+.app-theme-dark .rbc-month-row + .rbc-month-row {
+  border-color: #1e293b !important;
+}
+.app-theme-dark .rbc-off-range-bg {
+  background-color: #0b1222 !important;
+}
+.app-theme-dark .rbc-today {
+  background-color: rgba(99, 102, 241, 0.12) !important;
+}
+.app-theme-dark .rbc-date-cell {
+  color: #cbd5e1 !important;
+}
+.app-theme-dark .rbc-date-cell.rbc-off-range {
+  color: #475569 !important;
+}
+.app-theme-dark .rbc-show-more {
+  color: #93c5fd !important;
+  background-color: transparent !important;
+}
+.app-theme-dark .rbc-event {
+  background-color: #3b4f6b !important;
+  border-color: #475569 !important;
+  color: #e2e8f0 !important;
+}
+.app-theme-dark .rbc-event.rbc-selected {
+  background-color: #4f5f7a !important;
+}
+.app-theme-dark .rbc-slot-selection {
+  background-color: rgba(99, 102, 241, 0.2) !important;
+}
+.app-theme-dark .rbc-time-slot {
+  border-color: #1e293b !important;
+}
+.app-theme-dark .rbc-timeslot-group {
+  border-color: #1e293b !important;
+}
+.app-theme-dark .rbc-time-header-content {
+  border-color: #334155 !important;
+}
+.app-theme-dark .rbc-time-header,
+.app-theme-dark .rbc-time-header-gutter {
+  background-color: #111827 !important;
+  border-color: #334155 !important;
+  color: #94a3b8 !important;
+}
+.app-theme-dark .rbc-label {
+  color: #64748b !important;
+}
+.app-theme-dark .rbc-current-time-indicator {
+  background-color: #6366f1 !important;
+}
+.app-theme-dark .rbc-agenda-table {
+  border-color: #334155 !important;
+}
+.app-theme-dark .rbc-agenda-table thead > tr > th {
+  background-color: #111827 !important;
+  color: #94a3b8 !important;
+  border-color: #334155 !important;
+}
+.app-theme-dark .rbc-agenda-date-cell,
+.app-theme-dark .rbc-agenda-time-cell {
+  background-color: #0f172a !important;
+  border-color: #1e293b !important;
+  color: #64748b !important;
+}
+.app-theme-dark .rbc-agenda-event-cell {
+  background-color: #0f172a !important;
+  border-color: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+.app-theme-dark .rbc-row-bg {
+  background-color: #0f172a !important;
+}
+.app-theme-dark .rbc-row-content .rbc-row {
+  border-color: #1e293b !important;
+}
+.app-theme-dark .rbc-overlay {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+.app-theme-dark .rbc-overlay-header {
+  border-color: #334155 !important;
+  color: #94a3b8 !important;
+}
+
 .font-display {
   font-family: "Archivo", "Manrope", system-ui, sans-serif;
 }
