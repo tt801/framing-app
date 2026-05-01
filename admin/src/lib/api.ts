@@ -1,5 +1,7 @@
 import { getAccessToken } from "@/lib/supabase";
 
+const API_BASE = (import.meta.env.VITE_PLATFORM_API_BASE || "").replace(/\/$/, "");
+
 export type TicketStatus = "open" | "in_progress" | "waiting_customer" | "resolved" | "closed";
 export type TicketPriority = "low" | "normal" | "high" | "urgent";
 
@@ -31,7 +33,7 @@ export type TicketComment = {
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getAccessToken();
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
