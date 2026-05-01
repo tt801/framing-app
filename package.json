@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:admin": "npm --prefix admin run dev",
+    "dev:all": "concurrently -n main,admin -c cyan,magenta \"npm run dev\" \"npm run dev:admin\"",
     "build": "vite build",
     "build:admin": "npm --prefix admin run build",
     "lint": "eslint .",
@@ -28,15 +29,14 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@vercel/node": "^5.3.24",
     "@eslint/js": "^9.36.0",
     "@types/node": "^24.6.0",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
-    "@vercel/node": "^5.3.24",
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
     "baseline-browser-mapping": "^2.9.19",
-    "concurrently": "^9.2.1",
     "eslint": "^9.36.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",
