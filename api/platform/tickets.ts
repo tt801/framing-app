@@ -8,6 +8,8 @@ async function handleList(req: VercelRequest, res: VercelResponse) {
   await requirePlatformAdmin(req);
   const rawStatus = req.query.status;
   const status = (Array.isArray(rawStatus) ? rawStatus[0] : rawStatus || "all") as "all" | TicketStatus;
+  const rawCompanyId = req.query.companyId;
+  const companyId = Array.isArray(rawCompanyId) ? rawCompanyId[0] : rawCompanyId;
 
   let query = getSupabaseAdmin()
     .from("support_tickets")
@@ -16,6 +18,10 @@ async function handleList(req: VercelRequest, res: VercelResponse) {
 
   if (status !== "all") {
     query = query.eq("status", status);
+  }
+
+  if (companyId) {
+    query = query.eq("company_account_id", companyId);
   }
 
   const { data: tickets, error } = await query;

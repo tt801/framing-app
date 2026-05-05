@@ -125,8 +125,14 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ─── Tickets ──────────────────────────────────────────────────────────────────
 
-export async function listPlatformTickets(status: "all" | TicketStatus = "all") {
-  const qs = status === "all" ? "" : `?status=${status}`;
+export async function listPlatformTickets(
+  status: "all" | TicketStatus = "all",
+  companyId?: string
+) {
+  const params = new URLSearchParams();
+  if (status !== "all") params.set("status", status);
+  if (companyId) params.set("companyId", companyId);
+  const qs = params.size ? `?${params.toString()}` : "";
   return apiFetch<{ tickets: PlatformTicket[] }>(`/api/platform/tickets${qs}`);
 }
 

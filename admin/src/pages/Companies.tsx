@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getPlatformCompanies, type PlatformCompany } from "@/lib/api";
 import { RefreshCw, Building2 } from "lucide-react";
+import CompanyDrawer from "@/components/CompanyDrawer";
 
 const PLAN_BADGE: Record<string, string> = {
   active: "badge-green",
@@ -28,6 +29,7 @@ export default function Companies() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [planFilter, setPlanFilter] = useState<string>("all");
+  const [selectedCompany, setSelectedCompany] = useState<PlatformCompany | null>(null);
 
   function load() {
     setLoading(true);
@@ -103,7 +105,12 @@ export default function Companies() {
               </tr>
             ) : (
               filtered.map((c) => (
-                <tr key={c.id}>
+                <tr
+                  key={c.id}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setSelectedCompany(c)}
+                  title="Click to view details"
+                >
                   <td>
                     <div className="cell-with-icon">
                       <Building2 size={13} className="text-muted" />
@@ -150,6 +157,13 @@ export default function Companies() {
         <p className="table-footer">
           {filtered.length} of {companies.length} companies
         </p>
+      )}
+
+      {selectedCompany && (
+        <CompanyDrawer
+          company={selectedCompany}
+          onClose={() => setSelectedCompany(null)}
+        />
       )}
     </div>
   );
