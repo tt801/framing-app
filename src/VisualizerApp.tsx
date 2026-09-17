@@ -31,8 +31,9 @@ import {
   exportNodeAsPdf,
   exportNodeAsPng,
 } from "@/lib/exporters";
-import { listPresets, savePreset, deletePreset } from "@/lib/presets";
 import type { VisualizerPreset } from "@/lib/presets";
+import PresetControls from "@/components/PresetControls";
+import { useBillingAccess } from "@/lib/billingAccess";
 
 type OpeningShape = "rect" | "oval" | "circle";
 type MatOpening = {
@@ -215,6 +216,7 @@ function makeJobChecklist() {
 
 export default function VisualizerApp() {
   const { catalog } = useCatalog();
+  const billing = useBillingAccess();
   const qStore = useQuotes() as any;
   const jobsStore = useJobs() as any;
   const invoicesStore = useInvoices() as any;
@@ -238,15 +240,16 @@ export default function VisualizerApp() {
   const containerClass =
     layoutMode === "fixed" ? "max-w-[1440px] mx-auto" : "max-w-none w-full";
 
-  const addJob = (job: any) =>
-    jobsStore?.add?.(job) ??
-    jobsStore?.create?.(job) ??
-    jobsStore?.push?.(job);
-  const addInvoice = (inv: any) =>
-    invoicesStore?.add?.(inv) ??
-    invoicesStore?.addFromQuote?.(inv) ??
-    invoicesStore?.create?.(inv) ??
-    invoicesStore?.push?.(inv);
+  const addJob = async (job: any) => {
+    if (typeof jobsStore?.add !== "function") return { ok: false, error: "No job creation function available" };
+    return jobsStore.add(job);
+  };
+  const addInvoice = async (invoice: any) => {
+    if (typeof invoicesStore?.addInvoice !== "function") {
+      return { ok: false, error: "No invoice creation function available" };
+    }
+    return invoicesStore.addInvoice(invoice);
+  };
 
   const settings = catalog?.settings || {};
   const currencyCode = getSettingsCurrency(settings);
@@ -901,7 +904,7 @@ export default function VisualizerApp() {
     }
   }, [selectedCustomerId, sortedCustomers]);
 
-  function ensureCustomerId(): string | "" {
+  async function ensureCustomerId(): Promise<string> {
     if (selectedCustomerId && selectedCustomerId !== "__new__")
       return selectedCustomerId;
     const hasCore = !!(
@@ -910,14 +913,10 @@ export default function VisualizerApp() {
       cust.email?.trim()
     );
     if (!hasCore) return "";
-    const id = rid();
-    addCustomer?.({
-      id,
-      ...cust,
-      createdAt: new Date().toISOString(),
-    } as any);
-    setSelectedCustomerId(id);
-    return id;
+    const result = await addCustomer?.({ ...cust, id: "" } as any);
+    if (!result || result.ok === false) return "";
+    setSelectedCustomerId(result.customer.id);
+    return result.customer.id;
   }
 
   // ---------- Image upload ----------
@@ -951,27 +950,30 @@ export default function VisualizerApp() {
   }
 
   // ---------- Actions: CRM / Quotes / Jobs / Invoice ----------
-  function saveToCRM() {
+  async function saveToCRM() {
     if (!selectedCustomerId || selectedCustomerId === "__new__") {
-      const id = rid();
-      addCustomer?.({
-        id,
-        ...cust,
-        createdAt: new Date().toISOString(),
-      } as any);
-      setSelectedCustomerId(id);
+      const result = await addCustomer?.({ ...cust, id: "" } as any);
+      if (!result || result.ok === false) {
+        alert(result?.error || "Failed to save customer to CRM.");
+        return;
+      }
+      setSelectedCustomerId(result.customer.id);
       alert("Saved to CRM (created).");
     } else {
-      updateCustomer?.({
+      const result = await updateCustomer?.({
         id: selectedCustomerId,
         ...cust,
       } as any);
+      if (!result || result.ok === false) {
+        alert(result?.error || "Failed to update customer in CRM.");
+        return;
+      }
       alert("Saved to CRM (updated).");
     }
   }
 
-  function addQuoteNow() {
-    const customerId = ensureCustomerId();
+  async function addQuoteNow() {
+    const customerId = await ensureCustomerId();
     const customerObj = customerId
       ? (customers || []).find((c: any) => c.id === customerId)
       : undefined;
@@ -1110,23 +1112,21 @@ export default function VisualizerApp() {
       currencySymbol: catalog?.settings?.currencySymbol ?? "R ",
     };
 
-    const wroteStore = writeQuoteToAnyStore(qStore, payload);
+    const wroteStore = await qStore?.add?.(payload);
 
-    const ls = readQuotesFromAnyLS();
-    const merged = mergeQuote(ls, payload);
-    writeQuotesToAllLS(merged);
+    if (!wroteStore || wroteStore.ok === false) {
+      alert(wroteStore?.error || "Could not save quote. See console for details.");
+      return;
+    }
 
     try {
-      console.debug("Quote upserted:", payload.number, {
-        wroteStore,
-        quotesCountLS: merged.length,
-      });
+      console.debug("Quote saved:", payload.number, { id: wroteStore.quote.id });
     } catch {}
     alert(`Quote ${payload.number} created.`);
   }
 
-  function addJobNow() {
-    const customerId = ensureCustomerId();
+  async function addJobNow() {
+    const customerId = await ensureCustomerId();
 
     const frameName = frameProfile?.name || selectedFrame || "Frame";
     const mat1Name = hasMat1 ? mat1?.name || selectedMat1 : "";
@@ -1387,21 +1387,24 @@ export default function VisualizerApp() {
     };
 
     try {
-      addJob?.(job as any);
-      alert("Job created and added to Jobs.");
+      const result = await addJob(job as any);
+      if (!result?.ok) {
+        alert(result?.error || "Job could not be saved.");
+        return;
+      }
+      alert(`Job ${result.job.refNo ?? result.job.id} created and added to Jobs.`);
     } catch (err) {
       console.error(err);
       alert("Failed to save job. See console for details.");
     }
   }
 
-  function invoiceNow() {
-    const customerId = ensureCustomerId();
+  async function invoiceNow() {
+    const customerId = await ensureCustomerId();
     const customerObj = customerId
       ? (customers || []).find((c: any) => c.id === customerId)
       : undefined;
 
-    const invId = rid();
     const todayISO = new Date().toISOString();
 
     const items = [
@@ -1487,19 +1490,19 @@ export default function VisualizerApp() {
       },
     ];
 
+    const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+    const roundedSubtotal = roundCurrency(Number(subtotal));
+    const roundedTax = roundCurrency(roundedSubtotal * Number(taxRate));
+    const roundedTotal = roundCurrency(roundedSubtotal + roundedTax);
     const invoiceObj = {
-      id: invId,
-      number: `INV-${new Date().getFullYear()}-${invId
-        .slice(0, 4)
-        .toUpperCase()}`,
       customerId: customerId || undefined,
       dateISO: todayISO,
       dueDateISO: undefined,
       items,
-      subtotal: Number(subtotal),
+      subtotal: roundedSubtotal,
       taxRate: Number(taxRate),
-      tax: Number(subtotal) * Number(taxRate),
-      total: Number(total),
+      tax: roundedTax,
+      total: roundedTotal,
 
       currency: { code: currencyCode, symbol: currencySymbol },
       currencyCode,
@@ -1511,21 +1514,25 @@ export default function VisualizerApp() {
 
       details: {
         costs: {
-          subtotal: Number(subtotal),
+          subtotal: roundedSubtotal,
           taxRate: Number(taxRate),
-          tax: Number(subtotal) * Number(taxRate),
-          total: Number(total),
+          tax: roundedTax,
+          total: roundedTotal,
           currency: { code: currencyCode, symbol: currencySymbol },
         },
       },
     };
 
     try {
-      addInvoice?.(invoiceObj as any);
+      const result = await addInvoice(invoiceObj as any);
+      if (!result?.ok) {
+        alert(result?.error || "Invoice could not be saved.");
+        return;
+      }
 
       // Still generate the PDF, but stay on the Visualizer
-      exportInvoicePDF?.({
-        invoice: invoiceObj,
+      await exportInvoicePDF?.({
+        invoice: result.invoice,
         customer: customerObj
           ? {
               id: customerObj.id,
@@ -1551,7 +1558,7 @@ export default function VisualizerApp() {
         },
       } as any);
 
-      alert("Invoice created and added to Invoices.");
+      alert(`Invoice ${result.invoice.number} created and added to Invoices.`);
       // ⬆️ No navigation: we stay on the Visualizer
     } catch (err) {
       console.error(err);
@@ -1561,11 +1568,11 @@ export default function VisualizerApp() {
     }
   }
 
-  function handleCreateQuoteInvoiceJob() {
+  async function handleCreateQuoteInvoiceJob() {
     try {
-      addQuoteNow();
-      addJobNow();
-      invoiceNow();
+      await addQuoteNow();
+      await addJobNow();
+      await invoiceNow();
     } catch (e) {
       console.error("Failed to create Quote + Invoice + Job", e);
       alert(
@@ -1592,9 +1599,6 @@ export default function VisualizerApp() {
       ? selectedCustomerId
       : "anonymous";
 
-  const [presets, setPresets] = useState<VisualizerPreset[]>([]);
-  const [presetMenuOpen, setPresetMenuOpen] = useState(false);
-  const presetMenuRef = useRef<HTMLDivElement | null>(null);
   const currentState = useMemo(
     () => ({
       unit,
@@ -1652,44 +1656,6 @@ export default function VisualizerApp() {
       backdrop,
     ]
   );
-
-  useEffect(() => {
-    setPresets(listPresets(customerKey));
-  }, [customerKey]);
-
-  // Close preset menu on outside click
-  type PresetScope = "me" | "shared";
-
-  function handleSavePreset(scope: PresetScope = "shared") {
-    const label =
-      scope === "me"
-        ? "Preset name (for your use)?"
-        : "Preset name (for everyone to use)?";
-
-    const baseName = window.prompt(label);
-    if (!baseName || !baseName.trim()) return;
-
-    const prefix = scope === "me" ? "👤 " : "🌐 ";
-    const name = prefix + baseName.trim();
-
-    try {
-      const created = savePreset(customerKey, { name, state: currentState });
-      setPresets((prev) => [created, ...prev]);
-    } catch (e: any) {
-      console.error("Failed to save preset", e);
-
-      const message =
-        e && (e.name === "QuotaExceededError" || e.code === 22)
-          ? "Preset storage is full in this browser. Please delete some older presets or clear FrameIT data and try again."
-          : "Could not save this preset. Please try again.";
-
-      alert(message);
-    }
-  }
-
-  function closePresetMenu() {
-    setPresetMenuOpen(false);
-  }
 
   function applyPreset(p: VisualizerPreset) {
     try {
@@ -1758,11 +1724,6 @@ export default function VisualizerApp() {
         "Could not apply this preset. It may be from an older version."
       );
     }
-  }
-
-  function removePreset(id: string) {
-    deletePreset(customerKey, id);
-    setPresets((prev) => prev.filter((p) => p.id !== id));
   }
 
   // ---------- Export menu ----------
@@ -3121,100 +3082,14 @@ export default function VisualizerApp() {
 
         {/* RIGHT */}
         <aside className="space-y-3">
-          {/* Presets */}
-          <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="font-semibold text-slate-900">
-                  Presets
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Save this exact setup for reuse.
-                </p>
-              </div>
-              <div className="relative" ref={presetMenuRef}>
-                <button
-                  type="button"
-                  className="relative inline-flex items-center justify-between gap-1 rounded-lg px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm whitespace-nowrap"
-                  onClick={() =>
-                    setPresetMenuOpen((o) => !o)
-                  }
-                  title="Save current setup as a preset"
-                >
-                  <span>Save preset</span>
-                  <span className="text-[10px] leading-none">
-                    ▾
-                  </span>
-                </button>
-                {presetMenuOpen && (
-                  <div className="absolute right-0 mt-1 w-40 rounded-lg border bg-white shadow-lg z-20 text-xs">
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
-                      onClick={() => {
-                        closePresetMenu();
-                        handleSavePreset("me");
-                      }}
-                    >
-                      Save for user
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
-                      onClick={() => {
-                        closePresetMenu();
-                        handleSavePreset("shared");
-                      }}
-                    >
-                      Save preset
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {presets.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No presets yet for this customer.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {presets.map((p) => (
-                  <li
-                    key={p.id}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate text-slate-900">
-                        {p.name}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {new Date(
-                          p.createdAt
-                        ).toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <button
-                        className="rounded-lg px-2 py-1 text-xs bg-white ring-1 ring-slate-300 hover:bg-slate-100"
-                        onClick={() => applyPreset(p)}
-                      >
-                        Load
-                      </button>
-                      <button
-                        className="rounded-lg px-2 py-1 text-xs bg-white ring-1 ring-rose-200 text-rose-600 hover:bg-rose-50"
-                        onClick={() =>
-                          removePreset(p.id)
-                        }
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <PresetControls
+            companyName={billing.companyName}
+            customerKey={customerKey}
+            hasSavedCustomer={Boolean(selectedCustomerId && selectedCustomerId !== "__new__")}
+            ensureCustomerId={ensureCustomerId}
+            currentState={currentState}
+            onApply={applyPreset}
+          />
 
           {/* Customer */}
           <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">

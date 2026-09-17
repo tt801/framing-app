@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { randomUUID } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -76,17 +77,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw new Error("Invalid plan configuration");
     }
 
-    if (isFounderCheckout) {
-      const { count, error: founderError } = await supabase
-        .from("company_accounts")
-        .select("id", { count: "exact", head: true })
-        .eq("stripe_price_id", "founder_lifetime");
-
-      if (founderError) throw founderError;
-      if ((count || 0) >= founderMaxPurchases) {
-        throw new Error("Founder plan is sold out");
+    let idempotencyKey = `checkout:${account.id}:${priceId}`;
+    const beginAttempt = () => supabase.rpc("begin_stripe_checkout", {
+      p_company_account_id: account.id,
+      p_price_id: priceId,
+      p_idempotency_key: idempotencyKey,
+      p_is_founder: isFounderCheckout,
+      p_founder_max: founderMaxPurchases,
+    });
+    let { data: attempt, error: attemptError } = await beginAttempt();
+    if (attemptError) throw attemptError;
+    let checkoutAttempt = Array.isArray(attempt) ? attempt[0] : attempt;
+    if (!checkoutAttempt?.allowed && checkoutAttempt?.reason?.startsWith("Stripe session status must be confirmed") && checkoutAttempt.existing_session_id) {
+      const existing = await stripe.checkout.sessions.retrieve(checkoutAttempt.existing_session_id);
+      if (existing.status === "expired" && existing.payment_status !== "paid") {
+        const { data: expired, error: expireError } = await supabase.rpc("expire_stripe_checkout_attempt", { p_attempt_id: checkoutAttempt.attempt_id, p_company_account_id: account.id });
+        if (expireError || expired !== true) throw expireError || new Error("Checkout expiry could not be confirmed");
+        idempotencyKey = `checkout:${account.id}:${priceId}:${randomUUID()}`;
+        ({ data: attempt, error: attemptError } = await beginAttempt());
+        if (attemptError) throw attemptError;
+        checkoutAttempt = Array.isArray(attempt) ? attempt[0] : attempt;
+      } else {
+        if (!existing.url) throw new Error("Checkout status is unresolved; retry later");
+        return res.status(200).json({ sessionId: existing.id, url: existing.url });
       }
     }
+    if (!checkoutAttempt?.allowed) throw new Error(checkoutAttempt?.reason || "Checkout is unavailable");
+    if (checkoutAttempt.existing_session_id) return res.status(200).json({ sessionId: checkoutAttempt.existing_session_id, url: checkoutAttempt.existing_session_url });
 
     // Create or retrieve Stripe customer
     let customerId = account.stripe_customer_id;
@@ -98,14 +115,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           company_account_id: account.id,
           owner_user_id: user.id,
         },
-      });
+      }, { idempotencyKey: `customer:${account.id}` });
       customerId = customer.id;
 
       // Save Stripe customer to Supabase
-      await supabase
+      const { error: customerSaveError } = await supabase
         .from("company_accounts")
         .update({ stripe_customer_id: customerId })
-        .eq("id", account.id);
+        .eq("id", account.id)
+        .select("id")
+        .single();
+      if (customerSaveError) throw customerSaveError;
     }
 
     // Create checkout session
@@ -135,8 +155,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               metadata: { company_account_id: account.id },
             },
           }),
-    });
+    }, { idempotencyKey: checkoutAttempt.idempotency_key });
 
+    const { data: sessionSaved, error: sessionSaveError } = await supabase.rpc("save_stripe_checkout_session", {
+      p_attempt_id: checkoutAttempt.attempt_id,
+      p_company_account_id: account.id,
+      p_session_id: session.id,
+      p_session_url: session.url,
+      p_customer_id: customerId,
+      p_expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+    if (sessionSaveError || sessionSaved !== true) throw sessionSaveError || new Error("Checkout session could not be recorded");
+
+    if (!session.url) throw new Error("Stripe checkout URL missing");
     res.status(200).json({ sessionId: session.id, url: session.url });
   } catch (error) {
     console.error("[create-checkout] Error:", error);

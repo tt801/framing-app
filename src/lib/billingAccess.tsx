@@ -8,6 +8,9 @@ export type BillingAccess = {
   isFounder: boolean;
   isPastDue: boolean;
   statusMessage: string;
+  companyAccountId: string | null;
+  companyName: string | null;
+  userId: string | null;
 };
 
 const defaultBillingAccess: BillingAccess = {
@@ -17,6 +20,9 @@ const defaultBillingAccess: BillingAccess = {
   isFounder: false,
   isPastDue: false,
   statusMessage: "",
+  companyAccountId: null,
+  companyName: null,
+  userId: null,
 };
 
 const BillingAccessContext = createContext<BillingAccess>(defaultBillingAccess);

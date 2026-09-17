@@ -1,6 +1,16 @@
-# React + TypeScript + Vite
+# Framers App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Framers App is a multi-tenant framing workflow application for customers, quotes, invoices, jobs, stock, calendar, saved presets, and manual marketing.
+
+## Local Setup
+
+Install dependencies with `npm install`, configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, then run `npm run dev`.
+
+Database setup requires a Supabase-initialized database with Auth enabled. Apply the ordered baseline scripts and forward migrations in [RELEASE_RUNBOOK.md](RELEASE_RUNBOOK.md). Do not apply the baseline scripts to vanilla PostgreSQL. Release checks and environment variable names are documented in [RELEASE_READINESS_CHECKLIST.md](RELEASE_READINESS_CHECKLIST.md).
+
+Scheduled automation is unavailable. Manual marketing submissions must remain provider-credentialed by the authenticated user.
+
+## Vite Notes
 
 Currently, two official plugins are available:
 

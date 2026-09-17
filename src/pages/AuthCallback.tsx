@@ -86,6 +86,28 @@ export default function AuthCallbackPage() {
           return;
         }
 
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.user_metadata?.company_account_id) {
+          const { error: invitationError } = await supabase.rpc("accept_company_invitation");
+          if (invitationError) {
+            const { data: membership, error: membershipError } = await supabase
+              .from("company_members")
+              .select("id")
+              .eq("user_id", user.id)
+              .eq("status", "active")
+              .maybeSingle();
+            if (membershipError || !membership) throw invitationError;
+          }
+          if (active) {
+            setStatus("Invitation accepted. Set your password to continue...");
+            authSubscription?.unsubscribe();
+            window.setTimeout(() => {
+              window.location.replace(`${window.location.origin}/#/login?reset=1&invite=1`);
+            }, 800);
+          }
+          return;
+        }
+
         if (active) {
           setStatus("Success. Taking you to your dashboard...");
           window.location.replace(`${window.location.origin}/#/dashboard`);

@@ -15,3 +15,13 @@ create table if not exists support_ticket_comments (
 
 create index if not exists support_ticket_comments_ticket_idx on support_ticket_comments(ticket_id, created_at asc);
 create index if not exists support_ticket_comments_company_idx on support_ticket_comments(company_account_id);
+
+alter table public.support_ticket_comments enable row level security;
+revoke all on public.support_ticket_comments from anon, authenticated;
+
+drop policy if exists "Support ticket comments are server only" on public.support_ticket_comments;
+create policy "Support ticket comments are server only"
+  on public.support_ticket_comments
+  for all
+  using (false)
+  with check (false);

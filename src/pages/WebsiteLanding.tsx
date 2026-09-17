@@ -61,8 +61,8 @@ const landingContent = {
     {
       headline: "Show the\nfinished look.",
       label: "Room Visualizer",
-      body: "Use the room visualizer with built-in scenes, your own uploaded room photos, or AI-generated backgrounds.",
-      points: ["Built-in room library", "Upload real client spaces", "AI background concepts"],
+      body: "Use the room visualizer with built-in scenes or your own uploaded room photos.",
+      points: ["Built-in room library", "Upload real client spaces", "Instant local previews"],
     },
     {
       headline: "Track every\njob.",
@@ -86,7 +86,7 @@ const landingContent = {
     {
       num: "03",
       title: "Invoice, follow up, and repeat",
-      body: "Generate a professional invoice, trigger follow-up emails automatically, and build a client history that keeps repeat business coming back.",
+      body: "Generate a professional invoice, send messages manually, and build a client history that keeps repeat business coming back.",
     },
   ],
 
@@ -120,10 +120,10 @@ const landingContent = {
       title: "Room Visualizer",
       tagline: "Help clients say yes faster by showing them the finished result.",
       bullets: [
-        "Drop any frame and mat combination into a photorealistic room scene",
+        "Drop any frame and mat combination into a built-in room scene",
         "Choose from built-in room backdrops: living room, bedroom, gallery wall",
         "Upload your own client room photo as a custom background",
-        "Use AI prompt generation to create fresh concept backdrops instantly",
+        "Preview room concepts instantly with the built-in visualizer",
         "Preview updates instantly as you change frame style, mat colour, and size",
         "Export the mockup image to share with clients via email or WhatsApp",
         "Include the room preview in your PDF quote for a premium presentation",
@@ -132,14 +132,12 @@ const landingContent = {
     {
       id: "automation",
       title: "Follow-up Automations",
-      tagline: "Win back lost quotes and grow 5-star reviews — on autopilot.",
+      tagline: "Send follow-ups and campaigns manually when you are ready.",
       bullets: [
-        "Auto-send quote follow-ups by email and WhatsApp when leads go quiet",
-        "Trigger review requests automatically the moment a job is marked Collected",
-        "Launch monthly campaigns to past customers based on purchase history and season",
-        "Mailchimp sync keeps your audience, tags, and segments up to date",
-        "Pre-built campaign templates help promote upgrades, re-frames, and gifting periods",
-        "Performance tracking shows opens, clicks, replies, and conversion back to booked jobs",
+        "Send quote follow-ups manually by email or WhatsApp",
+        "Send review requests manually after a completed job",
+        "Launch campaigns manually to selected customers",
+        "Use campaign templates for upgrades, re-frames, and gifting periods",
         "All messages are branded under your studio name with reusable personalization tokens",
       ],
     },

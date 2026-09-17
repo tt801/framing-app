@@ -25,6 +25,16 @@ create index if not exists support_tickets_company_idx on support_tickets(compan
 create index if not exists support_tickets_status_idx on support_tickets(status);
 create index if not exists support_tickets_created_idx on support_tickets(created_at desc);
 
+alter table public.support_tickets enable row level security;
+revoke all on public.support_tickets from anon, authenticated;
+
+drop policy if exists "Support tickets are server only" on public.support_tickets;
+create policy "Support tickets are server only"
+  on public.support_tickets
+  for all
+  using (false)
+  with check (false);
+
 create or replace function set_support_tickets_updated_at()
 returns trigger language plpgsql as $$
 begin

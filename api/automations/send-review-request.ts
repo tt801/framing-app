@@ -12,7 +12,7 @@ type VercelResponse = {
   json: (payload: unknown) => VercelResponse;
 };
 import { createClient } from '@supabase/supabase-js';
-import { requireActiveTrialUserId } from '../lib/auth.js';
+import { requireCompanyWriteAccess } from '../lib/auth.js';
 
 type UserApiCredentials = {
   twilio_account_sid?: string;
@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const userId = await requireActiveTrialUserId(req);
+    const { userId } = await requireCompanyWriteAccess(req);
 
     const {
       customerName,
@@ -84,6 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       channel,
       reviewLinks,
     } = req.body as ReviewRequest;
+    if (channel === 'mailchimp') return res.status(501).json({ success: false, error: 'Mailchimp sending is not available yet' });
 
     const credentials = await getUserApiCredentials(userId);
     if (!credentials) {
@@ -264,7 +265,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error: unknown) {
     const details = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error sending review request:', error);
-    if (details === 'Trial expired' || details === 'Account is read-only') {
+    if (details === 'Trial expired' || details === 'Account is read-only' || details === 'No active company access' || details === 'Company selection required' || details === 'Unauthorized company access') {
       return res.status(403).json({
         error: details,
       });

@@ -132,8 +132,7 @@ export default function Onboarding() {
     setInviteError("");
     const results: string[] = [];
 
-    // Save company profile to localStorage
-    save({
+    const saved = await save({
       companyName: form.companyName.trim(),
       email: form.email.trim(),
       phone: form.phone.trim(),
@@ -146,6 +145,7 @@ export default function Onboarding() {
       currencyCode: form.currencyCode,
       currencySymbol: form.currencySymbol,
     });
+    if (!saved.ok) { setInviteError(saved.error); setSaving(false); return; }
 
     // Send invites for non-empty rows
     const toInvite = inviteRows.filter((r) => r.email.trim());

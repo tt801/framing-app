@@ -47,7 +47,7 @@ const PLANS: {
     features: [
       "Everything in Starter",
       "Up to 5 team seats",
-      "Follow-up automations",
+      "Manual campaign tools",
       "Mailchimp integration",
       "Priority support",
     ],
@@ -62,7 +62,7 @@ const PLANS: {
     features: [
       "Everything in Growth",
       "Unlimited team seats",
-      "Xero & QuickBooks sync",
+      "Accounting integrations (coming soon)",
       "Advanced API integrations",
       "Dedicated onboarding",
     ],

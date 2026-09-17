@@ -12,6 +12,12 @@ export type Invoice = {
   items: InvoiceItem[]
   subtotal?: number     // optional incoming; we’ll recompute for safety
   total?: number        // optional incoming; we’ll recompute for safety
+  tax?: number
+  taxRate?: number
+  currencyCode?: string
+  currencySymbol?: string
+  customerSnapshot?: Customer
+  [key: string]: any
   notes?: string
   payments?: InvoicePayment[]
   taxExempt?: boolean
@@ -79,22 +85,40 @@ async function ensureAutoTable(doc: jsPDF) {
 
 export async function exportInvoicePDF(args: {
   invoice: Invoice
-  customer: Customer
+  customer?: Customer
   settings: InvoicePdfSettings
   fileName?: string
+  download?: boolean
 }) {
-  const { invoice, customer, settings, fileName } = args
+  const { invoice, customer, settings, fileName, download = true } = args
 
-  // ---------- totals (recompute for correctness) ----------
-  const totals = computeInvoiceTotals(
-    { items: (invoice.items || []).map(it => ({ qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })), taxExempt: !!invoice.taxExempt },
-    {
-      taxRatePct: settings?.taxRatePct,
-      taxLabel: settings?.taxLabel,
-      currency: settings?.currencyCode,
-      vatNumber: settings?.vatNumber,
-    }
-  )
+  const storedSubtotal = Number(invoice.subtotal)
+  const storedTax = Number(invoice.tax)
+  const storedTotal = Number(invoice.total)
+  const hasStoredTotals = [storedSubtotal, storedTax, storedTotal].every(Number.isFinite)
+  const storedTaxRate = Number(invoice.taxRate)
+  const totals = hasStoredTotals
+    ? {
+        subTotal: storedSubtotal,
+        taxAmount: storedTax,
+        grandTotal: storedTotal,
+        taxRatePct: Number.isFinite(storedTaxRate) ? (storedTaxRate > 1 ? storedTaxRate : storedTaxRate * 100) : 0,
+      }
+    : computeInvoiceTotals(
+        { items: (invoice.items || []).map(it => ({ qty: Number(it.qty) || 0, unitPrice: Number(it.unitPrice) || 0 })), taxExempt: !!invoice.taxExempt },
+        {
+          taxRatePct: settings?.taxRatePct,
+          taxLabel: settings?.taxLabel,
+          currency: settings?.currencyCode,
+          vatNumber: settings?.vatNumber,
+        }
+      )
+
+  const billToCustomer = customer || invoice.customerSnapshot || {
+    firstName: '',
+    lastName: '',
+    email: '',
+  }
 
   const doc = new jsPDF({ unit: 'mm', compress: true })
   const pageW = doc.internal.pageSize.getWidth()
@@ -144,13 +168,13 @@ export async function exportInvoicePDF(args: {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Bill To', margin, y); y += 6
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
   const billTo = [
-    `${safe(customer.firstName)} ${safe(customer.lastName)}`.trim(),
-    safe(customer.company),
-    safe(customer.email),
-    [safe(customer.address1), safe(customer.address2)].filter(Boolean).join(', '),
-    [safe(customer.city), safe(customer.state), safe(customer.postalCode)].filter(Boolean).join(' '),
-    safe(customer.country),
-    safe(customer.phone),
+    `${safe(billToCustomer.firstName)} ${safe(billToCustomer.lastName)}`.trim(),
+    safe(billToCustomer.company),
+    safe(billToCustomer.email),
+    [safe(billToCustomer.address1), safe(billToCustomer.address2)].filter(Boolean).join(', '),
+    [safe(billToCustomer.city), safe(billToCustomer.state), safe(billToCustomer.postalCode)].filter(Boolean).join(' '),
+    safe(billToCustomer.country),
+    safe(billToCustomer.phone),
   ].filter(Boolean)
   billTo.forEach(line => { doc.text(line, margin, y); y += 5 })
 
@@ -261,5 +285,6 @@ export async function exportInvoicePDF(args: {
 
   // Filename
   const defName = `Invoice_${safe(invoice.number)}.pdf`
-  doc.save(fileName || defName)
+  if (download) doc.save(fileName || defName)
+  return doc
 }

@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getAccessToken } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import { useBillingAccess } from "@/lib/billingAccess";
 import type { AppUserRole } from "@/lib/users";
 
 export type CompanyMemberStatus = "invited" | "active" | "inactive";
@@ -49,27 +51,35 @@ async function fetchWithAuth<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function useCompanyMembers(enabled = true) {
+  const { companyAccountId } = useBillingAccess();
   const [members, setMembers] = useState<CompanyMember[]>([]);
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef(0);
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    const request = ++requestRef.current;
+    if (!enabled || !supabase || !companyAccountId) { setMembers([]); setCompanyName(null); setError(null); setLoading(false); return { members: [] } as CompanyMemberResponse; }
     try {
+      setMembers([]);
       setLoading(true);
-      const data = await fetchWithAuth<CompanyMemberResponse>("/api/admin/users", { method: "GET" });
-      setMembers(data.members);
-      setCompanyName(data.account.company_name);
+      const { data: members, error: readError } = await supabase.from("company_members").select("id,company_account_id,user_id,email,full_name,phone,role,status,invited_at,joined_at,last_invite_sent_at").eq("company_account_id", companyAccountId).order("created_at");
+      if (requestRef.current !== request) return { members: [] } as CompanyMemberResponse;
+      if (readError) throw readError;
+      setMembers((members || []) as CompanyMember[]);
+      setCompanyName(null);
       setError(null);
-      return data;
+      return { members: (members || []) as CompanyMember[] } as CompanyMemberResponse;
     } catch (err) {
+      if (requestRef.current !== request) return { members: [] } as CompanyMemberResponse;
       const message = err instanceof Error ? err.message : "Failed to load company members";
       setError(message);
       throw err;
     } finally {
-      setLoading(false);
+      if (requestRef.current === request) setLoading(false);
     }
-  };
+  }, [companyAccountId, enabled]);
 
   useEffect(() => {
     if (!enabled) {
@@ -78,7 +88,7 @@ export function useCompanyMembers(enabled = true) {
     }
 
     void load();
-  }, [enabled]);
+  }, [load]);
 
   return { members, companyName, loading, error, refresh: load, setMembers };
 }

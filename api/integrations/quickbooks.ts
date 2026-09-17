@@ -25,32 +25,7 @@ async function handleSync(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ ok: false, error: "Method Not Allowed" });
   }
 
-  try {
-    const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
-    console.log("[QuickBooks] Sync stub hit", {
-      body,
-      time: new Date().toISOString(),
-    });
-
-    return res.status(200).json({
-      ok: true,
-      kind: "quickbooks-sync",
-      message: "QuickBooks sync stub reached. Implement real export logic here.",
-      received: {
-        invoicesCount: Array.isArray((body as { invoices?: unknown[] })?.invoices)
-          ? (body as { invoices?: unknown[] }).invoices?.length
-          : 0,
-      },
-    });
-  } catch (err) {
-    const error = err as { message?: string };
-    console.error("[QuickBooks] Sync stub error", err);
-    return res.status(500).json({
-      ok: false,
-      error: "QuickBooks sync stub failed",
-      details: error?.message || String(err),
-    });
-  }
+  return res.status(501).json({ ok: false, error: "QuickBooks sync is not available yet" });
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

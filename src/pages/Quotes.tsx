@@ -312,52 +312,13 @@ const getAllQuotes = (qStore: any): Quote[] => {
   return Array.from(byId.values());
 };
 
-const updateQuoteInStore = (qStore: any, id: string, patch: any) => {
-  try {
-    if (typeof qStore?.updateQuote === "function") {
-      qStore.updateQuote(id, patch);
-      return;
-    }
-    if (typeof qStore?.patchQuote === "function") {
-      qStore.patchQuote(id, patch);
-      return;
-    }
-    if (typeof qStore?.setQuotes === "function") {
-      qStore.setQuotes((rows: any[]) =>
-        rows.map((r) => (safeRowId(r) === id ? { ...r, ...patch } : r))
-      );
-      return;
-    }
-  } catch (e) {
-    console.warn("Failed to update quote in store", e);
-  }
+const updateQuoteInStore = async (qStore: any, id: string, patch: any) => {
+  const result = await qStore?.update?.({ id, ...patch });
+  return result;
 };
 
-const deleteQuoteFromStore = (qStore: any, id: string) => {
-  try {
-    if (typeof qStore?.removeQuote === "function") {
-      qStore.removeQuote(id);
-      return;
-    }
-    if (typeof qStore?.deleteQuote === "function") {
-      qStore.deleteQuote(id);
-      return;
-    }
-    if (typeof qStore?.delete === "function") {
-      qStore.delete(id);
-      return;
-    }
-    if (typeof qStore?.remove === "function") {
-      qStore.remove(id);
-      return;
-    }
-    if (typeof qStore?.setQuotes === "function") {
-      qStore.setQuotes((rows: any[]) => rows.filter((r) => safeRowId(r) !== id));
-      return;
-    }
-  } catch (e) {
-    console.warn("Failed to delete quote from store", e);
-  }
+const deleteQuoteFromStore = async (qStore: any, id: string) => {
+  return qStore?.remove?.(id);
 };
 
 /* ====================================================================== */
@@ -408,7 +369,7 @@ export default function QuotesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusOverride, setStatusOverride] = useState<Record<string, QuoteStatus>>({});
 
-  const handleNewQuote = React.useCallback(() => {
+  const handleNewQuote = React.useCallback(async () => {
     setSearch("");
     setStatusFilter("All");
     setSortBy("date");
@@ -431,22 +392,43 @@ export default function QuotesPage() {
       },
     } as any;
 
-    let created: any = null;
-    if (typeof qStore?.add === "function") {
-      created = qStore.add(quotePayload);
-    } else if (typeof qStore?.createQuote === "function") {
-      created = qStore.createQuote(quotePayload);
-    } else if (typeof qStore?.setQuotes === "function") {
-      const id = `quote-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      created = { id, createdAt: new Date().toISOString(), ...quotePayload };
-      qStore.setQuotes((rows: any[]) => [created, ...rows]);
+    const result = await qStore?.add?.(quotePayload);
+
+    if (!result || result.ok === false) {
+      toast(result?.error || "Failed to create quote", "error");
+      return;
     }
 
-    if (created?.id) {
-      setSelectedId(String(created.id));
-      toast("New quote created. Fill in customer details and line items.", "success");
-    }
+    setSelectedId(String(result.quote.id));
+    toast("New quote created. Fill in customer details and line items.", "success");
   }, [qStore, settingsCurrencyCode, toast]);
+
+  const handleImportLegacyLocalQuotes = React.useCallback(async () => {
+    const count = qStore?.getLegacyLocalQuoteCount?.() ?? 0;
+    if (count === 0) {
+      toast("No saved browser quotes were found to import.", "info");
+      return;
+    }
+
+    const destination = qStore?.companyName || "this company";
+    const confirmed = window.confirm(
+      `Import ${count} quote${count === 1 ? "" : "s"} previously saved in this browser into "${destination}"?\n\n` +
+        "The original browser data is kept as-is, and re-running this is safe (already-imported records are skipped)."
+    );
+    if (!confirmed) return;
+
+    const result = await qStore?.importLegacyLocalQuotes?.();
+    if (!result || result.ok === false) {
+      toast(result?.error || "Failed to import saved browser quotes", "error");
+      return;
+    }
+
+    const parts = [`${result.imported} imported`];
+    if (result.skipped > 0) parts.push(`${result.skipped} already imported`);
+    if (result.conflicts > 0) parts.push(`${result.conflicts} skipped (id used by another company)`);
+    if (result.unresolvedCustomers > 0) parts.push(`${result.unresolvedCustomers} with an unresolved customer reference`);
+    toast(parts.join(", "), result.imported > 0 ? "success" : "info");
+  }, [qStore, toast]);
 
   React.useEffect(() => {
     const onGlobalNew = (event: Event) => {
@@ -486,6 +468,7 @@ export default function QuotesPage() {
         0;
 
       return {
+        ...row,
         id,
         status,
         customerName,
@@ -610,10 +593,9 @@ export default function QuotesPage() {
 
   /* ---------- ACTIONS ---------- */
 
-  const markStatus = (status: QuoteStatus) => {
+  const markStatus = async (status: QuoteStatus) => {
     if (!selected) return;
     const id = safeRowId(selected);
-    setStatusOverride((m) => ({ ...m, [id]: status }));
 
     const patch: any = { status };
     const now = new Date().toISOString();
@@ -621,7 +603,12 @@ export default function QuotesPage() {
     if (status === "Accepted") patch.acceptedAt = now;
     if (status === "Declined") patch.declinedAt = now;
 
-    updateQuoteInStore(qStore, id, patch);
+    const result = await updateQuoteInStore(qStore, id, patch);
+    if (!result || result.ok === false) {
+      toast(result?.error || "Failed to update quote status", "error");
+      return;
+    }
+    setStatusOverride((m) => ({ ...m, [id]: status }));
   };
 
   const onExportPDF = async () => {
@@ -675,7 +662,7 @@ export default function QuotesPage() {
     }
   };
 
-  const onDelete = () => {
+  const onDelete = async () => {
     if (!selected) return;
     const id = safeRowId(selected);
     const ok = window.confirm(
@@ -683,20 +670,20 @@ export default function QuotesPage() {
     );
     if (!ok) return;
 
-    deleteQuoteFromStore(qStore, id);
+    const result = await deleteQuoteFromStore(qStore, id);
+    if (!result || result.ok === false) {
+      toast(result?.error || "Failed to delete quote", "error");
+      return;
+    }
 
     const idx = filtered.findIndex((r: any) => safeRowId(r) === id);
     const next = filtered[idx + 1] || filtered[idx - 1] || null;
     setSelectedId(next ? safeRowId(next) : null);
+    toast("Quote deleted", "success");
   };
 
   // Invoices: add helper
-  const addInvoice = (inv: any) =>
-    invoicesStore?.add?.(inv) ??
-    invoicesStore?.create?.(inv) ??
-    invoicesStore?.push?.(inv);
-
-  const handleCreateInvoiceFromQuote = () => {
+  const handleCreateInvoiceFromQuote = async () => {
     if (!selected) return;
 
     const items =
@@ -719,11 +706,12 @@ export default function QuotesPage() {
         ? settings.taxRate
         : 0;
     
-    const taxRate = taxRatePercent / 100;
-    const tax = subtotal * taxRate;
-    const total = selected.total ?? subtotal + tax;
+    const taxRate = taxRatePercent > 1 ? taxRatePercent / 100 : taxRatePercent;
+    const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+    const roundedSubtotal = roundCurrency(subtotal);
+    const tax = roundCurrency(roundedSubtotal * taxRate);
+    const total = selected.total == null ? roundCurrency(roundedSubtotal + tax) : selected.total;
 
-    const invId = rid();
     const todayISO = new Date().toISOString();
 
     const currencyCode =
@@ -731,13 +719,12 @@ export default function QuotesPage() {
     const currencySymbolLocal = overviewCurrencySymbol;
 
     const invoiceObj = {
-      id: invId,
-      number: `INV-${new Date().getFullYear()}-${invId.slice(0, 4).toUpperCase()}`,
       customerId: selected.customerId || selected.customer?.id || undefined,
+      quoteId: selected.id,
       dateISO: todayISO,
       dueDateISO: undefined,
       items,
-      subtotal,
+      subtotal: roundedSubtotal,
       taxRate,
       tax,
       total,
@@ -763,7 +750,11 @@ export default function QuotesPage() {
     };
 
     try {
-      addInvoice?.(invoiceObj);
+      const result = await invoicesStore?.addInvoice?.(invoiceObj);
+      if (!result?.ok) {
+        toast(result?.error || "Could not save invoice", "error");
+        return;
+      }
 
       const customer =
         customersList.find((cx: any) => cx.id === invoiceObj.customerId) ||
@@ -772,12 +763,12 @@ export default function QuotesPage() {
         undefined;
 
       const sendNow = window.confirm(
-        `Invoice ${invoiceObj.number} has been created. Would you like to send it now?`
+        `Invoice ${result.invoice.number} has been created. Would you like to send it now?`
       );
 
       if (sendNow) {
-        exportInvoicePDF?.({
-          invoice: invoiceObj,
+        await exportInvoicePDF?.({
+          invoice: result.invoice,
           customer: customer
             ? {
                 id: customer.id,
@@ -809,9 +800,10 @@ export default function QuotesPage() {
         } as any);
       } else {
         alert(
-          `Invoice ${invoiceObj.number} has been created. You can send or edit it from the Invoices page.`
+          `Invoice ${result.invoice.number} has been created. You can send or edit it from the Invoices page.`
         );
       }
+      toast(`Invoice ${result.invoice.number} created`, "success");
     } catch (e) {
       console.error("Failed to create invoice from quote", e);
       alert("Could not create invoice. Please check console for details.");
@@ -981,12 +973,20 @@ export default function QuotesPage() {
         <aside className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold">Quotes</h2>
-            <button
-              onClick={handleNewQuote}
-              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50"
-            >
-              New quote
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleImportLegacyLocalQuotes}
+                className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50"
+              >
+                Import saved quotes
+              </button>
+              <button
+                onClick={handleNewQuote}
+                className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50"
+              >
+                New quote
+              </button>
+            </div>
           </div>
 
           <div className="grid gap-2 mb-3">

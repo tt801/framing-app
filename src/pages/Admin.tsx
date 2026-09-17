@@ -137,10 +137,11 @@ type TabId =
 
 export default function AdminPage() {
   // ✅ Match the pattern used in Stock.tsx so catalog + updates are consistent
-  const { catalog, setCatalog } = useCatalog() as any;
+  const { catalog, setCatalog, saveSettings, importLegacySettings, legacySettingsPreview, legacyCatalogPreview, importLegacyCatalog } = useCatalog() as any;
   const safeCatalog = catalog || {};
 
-  const saveCatalog = (partial: any) => {
+  const saveCatalog = async (partial: any) => {
+    if (partial.settings && typeof saveSettings === "function") return saveSettings(partial.settings);
     setCatalog((prev: any) => ({
       ...(prev || {}),
       ...partial,
@@ -172,6 +173,9 @@ export default function AdminPage() {
               Manage company settings, catalog data, and system integrations.
             </p>
           </div>
+          {legacyCatalogPreview?.frameCount > 0 && (
+            <button type="button" onClick={() => { if (window.confirm(`Import ${legacyCatalogPreview.frameCount} frames, ${legacyCatalogPreview.matCount} mats, ${legacyCatalogPreview.glazingCount} glazing products and ${legacyCatalogPreview.stockCount} stock rows into ${settings.companyName || "this company"}? Original browser data will be preserved.`)) void importLegacyCatalog().then((result: any) => { if (result?.ok === false) window.alert(result.error); }); }} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">Import legacy catalog</button>
+          )}
         </header>
 
     <section className="grid gap-4 lg:grid-cols-[200px_minmax(0,1fr)]">
@@ -212,20 +216,16 @@ export default function AdminPage() {
           {activeTab === "company" && (
             <CompanyPanel
               settings={settings}
-              onChange={(partial) =>
-                saveCatalog({
-                  settings: { ...settings, ...partial },
-                })
-              }
+              onChange={(partial) => saveCatalog({ settings: { ...settings, ...partial } })}
+              onImport={importLegacySettings}
+              legacyPreview={legacySettingsPreview}
             />
           )}
 
           {activeTab === "settings" && (
             <SettingsPanel
               settings={settings}
-              onSave={(next) =>
-                saveCatalog({ settings: { ...settings, ...next } })
-              }
+              onSave={(next) => saveCatalog({ settings: { ...settings, ...next } })}
             />
           )}
 
@@ -300,7 +300,7 @@ export default function AdminPage() {
 
           {activeTab === "tickets" && <SupportTicketsPanel />}
 
-          {activeTab === "users" && <UsersPanel />}
+          {activeTab === "users" && <CompanyAccessPanel />}
 
           {activeTab === "help" && <HelpAssistantAdminPanel />}
         </section>
@@ -316,9 +316,13 @@ export default function AdminPage() {
 function CompanyPanel({
   settings,
   onChange,
+  onImport,
+  legacyPreview,
 }: {
   settings: any;
-  onChange: (partial: any) => void;
+  onChange: (partial: any) => Promise<any>;
+  onImport?: () => Promise<any>;
+  legacyPreview?: { company: any; catalogSettings: any; conflicts: string[] };
 }) {
   const [draft, setDraft] = useState(() => ({
     companyName: settings.companyName || "",
@@ -329,9 +333,9 @@ function CompanyPanel({
     bankDetails: settings.bankDetails || "",
   }));
 
-  const save = () => {
-    onChange(draft);
-    alert("Company settings saved.");
+  const save = async () => {
+    const result = await onChange(draft);
+    alert(result?.ok === false ? result.error : "Company settings saved.");
   };
 
   return (
@@ -446,11 +450,17 @@ function CompanyPanel({
       </div>
 
       <button
-        onClick={save}
+        onClick={() => void save()}
         className="mt-2 inline-flex items-center px-4 py-2 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800"
       >
         Save company settings
       </button>
+      {legacyPreview?.company && Object.keys(legacyPreview.company).length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <strong>Legacy browser settings found.</strong> Preview: {legacyPreview.company.companyName || "Unnamed company"}. Conflicts: {legacyPreview.conflicts.length || "none"}.
+          <button type="button" onClick={() => { if (window.confirm("Import the previewed legacy settings into this company? The original browser data will be preserved.")) void onImport?.(); }} className="ml-2 underline">Import preview</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -464,7 +474,7 @@ function SettingsPanel({
   onSave,
 }: {
   settings: any;
-  onSave: (next: any) => void;
+  onSave: (next: any) => Promise<any>;
 }) {
   const initialCurrencyCode: string =
     settings.currencyCode ||
@@ -488,9 +498,9 @@ function SettingsPanel({
     [draft.currencyCode]
   );
 
-  const save = () => {
-    onSave(draft);
-    alert("Settings saved.");
+  const save = async () => {
+    const result = await onSave(draft);
+    alert(result?.ok === false ? result.error : "Settings saved.");
   };
 
   return (
@@ -645,7 +655,7 @@ function SettingsPanel({
       </div>
 
       <button
-        onClick={save}
+        onClick={() => void save()}
         className="mt-2 inline-flex items-center px-4 py-2 rounded-xl bg-slate-900 text-white text-sm hover:bg-slate-800"
       >
         Save settings
@@ -782,10 +792,10 @@ function FramesPanel({
                     <input
                       type="number"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(f as any).costPerMeter ?? ""}
+                      value={(f as any).pricePerMeter ?? (f as any).costPerMeter ?? ""}
                       onChange={(e) =>
                         updateFrameRow(idx, {
-                          costPerMeter: num(e.target.value, 0),
+                          pricePerMeter: num(e.target.value, 0),
                         } as any)
                       }
                     />
@@ -1730,7 +1740,7 @@ function IntegrationsPanel({
           <div>
             <h3 className="text-sm font-semibold">QuickBooks Online</h3>
             <p className="text-xs text-slate-500">
-              Sync invoices to QuickBooks when ready.
+              Not available yet.
             </p>
           </div>
           <span
@@ -1740,9 +1750,7 @@ function IntegrationsPanel({
                 : "bg-slate-100 text-slate-700 border border-slate-200"
             }`}
           >
-            {qb.connectionStatus === "connected"
-              ? "Connected"
-              : "Not connected"}
+            Not available yet
           </span>
         </div>
 
@@ -1755,7 +1763,7 @@ function IntegrationsPanel({
               updateInt("quickbooks", { enabled: e.target.checked })
             }
           />
-          Enable QuickBooks integration
+          QuickBooks integration is disabled for launch
         </label>
 
         <label className="flex items-center gap-2 text-sm">
@@ -1769,29 +1777,23 @@ function IntegrationsPanel({
               })
             }
           />
-          Auto-sync invoices when they are marked Paid
+          Automatic QuickBooks sync is not available yet
         </label>
 
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-            onClick={() =>
-              alert(
-                "Connect to QuickBooks would start the OAuth flow here (stub)."
-              )
-            }
+            disabled
           >
-            Connect to QuickBooks
+            Not available yet
           </button>
           <button
             type="button"
             className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-            onClick={() =>
-              updateInt("quickbooks", { connectionStatus: "connected" })
-            }
+            disabled
           >
-            Mark connected
+            Not available yet
           </button>
           <button
             type="button"
@@ -1811,7 +1813,7 @@ function IntegrationsPanel({
           <div>
             <h3 className="text-sm font-semibold">Xero</h3>
             <p className="text-xs text-slate-500">
-              Alternative accounting platform for invoices.
+              Not available yet.
             </p>
           </div>
           <span
@@ -1821,9 +1823,7 @@ function IntegrationsPanel({
                 : "bg-slate-100 text-slate-700 border border-slate-200"
             }`}
           >
-            {xero.connectionStatus === "connected"
-              ? "Connected"
-              : "Not connected"}
+            Not available yet
           </span>
         </div>
 
@@ -1836,7 +1836,7 @@ function IntegrationsPanel({
               updateInt("xero", { enabled: e.target.checked })
             }
           />
-          Enable Xero integration
+          Xero integration is disabled for launch
         </label>
 
         <label className="flex items-center gap-2 text-sm">
@@ -1850,29 +1850,23 @@ function IntegrationsPanel({
               })
             }
           />
-          Auto-sync invoices when they are marked Paid
+          Automatic Xero sync is not available yet
         </label>
 
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-            onClick={() =>
-              alert(
-                "Connect to Xero would start the OAuth flow here (stub)."
-              )
-            }
+            disabled
           >
-            Connect to Xero
+            Not available yet
           </button>
           <button
             type="button"
             className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-            onClick={() =>
-              updateInt("xero", { connectionStatus: "connected" })
-            }
+            disabled
           >
-            Mark connected
+            Not available yet
           </button>
           <button
             type="button"

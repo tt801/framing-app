@@ -7,6 +7,9 @@ import { useJobs } from "@/lib/jobs";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import { getAccessToken } from "@/lib/supabase";
+import { useBillingAccess } from "@/lib/billingAccess";
+import { useCompanyMarketingData, type MarketingRecord } from "@/lib/marketingData";
+import { createMarketingActions } from "@/lib/marketingActions";
 
 /** Minimal inline icons (no external deps) */
 const Icon = {
@@ -117,6 +120,15 @@ export default function MarketingPage() {
   const jobsStore: any = useJobs();
   const { add: toast } = useToast();
   const { add: addToHistory, canUndo, undo } = useHistory();
+  const { companyAccountId, companyName } = useBillingAccess();
+  const marketing = useCompanyMarketingData();
+  const companyScopeRef = React.useRef(companyAccountId);
+  useEffect(() => { companyScopeRef.current = companyAccountId; }, [companyAccountId]);
+  const marketingActions = useMemo(() => createMarketingActions({
+    submit: async (payload) => { const response = await fetch("/api/automations/send-campaign", { method: "POST", headers: await getAuthHeaders(), body: JSON.stringify(payload) }); const result = await response.json(); return { accepted: result.sent ?? 0, failed: Math.max(0, (payload.recipientEmails?.length || payload.recipients?.length || 0) - (result.sent ?? 0)), message: result.message }; },
+    record: async (submission) => { const result = await marketing.recordSubmission({ campaignId: submission.kind === "campaign" ? submission.payload.campaignId : undefined, templateId: submission.kind === "template" ? submission.payload.templateId : undefined, channel: submission.payload.channel, providerAccepted: true, providerOutcome: "accepted", recipientCount: submission.recipientCount }); return result.ok ? { ok: true } : { ok: false, recordingError: result.recordingError }; },
+    confirm: window.confirm, feedback: toast, scope: () => companyScopeRef.current || "", legacyImport: marketing.importLegacy, legacyCount: () => marketing.legacyCount, companyName: () => companyName || "this company",
+  }), [marketing, toast]);
 
   const quotes: any[] = quotesStore?.quotes || quotesStore?.items || [];
   const customers: any[] = customersStore?.customers || customersStore?.items || [];
@@ -130,6 +142,7 @@ export default function MarketingPage() {
     return {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      "X-Company-Account-Id": companyAccountId || "",
     };
   };
 
@@ -182,62 +195,38 @@ export default function MarketingPage() {
     enabled: boolean;
   }
 
-  const [campaigns, setCampaigns] = useState<Campaign[]>(() => {
-    const stored = localStorage.getItem("marketing.campaigns.v1");
-    return stored ? JSON.parse(stored) : [];
-  });
+  const campaigns = marketing.campaigns.map((record) => ({ ...record.payload, id: record.id, revision: record.revision })) as Campaign[];
 
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [showNewCampaignForm, setShowNewCampaignForm] = useState(false);
   const [schedulingCampaignId, setSchedulingCampaignId] = useState<string | null>(null);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
-  const [scheduledSends, setScheduledSends] = useState<any[]>(() => {
-    const stored = localStorage.getItem("marketing.scheduled.sends.v1");
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [scheduledSends, setScheduledSends] = useState<any[]>([]);
 
-  const saveCampaign = (campaign: Campaign) => {
-    const updated = campaigns.map((c) => (c.id === campaign.id ? campaign : c));
-    setCampaigns(updated);
-    localStorage.setItem("marketing.campaigns.v1", JSON.stringify(updated));
-    setEditingCampaign(null);
-    toast(`Campaign "${campaign.name}" saved`, "success");
+  const saveCampaign = async (campaign: Campaign) => {
+    const record = marketing.campaigns.find((item) => item.id === campaign.id);
+    const result = record ? await marketing.update(record, campaign) : await marketing.save("campaign", campaign);
+    if (!result.ok) { toast(result.error, "error"); return; }
+    setEditingCampaign(null); toast(`Campaign "${campaign.name}" saved`, "success");
   };
 
-  const addCampaign = (campaign: Omit<Campaign, "id" | "createdAt">) => {
+  const addCampaign = async (campaign: Omit<Campaign, "id" | "createdAt">) => {
     const newCampaign: Campaign = {
       ...campaign,
       id: `campaign-${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
-    const updated = [...campaigns, newCampaign];
-    setCampaigns(updated);
-    localStorage.setItem("marketing.campaigns.v1", JSON.stringify(updated));
-    setShowNewCampaignForm(false);
-    toast(`Campaign "${newCampaign.name}" created`, "success");
+    const result = await marketing.save("campaign", newCampaign);
+    if (!result.ok) { toast(result.error, "error"); return; }
+    setShowNewCampaignForm(false); toast(`Campaign "${newCampaign.name}" created`, "success");
   };
 
-  const deleteCampaign = (id: string) => {
+  const deleteCampaign = async (id: string) => {
     const campaign = campaigns.find((c) => c.id === id);
-    const backup = campaign;
-    const updated = campaigns.filter((c) => c.id !== id);
-    setCampaigns(updated);
-    localStorage.setItem("marketing.campaigns.v1", JSON.stringify(updated));
-    toast(`Campaign "${campaign?.name}" deleted`, "error");
-    addToHistory({
-      id: `delete-campaign-${id}`,
-      name: `Delete ${campaign?.name}`,
-      undo: () => {
-        if (backup) {
-          const restored = [...campaigns, backup];
-          setCampaigns(restored);
-          localStorage.setItem("marketing.campaigns.v1", JSON.stringify(restored));
-        }
-      },
-      redo: () => {
-        deleteCampaign(id);
-      },
-    });
+    const record = marketing.campaigns.find((item) => item.id === id);
+    if (!record) return;
+    const result = await marketing.remove(record);
+    toast(result.ok ? `Campaign "${campaign?.name}" deleted` : result.error, result.ok ? "success" : "error");
   };
 
   const setupCampaign = (campaign: Campaign) => {
@@ -250,13 +239,9 @@ export default function MarketingPage() {
     setEditingCampaign({ ...editingCampaign, ...updates });
   };
 
-  const saveEditingCampaign = () => {
+  const saveEditingCampaign = async () => {
     if (!editingCampaign) return;
-    const updated = campaigns.map((c) => (c.id === editingCampaign.id ? editingCampaign : c));
-    setCampaigns(updated);
-    localStorage.setItem("marketing.campaigns.v1", JSON.stringify(updated));
-    setEditingCampaign(null);
-    toast(`Campaign "${editingCampaign.name}" updated`, "success");
+    await saveCampaign(editingCampaign);
   };
 
   const scheduleCampaignSend = (campaignId: string, sendDateTime: string) => {
@@ -372,6 +357,7 @@ export default function MarketingPage() {
   };
 
   const sendCampaignNow = async (campaign: Campaign) => {
+    const originatingCompanyId = companyAccountId;
     try {
       // Get matching recipients based on target audience
       const now = new Date();
@@ -435,6 +421,8 @@ export default function MarketingPage() {
         return;
       }
 
+      return marketingActions.send({ kind: "campaign", companyId: originatingCompanyId || "", recipientCount: recipientEmails.length, payload: { campaignId: campaign.id, campaignName: campaign.name, message: campaign.messageTemplate, channel: campaign.channel, recipientEmails, recipientPhones } });
+
       // Call the campaign sending API
       const response = await fetch("/api/automations/send-campaign", {
         method: "POST",
@@ -451,22 +439,17 @@ export default function MarketingPage() {
 
       const result = await response.json();
 
-      if (response.ok) {
+      if (companyScopeRef.current !== originatingCompanyId) return;
+
+      if (response.ok && result.success !== false) {
         toast(
-          `✓ Campaign sent to ${result.sent || recipientEmails.length} recipients via ${campaign.channel}!`,
-          "success"
+          `Campaign submitted to ${result.sent ?? 0} recipients via ${campaign.channel}.`,
+          result.sent === recipientEmails.length ? "success" : "warning"
         );
 
-        // Log campaign send
-        const sendLogs = JSON.parse(localStorage.getItem("marketing.campaign.sends.v1") || "[]");
-        sendLogs.push({
-          campaignId: campaign.id,
-          campaignName: campaign.name,
-          sentAt: new Date().toISOString(),
-          channel: campaign.channel,
-          recipientCount: result.sent || recipientEmails.length,
-        });
-        localStorage.setItem("marketing.campaign.sends.v1", JSON.stringify(sendLogs));
+        const logResult = await marketing.recordSubmission({ campaignId: campaign.id, channel: campaign.channel, providerAccepted: true, providerOutcome: result.message, recipientCount: result.sent ?? 0 });
+        if (companyScopeRef.current !== originatingCompanyId) return;
+        if (!logResult.ok) toast("Submission accepted; log could not be saved.", "warning");
       } else {
         toast(result.error || "Campaign send failed. Check API configuration.", "error");
       }
@@ -535,10 +518,7 @@ export default function MarketingPage() {
     },
   ];
 
-  const [templates, setTemplates] = useState<Template[]>(() => {
-    const stored = localStorage.getItem("marketing.templates.v1");
-    return stored ? JSON.parse(stored) : defaultTemplates;
-  });
+  const templates = [...defaultTemplates, ...marketing.templates.map((record) => ({ ...record.payload, id: record.id, revision: record.revision }))] as Template[];
 
   type TemplateSend = {
     id: string;
@@ -551,20 +531,15 @@ export default function MarketingPage() {
     timestamp: string;
   };
 
-  const [templateSends, setTemplateSends] = useState<TemplateSend[]>(() => {
-    const stored = localStorage.getItem("marketing.template.sends.v1");
-    return stored ? JSON.parse(stored) : [];
-  });
+  const templateSends = marketing.submissionLogs.map((record) => ({ ...record.payload, id: record.id, timestamp: record.createdAt })) as TemplateSend[];
 
-  const logTemplateSend = (send: Omit<TemplateSend, "id" | "timestamp">) => {
+  const logTemplateSend = async (send: Omit<TemplateSend, "id" | "timestamp">) => {
     const newSend: TemplateSend = {
       ...send,
       id: `send-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       timestamp: new Date().toISOString(),
     };
-    const updated = [newSend, ...templateSends];
-    setTemplateSends(updated);
-    localStorage.setItem("marketing.template.sends.v1", JSON.stringify(updated));
+    return marketing.recordSubmission({ ...newSend, providerAccepted: send.status === "sent", providerOutcome: send.status, recipientCount: 1 });
   };
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -576,11 +551,6 @@ export default function MarketingPage() {
   const [sendingChannel, setSendingChannel] = useState<"email" | "whatsapp" | null>(null);
   const [sendingRecipients, setSendingRecipients] = useState<string[]>([]);
   const [sendingContent, setSendingContent] = useState("");
-
-  const saveTemplates = (updated: Template[]) => {
-    setTemplates(updated);
-    localStorage.setItem("marketing.templates.v1", JSON.stringify(updated));
-  };
 
   const copyToClipboard = (text: string, templateId: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -598,7 +568,7 @@ export default function MarketingPage() {
         category: newTemplateCategory,
         color: "slate",
       };
-      saveTemplates([...templates, newTemplate]);
+      void marketing.save("template", newTemplate).then((result) => { if (!result.ok) toast(result.error, "error"); });
       setNewTemplateName("");
       setNewTemplateContent("");
       setNewTemplateCategory("Custom");
@@ -606,14 +576,14 @@ export default function MarketingPage() {
   };
 
   const updateTemplate = (id: string, updates: Partial<Template>) => {
-    saveTemplates(
-      templates.map((t) => (t.id === id ? { ...t, ...updates } : t))
-    );
+    const record = marketing.templates.find((item) => item.id === id);
+    if (record) void marketing.update(record, { ...record.payload, ...updates }).then((result) => { if (!result.ok) toast(result.error, "error"); });
     setEditingId(null);
   };
 
   const deleteTemplate = (id: string) => {
-    saveTemplates(templates.filter((t) => t.id !== id));
+    const record = marketing.templates.find((item) => item.id === id);
+    if (record) void marketing.remove(record).then((result) => { if (!result.ok) toast(result.error, "error"); });
   };
 
   const openTemplateSender = (templateId: string, channel: "email" | "whatsapp") => {
@@ -634,6 +604,7 @@ export default function MarketingPage() {
   };
 
   const sendTemplate = async () => {
+    const originatingCompanyId = companyAccountId;
     if (!sendingChannel || sendingRecipients.length === 0 || !sendingContent) {
       toast("Please select recipients and ensure content is not empty", "error");
       return;
@@ -653,6 +624,8 @@ export default function MarketingPage() {
         return;
       }
 
+      return marketingActions.send({ kind: "template", companyId: originatingCompanyId || "", recipientCount: recipientEmails.length, payload: { templateId: sendingTemplateId, channel: sendingChannel, recipients: recipientEmails, messageTemplate: sendingContent } });
+
       const response = await fetch("/api/automations/send-campaign", {
         method: "POST",
         headers: await getAuthHeaders(),
@@ -666,9 +639,7 @@ export default function MarketingPage() {
 
       const data = await response.json();
       if (data.success) {
-        // Log each send
-        selectedCustomers.forEach((customer) => {
-          if (customer.email) {
+        const logs = await Promise.all(selectedCustomers.filter((customer) => customer.email).map((customer) =>
             logTemplateSend({
               templateId: sendingTemplateId || "",
               templateName: template?.name || "Unknown",
@@ -676,16 +647,14 @@ export default function MarketingPage() {
               recipientName: `${customer.firstName || ""} ${customer.lastName || ""}`.trim() || "Unknown",
               channel: sendingChannel,
               status: "sent",
-            });
-          }
-        });
-        
-        toast(`Template sent to ${recipientEmails.length} recipient(s) via ${sendingChannel}`, "success");
+            })
+        ));
+        if (companyScopeRef.current !== originatingCompanyId) return;
+        if (logs.some((result) => !result.ok)) toast("Submission accepted; log could not be saved.", "warning");
+        else toast(`Template submission accepted for ${recipientEmails.length} recipient(s) via ${sendingChannel}; delivery is not confirmed.`, "success");
         closeTemplateSender();
       } else {
-        // Log failed sends
-        selectedCustomers.forEach((customer) => {
-          if (customer.email) {
+        await Promise.all(selectedCustomers.filter((customer) => customer.email).map((customer) =>
             logTemplateSend({
               templateId: sendingTemplateId || "",
               templateName: template?.name || "Unknown",
@@ -693,9 +662,9 @@ export default function MarketingPage() {
               recipientName: `${customer.firstName || ""} ${customer.lastName || ""}`.trim() || "Unknown",
               channel: sendingChannel,
               status: "failed",
-            });
-          }
-        });
+            })
+        ));
+        if (companyScopeRef.current !== originatingCompanyId) return;
         toast(data.message || "Failed to send template", "error");
       }
     } catch (error) {
@@ -965,35 +934,6 @@ export default function MarketingPage() {
     }
   };
 
-  // Check for scheduled sends every minute
-  useEffect(() => {
-    const checkScheduledSends = () => {
-      const now = new Date();
-      const pending = scheduledSends.filter((s) => s.status === "pending");
-
-      for (const send of pending) {
-        const scheduledTime = new Date(send.scheduledFor);
-        // Send if the scheduled time is in the past and within 1 minute
-        if (scheduledTime <= now && (now.getTime() - scheduledTime.getTime()) < 60000) {
-          const campaign = campaigns.find((c) => c.id === send.campaignId);
-          if (campaign) {
-            sendCampaignNow(campaign).then(() => {
-              // Mark as sent
-              const updated = scheduledSends.map((s) =>
-                s.id === send.id ? { ...s, status: "sent" } : s
-              );
-              setScheduledSends(updated);
-              localStorage.setItem("marketing.scheduled.sends.v1", JSON.stringify(updated));
-            });
-          }
-        }
-      }
-    };
-
-    const interval = setInterval(checkScheduledSends, 60000); // Check every minute
-    return () => clearInterval(interval);
-  }, [scheduledSends, campaigns]);
-
   return (
     <main className="mx-auto max-w-7xl px-4 py-8">
       <header className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pb-6 border-b border-slate-200">
@@ -1003,6 +943,7 @@ export default function MarketingPage() {
             Turn quotes, jobs, and customers into repeat business and referrals.
           </p>
         </div>
+        {marketing.legacyCount > 0 && <button type="button" onClick={() => void marketingActions.importLegacy("marketing data")} className="text-xs text-emerald-700 hover:underline">Import legacy marketing data</button>}
       </header>
 
       {/* UNDO BAR */}
@@ -1188,7 +1129,7 @@ export default function MarketingPage() {
 
             {automationSettings.enabled ? (
               <div className="mt-3 text-xs text-blue-800">
-                ✓ Automation is active. Create campaigns above to send via Email, WhatsApp, or Mailchimp.
+                Manual messaging is available via Email or WhatsApp. Scheduled automation and Mailchimp sending are not available yet.
                 <a
                   href="https://github.com/yourusername/framing-app/blob/main/AUTOMATION_SETUP.md"
                   target="_blank"
@@ -1200,7 +1141,7 @@ export default function MarketingPage() {
               </div>
             ) : (
               <div className="mt-3 text-xs text-blue-700">
-                Enable automation to send campaigns automatically via Email, WhatsApp, or Mailchimp. Configure API keys first.
+                Scheduled automation is not available yet. Use manual Email or WhatsApp campaigns when ready.
                 <a
                   href="https://github.com/yourusername/framing-app/blob/main/AUTOMATION_SETUP.md"
                   target="_blank"
@@ -1269,8 +1210,9 @@ export default function MarketingPage() {
                       📤 Send Now
                     </button>
                     <button
-                      onClick={() => setSchedulingCampaignId(campaign.id)}
-                      className="px-3 py-1.5 text-xs font-semibold rounded bg-indigo-600 text-white hover:bg-indigo-700 transition whitespace-nowrap"
+                      disabled
+                      title="Scheduled sends are not available yet"
+                      className="px-3 py-1.5 text-xs font-semibold rounded bg-slate-200 text-slate-500 cursor-not-allowed whitespace-nowrap"
                     >
                       ⏰ Send Later
                     </button>
@@ -1413,10 +1355,11 @@ export default function MarketingPage() {
                       name="editChannel"
                       value="mailchimp"
                       checked={editingCampaign.channel === "mailchimp"}
+                      disabled
                       onChange={(e) => updateEditingCampaign({ channel: e.target.value as any })}
                       className="w-4 h-4"
                     />
-                    <span className="text-xs">📬 Mailchimp</span>
+                    <span className="text-xs text-slate-400">📬 Mailchimp (not available yet)</span>
                   </label>
                 </div>
               </div>
@@ -1640,8 +1583,8 @@ export default function MarketingPage() {
                     <span className="text-xs">💬 WhatsApp</span>
                   </label>
                   <label className="flex items-center gap-2">
-                    <input type="radio" name="newChannel" value="mailchimp" className="w-4 h-4" />
-                    <span className="text-xs">📬 Mailchimp</span>
+                    <input type="radio" name="newChannel" value="mailchimp" className="w-4 h-4" disabled />
+                    <span className="text-xs text-slate-400">📬 Mailchimp (not available yet)</span>
                   </label>
                 </div>
               </div>

@@ -21,7 +21,8 @@ const SKUS_TO_DROP = new Set<string>([
 ]);
 
 export default function StockPage() {
-  const { catalog, setCatalog } = useCatalog();
+  const { catalog, setCatalog, loading: catalogLoading } = useCatalog();
+  const [saveMessage, setSaveMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
   const [scanCode, setScanCode] = useState("");
   const [highlight, setHighlight] = useState<{
@@ -34,6 +35,13 @@ export default function StockPage() {
   const n = (v: any, fb = 0) => {
     const x = typeof v === "string" ? parseFloat(v) : Number(v);
     return Number.isFinite(x) ? x : fb;
+  };
+
+  const saveStockQuantity = async (updater: (prev: any) => any) => {
+    setSaveMessage(null);
+    const result = await setCatalog(updater);
+    if (result?.ok) setSaveMessage({ tone: "success", text: "Stock saved." });
+    else setSaveMessage({ tone: "error", text: result?.error?.includes("changed") ? "Stock changed elsewhere. Reload to review the newer value." : (result?.error || "Stock could not be saved.") });
   };
 
   // Safely tap into catalog items (frames only; others handled via prev inside setCatalog)
@@ -57,6 +65,7 @@ export default function StockPage() {
   // ONE-TIME CLEANUP: remove specific junk SKUs from sheets
   // ----------------------------------------------------------------
   React.useEffect(() => {
+    if (catalogLoading) return;
     setCatalog((prev) => {
       const stockPrev = prev.stock || {};
       const currentSheets: StockSheet[] = stockPrev.sheets || [];
@@ -77,7 +86,7 @@ export default function StockPage() {
     });
     // run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [catalogLoading]);
 
   // ----------------------------------------------------------------
   // ONE-TIME SEED: if stock is empty, seed from Admin
@@ -85,6 +94,7 @@ export default function StockPage() {
 
   // 1) Frames -> stock.frames (one row per Admin frame) if empty
   React.useEffect(() => {
+    if (catalogLoading) return;
     setCatalog((prev) => {
       const stockPrev = prev.stock || {};
       const currentFrames: StockFrame[] = stockPrev.frames || [];
@@ -107,10 +117,11 @@ export default function StockPage() {
     });
     // run once
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [catalogLoading]);
 
   // 2) Mats + Glazing + Backers -> stock.sheets if empty
   React.useEffect(() => {
+    if (catalogLoading) return;
     setCatalog((prev) => {
       const stockPrev = prev.stock || {};
       const currentSheets: StockSheet[] = stockPrev.sheets || [];
@@ -179,10 +190,11 @@ export default function StockPage() {
     });
     // run once
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [catalogLoading]);
 
   // 3) Printing materials -> stock.rolls if empty
   React.useEffect(() => {
+    if (catalogLoading) return;
     setCatalog((prev) => {
       const stockPrev = prev.stock || {};
       const currentRolls: StockRoll[] = stockPrev.rolls || [];
@@ -213,7 +225,7 @@ export default function StockPage() {
     });
     // run once
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [catalogLoading]);
 
   // ----------------------------------------------------------------
   // RESET: rebuild all stock strictly from Admin
@@ -788,6 +800,7 @@ export default function StockPage() {
             🔄 Reset
           </button>
         </header>
+        {saveMessage && <div className={`rounded-lg border px-3 py-2 text-sm ${saveMessage.tone === "error" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{saveMessage.text}{saveMessage.tone === "error" && <button type="button" onClick={() => window.location.reload()} className="ml-2 underline">Reload</button>}</div>}
 
         {/* Top tools split into 2 cards (1x2 format) */}
         <section className="grid gap-5 md:grid-cols-2">
@@ -914,7 +927,7 @@ export default function StockPage() {
                 frameNameById[String(f.profileId ?? "").trim()] ?? "",
             }))}
             onChange={(idx, key, val) => {
-              setCatalog((prev) => {
+              void ((key === "metersAvailable" ? saveStockQuantity : setCatalog) as any)((prev: any) => {
                 const stock = prev.stock || {};
                 const list = stock.frames ? [...stock.frames] : [];
                 const current = list[idx] || {};
@@ -985,7 +998,7 @@ export default function StockPage() {
             rows={matRows}
             onChange={(localIdx, key, val) => {
               const sheetIdx = (matRows[localIdx] as any).__index as number;
-              setCatalog((prev) => {
+              void ((key === "qty" ? saveStockQuantity : setCatalog) as any)((prev: any) => {
                 const stock = prev.stock || {};
                 const list = stock.sheets ? [...stock.sheets] : [];
                 const numeric = ["widthCm", "heightCm", "qty", "minThreshold"].includes(
@@ -1051,7 +1064,7 @@ export default function StockPage() {
             rows={glazingRows}
             onChange={(localIdx, key, val) => {
               const sheetIdx = (glazingRows[localIdx] as any).__index as number;
-              setCatalog((prev) => {
+              void ((key === "qty" ? saveStockQuantity : setCatalog) as any)((prev: any) => {
                 const stock = prev.stock || {};
                 const list = stock.sheets ? [...stock.sheets] : [];
                 const numeric = ["widthCm", "heightCm", "qty", "minThreshold"].includes(
@@ -1117,7 +1130,7 @@ export default function StockPage() {
             rows={backerRows}
             onChange={(localIdx, key, val) => {
               const sheetIdx = (backerRows[localIdx] as any).__index as number;
-              setCatalog((prev) => {
+              void ((key === "qty" ? saveStockQuantity : setCatalog) as any)((prev: any) => {
                 const stock = prev.stock || {};
                 const list = stock.sheets ? [...stock.sheets] : [];
                 const numeric = ["widthCm", "heightCm", "qty", "minThreshold"].includes(
@@ -1185,7 +1198,7 @@ export default function StockPage() {
             ]}
             rows={rolls}
             onChange={(idx, key, val) => {
-              setCatalog((prev) => {
+              void ((key === "metersRemaining" ? saveStockQuantity : setCatalog) as any)((prev: any) => {
                 const stock = prev.stock || {};
                 const list = stock.rolls ? [...stock.rolls] : [];
                 const numeric = ["widthCm", "metersRemaining", "minThreshold"].includes(

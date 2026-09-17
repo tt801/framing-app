@@ -7,16 +7,10 @@ console.log('Main.tsx loading...');
 
 // AI provider
 import { setAiProvider, LocalMockProvider } from './lib/ai/provider'
-import { RemoteProvider } from './lib/ai/remoteProvider'
-
-if (import.meta.env.PROD) {
-  console.log('Production mode - using RemoteProvider');
-  setAiProvider(new RemoteProvider())
-} else {
-  // Vite dev: no serverless API -> use local generator
-  console.log('Dev mode - using LocalMockProvider');
-  setAiProvider(new LocalMockProvider())
-}
+// The deterministic local provider preserves working room previews while the
+// unfinished remote AI endpoint remains disabled.
+console.log('Using LocalMockProvider for room previews');
+setAiProvider(new LocalMockProvider())
 
 console.log('Rendering React app...');
 

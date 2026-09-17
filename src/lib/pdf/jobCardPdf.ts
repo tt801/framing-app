@@ -68,6 +68,7 @@ function normalizeJobForPdf(job: AnyRecord, catalogSettings?: AnyRecord) {
 
   return {
     id: job?.id,
+    refNo: job?.refNo,
     description: job?.description || `Framing job — ${frameName}`,
     status: job?.status ?? "new",
     createdAt: job?.createdAt || job?.created_at || null,
@@ -104,7 +105,8 @@ export async function exportJobCardPDF({
   job,
   customer,
   settings,
-}: ExportJobCardPdfArgs): Promise<void> {
+  download = true,
+}: ExportJobCardPdfArgs & { download?: boolean }): Promise<jsPDF> {
   const view = normalizeJobForPdf(job, settings ?? undefined);
 
   const doc = new jsPDF({
@@ -163,7 +165,7 @@ export async function exportJobCardPDF({
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   rightY += 16;
-  doc.text(`Job ID: ${String(view.id ?? "").slice(0, 12)}`, rightX, rightY, {
+  doc.text(`Job ID: ${String(view.refNo ?? view.id ?? "").slice(0, 12)}`, rightX, rightY, {
     align: "right",
   });
   rightY += 12;
@@ -378,5 +380,6 @@ export async function exportJobCardPDF({
   doc.setFontSize(8);
   doc.text(footerNote, margin, footerY);
 
-  doc.save(`job-card-${view.id || "job"}.pdf`);
+  if (download) doc.save(`job-card-${view.id || "job"}.pdf`);
+  return doc;
 }

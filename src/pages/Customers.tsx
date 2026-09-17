@@ -378,12 +378,16 @@ export default function CustomersPage() {
     });
   }
 
-  function onSaveCustomer(c: any) {
+  async function onSaveCustomer(c: any) {
     if (!c.firstName?.trim() || !c.lastName?.trim() || !c.email?.trim()) {
       toast("First name, last name, and email are required.", "error");
       return;
     }
-    updateCustomer({ id: c.id, ...c });
+    const result = await updateCustomer({ id: c.id, ...c });
+    if (!result || result.ok === false) {
+      toast(result?.error || "Failed to save customer", "error");
+      return;
+    }
     const displayName = `${c.firstName} ${c.lastName}`;
     toast(`${displayName} saved successfully`, "success");
   }
@@ -402,55 +406,40 @@ export default function CustomersPage() {
   }
 
   // ---- helper: add customer into store (used by "New" and CSV import) ----
-  function addCustomerToStore(base: any) {
-    const id =
-      base.id ||
-      (typeof crypto !== "undefined" &&
-      (crypto as any).randomUUID &&
-      typeof (crypto as any).randomUUID === "function"
-        ? (crypto as any).randomUUID()
-        : `cust-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+  // Returns null (no id, no mutation) when writes are blocked or persistence fails,
+  // so callers must not assume the warning toast alone means the record was skipped.
+  async function addCustomerToStore(base: any): Promise<string | null> {
+    if (custStore.readOnly) {
+      await custStore.add(base);
+      return null;
+    }
 
     const blank: any = {
-      id,
+      id: base.id || "",
       firstName: base.firstName || "",
       lastName: base.lastName || "",
       email: base.email || "",
       phone: base.phone || "",
       company: base.company || "",
-      address1: base.address1 || "",
-      address2: base.address2 || "",
-      city: base.city || "",
-      postcode: base.postcode || base.postalCode || "",
-      country: base.country || "",
       notes: base.notes || "",
     };
 
-    try {
-      if (typeof custStore.addCustomer === "function") {
-        custStore.addCustomer(blank);
-      } else if (typeof custStore.add === "function") {
-        custStore.add(blank);
-      } else if (typeof custStore.createCustomer === "function") {
-        custStore.createCustomer(blank);
-      } else if (typeof custStore.setCustomers === "function") {
-        custStore.setCustomers((rows: any[]) => [...rows, blank]);
-      } else {
-        updateCustomer(blank);
-      }
-    } catch (e) {
-      console.warn("Failed to create/import customer", e);
-      updateCustomer(blank);
+    const result = await custStore.add(blank);
+    if (!result || result.ok === false) {
+      console.warn("Failed to create/import customer", result?.error);
+      toast(result?.error || "Failed to save customer", "error");
+      return null;
     }
 
-    return blank.id as string;
+    return result.customer.id;
   }
 
-  const handleNewCustomer = useCallback(() => {
+  const handleNewCustomer = useCallback(async () => {
     setSearchInput("");
     setSearchTerm("");
     setListFilter("all");
-    const id = addCustomerToStore({});
+    const id = await addCustomerToStore({});
+    if (!id) return;
     setSelectedId(id);
     toast("New customer created. Fill in their details on the right.", "success");
   }, [addCustomerToStore, toast]);
@@ -491,67 +480,28 @@ export default function CustomersPage() {
     });
   }
 
-  function performDeleteCustomer(id: string, customer: any, displayName: string) {
-    try {
-      // Store backup for undo
-      const backup = customer;
-      let deleteMethodUsed = "";
+  async function performDeleteCustomer(id: string, customer: any, displayName: string) {
+    const backup = customer;
+    const result = await custStore.remove(id);
 
-      if (typeof custStore.removeCustomer === "function") {
-        custStore.removeCustomer(id);
-        deleteMethodUsed = "removeCustomer";
-      } else if (typeof custStore.deleteCustomer === "function") {
-        custStore.deleteCustomer(id);
-        deleteMethodUsed = "deleteCustomer";
-      } else if (typeof custStore.remove === "function") {
-        custStore.remove(id);
-        deleteMethodUsed = "remove";
-      } else if (typeof custStore.delete === "function") {
-        custStore.delete(id);
-        deleteMethodUsed = "delete";
-      } else if (typeof custStore.setCustomers === "function") {
-        custStore.setCustomers((rows: any[]) =>
-          rows.filter((r: any) => r.id !== id)
-        );
-        deleteMethodUsed = "setCustomers";
-      } else {
-        console.warn("No delete method found on customers store");
-        return;
-      }
-
-      // Add to history for undo
-      addToHistory({
-        id: `delete-customer-${id}`,
-        name: `Delete ${displayName}`,
-        undo: () => {
-          if (backup && typeof custStore.add === "function") {
-            custStore.add(backup);
-          }
-        },
-        redo: () => {
-          // Use the same method that was used initially
-          if (deleteMethodUsed === "removeCustomer" && typeof custStore.removeCustomer === "function") {
-            custStore.removeCustomer(id);
-          } else if (deleteMethodUsed === "deleteCustomer" && typeof custStore.deleteCustomer === "function") {
-            custStore.deleteCustomer(id);
-          } else if (deleteMethodUsed === "remove" && typeof custStore.remove === "function") {
-            custStore.remove(id);
-          } else if (deleteMethodUsed === "delete" && typeof custStore.delete === "function") {
-            custStore.delete(id);
-          } else if (deleteMethodUsed === "setCustomers" && typeof custStore.setCustomers === "function") {
-            custStore.setCustomers((rows: any[]) =>
-              rows.filter((r: any) => r.id !== id)
-            );
-          }
-        },
-        timestamp: Date.now(),
-      });
-
-      toast(`${displayName} deleted`, "success");
-    } catch (e) {
-      toast("Failed to delete customer", "error");
-      console.warn("Failed to delete customer", e);
+    if (!result || result.ok === false) {
+      toast(result?.error || "Failed to delete customer", "error");
+      return;
     }
+
+    addToHistory({
+      id: `delete-customer-${id}`,
+      name: `Delete ${displayName}`,
+      undo: () => {
+        if (backup) void custStore.add(backup);
+      },
+      redo: () => {
+        void custStore.remove(id);
+      },
+      timestamp: Date.now(),
+    });
+
+    toast(`${displayName} deleted`, "success");
 
     const idx = list.findIndex((c) => c.id === id);
     const next = list[idx + 1] || list[idx - 1] || null;
@@ -560,7 +510,7 @@ export default function CustomersPage() {
 
   // -------- IMPORT: CSV parsing + Gmail/Outlook stubs --------
 
-  function importCustomersFromCsv(text: string): number {
+  async function importCustomersFromCsv(text: string): Promise<number> {
     const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
     if (lines.length < 2) return 0;
 
@@ -613,7 +563,7 @@ export default function CustomersPage() {
       // Skip completely empty rows (no name & no email)
       if (!email && !firstName && !lastName && !company) continue;
 
-      const id = addCustomerToStore({
+      const id = await addCustomerToStore({
         firstName,
         lastName,
         email,
@@ -627,6 +577,7 @@ export default function CustomersPage() {
         notes,
       });
 
+      if (!id) continue;
       imported += 1;
       setSelectedId(id);
     }
@@ -639,9 +590,9 @@ export default function CustomersPage() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const text = String(reader.result || "");
-      const count = importCustomersFromCsv(text);
+      const count = await importCustomersFromCsv(text);
       if (count === 0) {
         toast("No customers were imported. Check the CSV headers (name, email, etc.).", "warning");
       } else {
@@ -669,6 +620,33 @@ export default function CustomersPage() {
       "info"
     );
     setShowImportMenu(false);
+  }
+
+  async function handleImportLegacyLocalCustomers() {
+    setShowImportMenu(false);
+    const count = custStore.getLegacyLocalCustomerCount();
+    if (count === 0) {
+      toast("No saved browser customers were found to import.", "info");
+      return;
+    }
+
+    const destination = custStore.companyName || "this company";
+    const confirmed = window.confirm(
+      `Import ${count} customer${count === 1 ? "" : "s"} previously saved in this browser into "${destination}"?\n\n` +
+        "The original browser data is kept as-is, and re-running this is safe (already-imported records are skipped)."
+    );
+    if (!confirmed) return;
+
+    const result = await custStore.importLegacyLocalCustomers();
+    if (!result || result.ok === false) {
+      toast(result?.error || "Failed to import saved browser customers", "error");
+      return;
+    }
+
+    const parts = [`${result.imported} imported`];
+    if (result.skipped > 0) parts.push(`${result.skipped} already imported`);
+    if (result.conflicts > 0) parts.push(`${result.conflicts} skipped (id used by another company)`);
+    toast(parts.join(", "), result.imported > 0 ? "success" : "info");
   }
 
   return (
@@ -822,6 +800,13 @@ export default function CustomersPage() {
                       >
                         Import from Outlook
                       </button>
+                      <button
+                        type="button"
+                        onClick={handleImportLegacyLocalCustomers}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 border-t border-slate-100"
+                      >
+                        Import saved browser customers
+                      </button>
                     </div>
                   )}
                 </div>
@@ -940,9 +925,14 @@ export default function CustomersPage() {
                 );
               })}
 
-              {!list.length && (
+              {!list.length && custStore.loading && (
                 <div className="text-sm text-slate-500 py-6 text-center">
-                  No customers match your filters.
+                  Loading customers…
+                </div>
+              )}
+              {!list.length && !custStore.loading && (
+                <div className="text-sm text-slate-500 py-6 text-center">
+                  {custStore.error ? "Could not load customers." : "No customers match your filters."}
                 </div>
               )}
             </div>

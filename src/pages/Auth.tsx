@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/lib/theme";
 
 type AuthMode = "signup" | "login";
+const isLaunchMode = import.meta.env.VITE_LAUNCH_MODE === "true";
 
 type AuthPageProps = {
   defaultMode?: AuthMode;
@@ -14,7 +15,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
     themeMode === "dark"
       ? "/FramersApp%20Logo%20white.png"
       : "/FramersApp%20logo%20Black.png";
-  const [mode, setMode] = useState<AuthMode>(defaultMode);
+  const [mode, setMode] = useState<AuthMode>(isLaunchMode ? "login" : defaultMode);
   const [isRecoveryFlow, setIsRecoveryFlow] = useState(false);
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -191,6 +192,11 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
       return;
     }
 
+    if (mode === "signup" && isLaunchMode) {
+      setError("Public sign-up is unavailable while Framers App is preparing for launch.");
+      return;
+    }
+
     if (mode === "signup" && !companyName.trim()) {
       setError("Company name is required to start a trial.");
       return;
@@ -282,15 +288,17 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
           <section className="rounded-[1.75rem] border border-white/15 bg-slate-950/65 p-6 shadow-2xl backdrop-blur sm:p-8">
             {!isRecoveryFlow && (
             <div className="mb-6 flex gap-2 rounded-full border border-white/10 bg-white/5 p-1">
-              <button
-                type="button"
-                onClick={() => setMode("signup")}
-                className={mode === "signup"
-                  ? "flex-1 rounded-full bg-cyan-300 px-4 py-2 text-sm font-extrabold text-slate-950"
-                  : "flex-1 rounded-full px-4 py-2 text-sm font-bold text-slate-200 hover:bg-white/5"}
-              >
-                Start trial
-              </button>
+              {!isLaunchMode && (
+                <button
+                  type="button"
+                  onClick={() => setMode("signup")}
+                  className={mode === "signup"
+                    ? "flex-1 rounded-full bg-cyan-300 px-4 py-2 text-sm font-extrabold text-slate-950"
+                    : "flex-1 rounded-full px-4 py-2 text-sm font-bold text-slate-200 hover:bg-white/5"}
+                >
+                  Start trial
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setMode("login")}

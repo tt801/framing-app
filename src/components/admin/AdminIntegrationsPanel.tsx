@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useCatalog } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { getAccessToken } from "@/lib/supabase";
+import { useBillingAccess } from "@/lib/billingAccess";
 
 type ProviderKey = "quickbooks" | "xero" | "marketing-automation";
 
@@ -19,25 +20,23 @@ const PROVIDERS: ProviderConfig[] = [
   {
     key: "quickbooks",
     label: "QuickBooks Online",
-    tagline: "Sync invoices directly to your QuickBooks company.",
-    description:
-      "When connected, you can send invoices from FrameIT into QuickBooks with a single click on the Invoices page.",
+    tagline: "Not available yet.",
+    description: "QuickBooks sync is not available in this launch.",
     docsUrl: "https://quickbooks.intuit.com/",
   },
   {
     key: "xero",
     label: "Xero",
-    tagline: "Sync invoices to your Xero organisation.",
-    description:
-      "Use Xero for accounting? Connect here and later we can add a 'Send to Xero' button on the Invoices page.",
+    tagline: "Not available yet.",
+    description: "Xero sync is not available in this launch.",
     docsUrl: "https://www.xero.com/",
   },
   {
     key: "marketing-automation",
     label: "Marketing Automation",
-    tagline: "Automate review requests and quote follow-ups via WhatsApp, Email, or Mailchimp.",
+    tagline: "Manual messaging tools; scheduled automation is not available yet.",
     description:
-      "Send automated campaigns via WhatsApp (Twilio), Outlook Email (Microsoft Graph), or Mailchimp. Requires API credentials.",
+      "Send campaigns manually via WhatsApp (Twilio), Outlook Email (Microsoft Graph), or Mailchimp. Requires API credentials.",
     docsUrl: "/AUTOMATION_SETUP.md",
   },
 ];
@@ -65,6 +64,7 @@ type LoadingMap = Record<ProviderKey, boolean>;
 const AdminIntegrationsPanel: React.FC = () => {
   const { catalog, updateSettings, setCatalog, set } = useCatalog() as any;
   const { add: toast } = useToast();
+  const { companyAccountId } = useBillingAccess();
 
   const settings = catalog?.settings || {};
   const initialIntegrations = useMemo<IntegrationsSettings>(() => {
@@ -371,6 +371,7 @@ const AdminIntegrationsPanel: React.FC = () => {
           const isLoading = loading[provider.key];
           const isConnected = state?.connectionStatus === "connected";
           const hasError = state?.connectionStatus === "error";
+          const isAccounting = provider.key === "quickbooks" || provider.key === "xero";
 
           return (
             <article
@@ -392,7 +393,7 @@ const AdminIntegrationsPanel: React.FC = () => {
                   )}`}
                 >
                   <span className="mr-1 h-1.5 w-1.5 rounded-full bg-current" />
-                  {statusText(state)}
+                  {isAccounting ? "Not available yet" : statusText(state)}
                 </span>
               </div>
 
@@ -425,7 +426,9 @@ const AdminIntegrationsPanel: React.FC = () => {
               )}
 
               <div className="mt-auto flex flex-wrap items-center gap-2">
-                {!isConnected ? (
+                {isAccounting ? (
+                  <span className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">Not available yet</span>
+                ) : !isConnected ? (
                   <button
                     type="button"
                     onClick={() => connectProvider(provider.key)}
@@ -445,14 +448,14 @@ const AdminIntegrationsPanel: React.FC = () => {
                   </button>
                 )}
 
-                <button
+                {!isAccounting && <button
                   type="button"
                   onClick={() => refreshFromServer(provider.key)}
                   disabled={isLoading}
                   className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
                   {isLoading ? "Refreshing…" : "Refresh status"}
-                </button>
+                </button>}
               </div>
 
               {provider.key === "quickbooks" && (
@@ -472,6 +475,7 @@ const AdminIntegrationsPanel: React.FC = () => {
                   state={state}
                   upsertIntegration={upsertIntegration}
                   toast={toast}
+                  companyAccountId={companyAccountId}
                 />
               )}            </article>
           );
@@ -486,12 +490,14 @@ interface MarketingAutomationConfigProps {
   state?: IntegrationState;
   upsertIntegration: (provider: ProviderKey, patch: Partial<IntegrationState>) => void;
   toast: (message: string, type: "success" | "error" | "warning" | "info") => void;
+  companyAccountId: string | null;
 }
 
 const MarketingAutomationConfig: React.FC<MarketingAutomationConfigProps> = ({
   state,
   upsertIntegration,
   toast,
+  companyAccountId,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [config, setConfig] = useState({
@@ -552,6 +558,7 @@ const MarketingAutomationConfig: React.FC<MarketingAutomationConfigProps> = ({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          "X-Company-Account-Id": companyAccountId || "",
         },
         body: JSON.stringify(testData),
       });
@@ -649,22 +656,12 @@ const MarketingAutomationConfig: React.FC<MarketingAutomationConfigProps> = ({
             <div className="text-xs font-semibold text-slate-700 mb-2">Automation Types</div>
             <div className="space-y-2">
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.reviewRequestEnabled}
-                  onChange={(e) => updateConfig({ reviewRequestEnabled: e.target.checked })}
-                  className="w-4 h-4"
-                />
-                <span className="text-xs">Auto-review requests (3 days after completion)</span>
+                <input type="checkbox" checked={false} disabled className="w-4 h-4" />
+                <span className="text-xs text-slate-500">Auto-review requests (not available yet)</span>
               </label>
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={config.quoteFollowupEnabled}
-                  onChange={(e) => updateConfig({ quoteFollowupEnabled: e.target.checked })}
-                  className="w-4 h-4"
-                />
-                <span className="text-xs">Auto quote follow-ups (7+ days pending)</span>
+                <input type="checkbox" checked={false} disabled className="w-4 h-4" />
+                <span className="text-xs text-slate-500">Auto quote follow-ups (not available yet)</span>
               </label>
             </div>
           </div>

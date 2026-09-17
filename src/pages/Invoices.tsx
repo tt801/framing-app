@@ -171,37 +171,9 @@ const extractItems = (
 /* ---------------- Delete helpers ---------------- */
 const safeRowId = (row: any) => String(row?.id ?? row?.number ?? "");
 
-const removeInvoiceFromStore = (invStore: any, id: string) => {
-  if (typeof invStore?.deleteInvoice === "function") {
-    invStore.deleteInvoice(id);
-    return true;
-  }
-  if (typeof invStore?.removeInvoice === "function") {
-    invStore.removeInvoice(id);
-    return true;
-  }
-  if (typeof invStore?.delete === "function") {
-    invStore.delete(id);
-    return true;
-  }
-  if (typeof invStore?.remove === "function") {
-    invStore.remove(id);
-    return true;
-  }
-  if (typeof invStore?.setInvoices === "function") {
-    invStore.setInvoices((rows: any[]) =>
-      rows.filter((r) => safeRowId(r) !== id)
-    );
-    return true;
-  }
-  if (typeof invStore?.setItems === "function") {
-    invStore.setItems((rows: any[]) =>
-      rows.filter((r) => safeRowId(r) !== id)
-    );
-    return true;
-  }
-  console.warn("No delete function available for invoices store");
-  return false;
+const removeInvoiceFromStore = async (invStore: any, id: string) => {
+  if (typeof invStore?.remove !== "function") return { ok: false, error: "No invoice delete function available" };
+  return invStore.remove(id);
 };
 
 /* ---------------- QuickBooks helper (badge only) ---------------- */
@@ -215,6 +187,7 @@ const isInvoiceSyncedToQuickBooks = (row: any) => {
    ======================================================================= */
 export default function InvoicesPage() {
   const inv = useInvoices() as any;
+  const billingCompanyName = inv?.companyName;
   const c = useCustomers() as any;
   const { add: toast } = useToast();
   const { add: addToHistory, canUndo, undo } = useHistory();
@@ -222,7 +195,7 @@ export default function InvoicesPage() {
 
   // Listen for global "New invoice" event from header
   React.useEffect(() => {
-    const onGlobalNew = (event: Event) => {
+    const onGlobalNew = async (event: Event) => {
       const detail = (event as CustomEvent).detail as { type?: string };
       if (detail?.type === "invoice") {
         // Create a new blank invoice with editable fields
@@ -278,15 +251,12 @@ export default function InvoicesPage() {
             },
           },
         };
-        if (typeof (inv as any).addInvoice === "function") {
-          (inv as any).addInvoice(newInvoice);
-        } else if (typeof (inv as any).add === "function") {
-          (inv as any).add(newInvoice);
-        } else if (typeof (inv as any).setInvoices === "function") {
-          (inv as any).setInvoices((rows: any[]) => [...rows, newInvoice]);
+        const result = await inv.addInvoice(newInvoice);
+        if (!result?.ok) {
+          toast(result?.error || "Could not save invoice", "error");
+          return;
         }
-        // Auto-select the new invoice
-        setSelectedId(newInvoice.id);
+        setSelectedId(result.invoice.id);
         toast("New invoice created. Fill in customer details and pricing.", "success");
       }
     };
@@ -325,73 +295,10 @@ export default function InvoicesPage() {
     qbConfig.connectionStatus !== "disconnected";
 
   const allInvoices: Invoice[] = (inv?.invoices ?? inv?.items ?? []) as Invoice[];
-  const saveInvoice =
-    inv?.saveInvoice ||
-    inv?.updateInvoice ||
-    inv?.setInvoice ||
-    (inv?.setInvoices
-      ? (id: string, patch: any) => {
-          inv.setInvoices((rows: any[]) =>
-            rows.map((row: any) => {
-              const rowId = safeRowId(row);
-              if (rowId !== id && row?.id !== id) return row;
-
-              const merged = { ...row, ...patch };
-              const items = Array.isArray(patch?.items)
-                ? patch.items
-                : row?.items;
-
-              // Recalculate money fields when items or taxRate change
-              if (items || patch?.taxRate !== undefined) {
-                const taxRate = n(
-                  firstNonEmpty(
-                    patch?.taxRate,
-                    merged.taxRate,
-                    merged.details?.costs?.taxRate,
-                    0
-                  ),
-                  0
-                );
-
-                const subtotal = Array.isArray(items)
-                  ? items.reduce(
-                      (sum: number, it: any) =>
-                        sum + (Number(it?.qty) || 0) * (Number(it?.unitPrice) || 0),
-                      0
-                    )
-                  : n(firstNonEmpty(patch?.subtotal, merged.subtotal), 0);
-
-                const tax = subtotal * taxRate;
-                const total = subtotal + tax;
-
-                merged.items = items;
-                merged.taxRate = taxRate;
-                merged.subtotal = subtotal;
-                merged.tax = tax;
-                merged.total = total;
-                merged.details = {
-                  ...(merged.details || {}),
-                  costs: {
-                    ...(merged.details?.costs || {}),
-                    subtotal,
-                    taxRate,
-                    tax,
-                    total,
-                    currency:
-                      merged.details?.costs?.currency ||
-                      merged.currency ||
-                      merged.currencyCode ||
-                      undefined,
-                  },
-                };
-              }
-
-              return merged;
-            })
-          );
-        }
-      : (id: string, patch: any) =>
-          console.warn("No save function in useInvoices()", { id, patch }));
+  const saveInvoice = async (id: string, patch: any) => {
+    if (typeof inv?.updateInvoice !== "function") return { ok: false, error: "No invoice update function available" };
+    return inv.updateInvoice(id, patch);
+  };
 
   const customersList = c?.customers ?? c?.items ?? [];
 
@@ -691,7 +598,7 @@ Thank you.
   );
 
   /* ---------- Actions ---------- */
-  const markStatus = (
+  const markStatus = async (
     status: "Draft" | "Sent" | "Paid" | "Overdue" | "Void"
   ) => {
     if (!selected) return;
@@ -735,8 +642,13 @@ Thank you.
       patch.voidAt = now;
     }
 
+    const result = await saveInvoice(id, patch);
+    if (!result?.ok) {
+      toast(result?.error || "Could not update invoice", "error");
+      return;
+    }
     setStatusOverride((m) => ({ ...m, [id]: status }));
-    saveInvoice(id, patch);
+    toast(`Invoice marked ${status.toLowerCase()}`, "success");
   };
 
   const onExportPDF = async () => {
@@ -750,7 +662,7 @@ Thank you.
     try {
       const customer = customersList.find(
         (x: any) => x.id === selected.customerId
-      );
+      ) || selected.customerSnapshot || selected.customer;
       await exportInvoicePDF({ invoice: selected, customer, settings });
     } catch (err) {
       console.error("exportInvoicePDF failed:", err);
@@ -772,53 +684,58 @@ Thank you.
       },
       onConfirm: () => {
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-        performDeleteInvoice(id, selected, invoiceNumber);
+        void performDeleteInvoice(id, selected, invoiceNumber);
       },
     });
   };
 
-  const performDeleteInvoice = (id: string, invoice: any, invoiceNumber: string) => {
-    const did = removeInvoiceFromStore(inv, id);
+  const performDeleteInvoice = async (id: string, invoice: any, invoiceNumber: string) => {
+    const result = await removeInvoiceFromStore(inv, id);
+    if (!result?.ok) {
+      toast(result?.error || "Could not delete invoice", "error");
+      return;
+    }
 
     const idx = filtered.findIndex((r: any) => safeRowId(r) === id);
     const next = filtered[idx + 1] || filtered[idx - 1] || null;
     setSelectedId(next ? safeRowId(next) : null);
 
-    if (!did) {
-      try {
-        if (typeof inv?.setInvoices === "function") {
-          inv.setInvoices((rows: any[]) =>
-            rows.filter((r) => safeRowId(r) !== id)
-          );
-        }
-      } catch (e) {
-        console.warn("Local delete fallback failed:", e);
-      }
-    }
-
     const backup = invoice;
     addToHistory({
       id: `delete-invoice-${id}`,
       name: `Delete invoice ${invoiceNumber}`,
-      undo: () => {
+      undo: async () => {
         if (!backup) return;
-        if (typeof (inv as any).addInvoice === "function") {
-          (inv as any).addInvoice(backup);
-        } else if (typeof (inv as any).createInvoice === "function") {
-          (inv as any).createInvoice(backup);
-        } else if (typeof (inv as any).add === "function") {
-          (inv as any).add(backup);
-        } else if (typeof (inv as any).setInvoices === "function") {
-          (inv as any).setInvoices((rows: any[]) => [...rows, backup]);
-        }
+        const undoResult = await inv.addInvoice(backup);
+        if (!undoResult?.ok) toast(undoResult?.error || "Could not restore invoice", "error");
       },
-      redo: () => {
-        removeInvoiceFromStore(inv, id);
+      redo: async () => {
+        const redoResult = await removeInvoiceFromStore(inv, id);
+        if (!redoResult?.ok) toast(redoResult?.error || "Could not delete invoice", "error");
       },
       timestamp: Date.now(),
     });
 
     toast("Invoice deleted successfully", "success");
+  };
+
+  const importLegacyInvoices = async () => {
+    const count = inv.getLegacyLocalInvoiceCount?.() || 0;
+    if (!count) {
+      toast("No saved local invoices to import", "info");
+      return;
+    }
+    const companyName = billingCompanyName || "this company";
+    if (!window.confirm(`Import ${count} saved invoices into "${companyName}"? The original browser data will be kept as-is.`)) return;
+    const result = await inv.importLegacyLocalInvoices?.();
+    if (!result?.ok) {
+      toast(result?.error || "Could not import invoices", "error");
+      return;
+    }
+    const failureText = result.failures?.length
+      ? `, failed: ${result.failures.map((failure: any) => `${failure.id} (${failure.reason})`).join("; ")}`
+      : "";
+    toast(`${result.imported} imported, ${result.skipped} already imported, ${result.collisions} number/ID collisions, ${result.unresolvedCustomers + result.unresolvedQuotes} unresolved references${failureText}`, result.imported ? "success" : "info");
   };
 
   /* ===================================================================
@@ -827,7 +744,12 @@ Thank you.
   return (
     <div className="p-6 space-y-6">
       <header className="pb-6 border-b border-slate-200">
-        <h1 className="text-3xl font-bold text-slate-900 mb-1">🧾 Invoices</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-3xl font-bold text-slate-900 mb-1">🧾 Invoices</h1>
+          <button type="button" onClick={() => void importLegacyInvoices()} className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
+            Import saved invoices
+          </button>
+        </div>
         <p className="text-sm text-slate-600">
           Track outstanding balances, payments, and invoice status at a glance.
         </p>

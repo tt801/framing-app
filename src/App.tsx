@@ -25,6 +25,7 @@ const CalendarPage = React.lazy(() => import("./pages/Calendar"));
 const DashboardPage = React.lazy(() => import("./pages/Dashboard"));
 const APISettingsPage = React.lazy(() => import("./pages/APISettings"));
 const WebsiteLanding = React.lazy(() => import("./pages/WebsiteLanding"));
+const ComingSoon = React.lazy(() => import("./pages/ComingSoon"));
 const LegalPolicyPage = React.lazy(() => import("./pages/LegalPolicy"));
 const AuthPage = React.lazy(() => import("./pages/Auth"));
 const AuthCallbackPage = React.lazy(() => import("./pages/AuthCallback"));
@@ -34,6 +35,8 @@ const SupportPage = React.lazy(() => import("./pages/Support"));
 const OnboardingPage = React.lazy(() => import("./pages/Onboarding"));
 import { checkAndAutoMarkExistingUser, isOnboardingDone } from "./pages/Onboarding";
 const appTagline = "Frame. Quote. Grow.";
+const isLaunchMode = import.meta.env.VITE_LAUNCH_MODE === "true";
+type LaunchAuthorization = "pending" | "authorized" | "denied";
 
 // ---------- Hash Router ----------
 function useHashRoute() {
@@ -89,44 +92,48 @@ function useHashRoute() {
 }
 
 // ---------- Error Boundary ----------
-function ErrorBoundary({ children }: { children: React.ReactNode }) {
-  const [err, setErr] = useState<Error | null>(null);
-  if (err) {
-    return (
-      <div style={{ padding: 16, fontFamily: "ui-sans-serif, system-ui" }}>
-        <h2 style={{ fontWeight: 700, marginBottom: 8 }}>App error</h2>
-        <pre style={{ whiteSpace: "pre-wrap" }}>
-          {String(err.stack || err.message || err)}
-        </pre>
-      </div>
-    );
+type ErrorBoundaryState = { hasError: boolean };
+
+class ErrorBoundaryImpl extends React.Component<
+  { children: React.ReactNode },
+  ErrorBoundaryState
+> {
+  state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
   }
-  return (
-    <Suspense
-      fallback={
-        <div className="flex items-center justify-center p-12">
-          <LoadingSpinner size="lg" />
-        </div>
-      }
-    >
-      <ErrorCatcher onError={setErr}>{children}</ErrorCatcher>
-    </Suspense>
-  );
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    if (import.meta.env.DEV) {
+      console.error("[App ErrorBoundary] Descendant render failed", error, info.componentStack);
+    }
+  }
+
+  retry = () => this.setState({ hasError: false });
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <main className="flex min-h-[240px] items-center justify-center p-6">
+          <section className="max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900">This screen could not load</h2>
+            <p className="mt-2 text-sm text-slate-600">Try again. Your saved business data has not been cleared.</p>
+            <button type="button" onClick={this.retry} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">Try again</button>
+          </section>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
 }
 
-function ErrorCatcher({
-  onError,
-  children,
-}: {
-  onError: (e: Error) => void;
-  children: React.ReactNode;
-}) {
-  try {
-    return <>{children}</>;
-  } catch (e: unknown) {
-    onError(e instanceof Error ? e : new Error(String(e)));
-    return null;
-  }
+export function ErrorBoundary({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center p-12"><LoadingSpinner size="lg" /></div>}>
+      <ErrorBoundaryImpl>{children}</ErrorBoundaryImpl>
+    </Suspense>
+  );
 }
 
 // ---------- Main App ----------
@@ -140,6 +147,8 @@ function App() {
       : "/FramersApp%20logo%20Black.png";
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [launchAuthorization, setLaunchAuthorization] = useState<LaunchAuthorization>("pending");
 
   const isLanding = route === "/" || route === "";
   const isLegal = route.startsWith("/legal");
@@ -182,7 +191,7 @@ function App() {
     !isOnboarding;
 
   const isPublicRoute = isLanding || isLegal || isAuthRoute;
-  const isPublicOrSupport = isPublicRoute || isSupport || isOnboarding;
+  const isPublicOrSupport = isPublicRoute || isSupport || (!isLaunchMode && isOnboarding);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -195,6 +204,7 @@ function App() {
       const user = await getCurrentUser();
       if (!mounted) return;
       setIsAuthenticated(Boolean(user));
+      setAuthUserId(user?.id ?? null);
       setAuthLoading(false);
     };
 
@@ -207,6 +217,7 @@ function App() {
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
       setIsAuthenticated(Boolean(session?.user));
+      setAuthUserId(session?.user?.id ?? null);
       setAuthLoading(false);
     });
 
@@ -215,6 +226,54 @@ function App() {
       data.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!isLaunchMode) {
+      setLaunchAuthorization("authorized");
+    } else if (authLoading) {
+      setLaunchAuthorization("pending");
+    } else if (!isAuthenticated || !authUserId || !supabase) {
+      setLaunchAuthorization("denied");
+    } else {
+      setLaunchAuthorization("pending");
+      void (async () => {
+        try {
+          const { data: ownedAccount, error: ownerError } = await supabase
+            .from("company_accounts")
+            .select("id")
+            .eq("owner_user_id", authUserId)
+            .maybeSingle();
+          if (ownerError) throw ownerError;
+          if (ownedAccount) {
+            if (active) setLaunchAuthorization("authorized");
+            return;
+          }
+
+          const { data: membership, error: membershipError } = await supabase
+            .from("company_members")
+            .select("id")
+            .eq("user_id", authUserId)
+            .eq("status", "active")
+            .maybeSingle();
+          if (membershipError) throw membershipError;
+          if (active) setLaunchAuthorization(membership ? "authorized" : "denied");
+        } catch {
+          if (active) setLaunchAuthorization("denied");
+        }
+      })();
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [authLoading, authUserId, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isLaunchMode || !isLanding || launchAuthorization !== "authorized") return;
+    window.location.hash = "#/dashboard";
+  }, [isLanding, launchAuthorization]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -228,6 +287,13 @@ function App() {
         const { data } = await supabase.auth.getUser();
         const userId = data.user?.id;
         if (!userId) return;
+        const { data: membership } = await supabase
+          .from("company_members")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("status", "active")
+          .maybeSingle();
+        if (membership) return;
         if (!checkAndAutoMarkExistingUser(userId) && !isOnboardingDone(userId)) {
           window.location.hash = "#/onboarding";
         }
@@ -236,7 +302,11 @@ function App() {
     }
   }, [authLoading, isAuthenticated, isPublicOrSupport, isOnboarding, isPublicRoute]);
 
-  const { trial, isExpired, loading: trialLoading } = useTrialStatus(!isLanding && isAuthenticated);
+  const { trial, isExpired, loading: trialLoading, error: trialError } = useTrialStatus(
+    !isLanding && !isAuthRoute && !isLegal && !isSupport && isAuthenticated &&
+      (!isLaunchMode || launchAuthorization === "authorized"),
+    authUserId
+  );
   const hasAdminAccess = trial?.workspaceRole === "owner" || trial?.workspaceRole === "manager";
   const billingAccess = trial
     ? {
@@ -246,17 +316,32 @@ function App() {
         isFounder: trial.isFounder,
         isPastDue: trial.isPastDue,
         statusMessage: trial.statusMessage,
+        companyAccountId: trial.companyAccountId,
+        companyName: trial.companyName,
+        userId: authUserId,
       }
     : {
-        readOnly: false,
-        hasFullAccess: true,
-        canUsePremiumFeatures: true,
+        // Account access not yet verified (still loading) or verification failed:
+        // fail closed, never grant write/premium access by default.
+        readOnly: true,
+        hasFullAccess: false,
+        canUsePremiumFeatures: false,
         isFounder: false,
         isPastDue: false,
-        statusMessage: "",
+        statusMessage: trialError
+          ? "We couldn't verify your account access. Some actions are disabled until this is resolved."
+          : trialLoading
+          ? "Verifying your account access…"
+          : "",
+        companyAccountId: null,
+        companyName: null,
+        userId: authUserId,
       };
 
-  if (!isPublicOrSupport && authLoading) {
+  if (
+    (isLaunchMode && isLanding && (authLoading || (isAuthenticated && launchAuthorization !== "denied"))) ||
+    (!isPublicOrSupport && (authLoading || (isLaunchMode && isAuthenticated && launchAuthorization === "pending")))
+  ) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-slate-50">
         <LoadingSpinner size="lg" />
@@ -281,6 +366,10 @@ function App() {
         </div>
       </div>
     );
+  }
+
+  if (isLaunchMode && !isAuthRoute && !isLegal && !isSupport && launchAuthorization === "denied") {
+    return <ErrorBoundary><ComingSoon /></ErrorBoundary>;
   }
 
   const navItems = [
@@ -356,7 +445,7 @@ function App() {
     return (
       <BillingAccessProvider value={billingAccess}>
         <ErrorBoundary>
-          <WebsiteLanding />
+          {isLaunchMode ? <ComingSoon /> : <WebsiteLanding />}
         </ErrorBoundary>
         <CookieConsentBanner />
       </BillingAccessProvider>
@@ -465,6 +554,16 @@ function App() {
         }`}
       >
         <TrialBanner trial={trial} loading={trialLoading} />
+        {!trial && !trialLoading && trialError ? (
+          <div className="border-b border-rose-200 bg-rose-50 px-3 py-2 text-center text-xs font-semibold text-rose-800 sm:px-4">
+            We couldn't verify your account access. Some actions are disabled until this is resolved.
+          </div>
+        ) : null}
+        {!trial && trialLoading ? (
+          <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-center text-xs font-semibold text-slate-600 sm:px-4">
+            Verifying your account access…
+          </div>
+        ) : null}
         {/* ---------- Header ---------- */}
         <header
           className={`sticky top-0 z-40 w-full border-b backdrop-blur ${

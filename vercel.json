@@ -42,10 +42,5 @@
       "destination": "/api/integrations/xero?integrationAction=sync"
     }
   ],
-  "crons": [
-    {
-      "path": "/api/automations/scheduled-check",
-      "schedule": "0 9 * * *"
-    }
-  ]
+  "crons": []
 }

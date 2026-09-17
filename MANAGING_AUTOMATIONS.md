@@ -1,7 +1,9 @@
 # Managing Marketing Automation
 
+> Launch status: scheduled automation and automatic delivery are not available yet. Manual campaign sending is the supported path.
+
 ## Overview
-Once activated, marketing automations run automatically every day at 9 AM, sending review requests and quote follow-ups based on your settings.
+Automatic scheduling is reserved for a future release; this document describes planned behavior only.
 
 ## Where to Manage Automations
 

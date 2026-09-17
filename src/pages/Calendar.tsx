@@ -25,8 +25,9 @@ import {
 } from "@/lib/calendar";
 import { useCustomers } from "@/lib/customers";
 import { useJobs } from "@/lib/jobs";
+import { useInvoices } from "@/lib/invoices";
 import { useLayout } from "@/lib/layout";
-import { useUsers } from "@/lib/users";
+import { useCompanyMembers } from "@/lib/companyMembers";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 
@@ -91,13 +92,15 @@ function toDate(value: string | undefined, fallback: Date): Date {
 }
 
 export default function CalendarPage() {
-  const { events, addEvent, updateEvent, deleteEvent } = useCalendar();
+  const { events: manualEvents, addEvent, updateEvent, deleteEvent, importLegacy, getLegacyCalendarEventCount, companyName } = useCalendar();
   const { customers } = useCustomers() as any;
   const { jobs } = useJobs() as any;
+  const { invoices } = useInvoices();
   const { layoutMode } = useLayout();
-  const { users } = useUsers();
+  const { members, loading: membersLoading, error: membersError } = useCompanyMembers();
+  const activeMembers = useMemo(() => members.filter((member) => member.status === "active" && member.user_id), [members]);
   const { add: toast } = useToast();
-  const { add: addToHistory, canUndo, undo } = useHistory();
+  const { canUndo, undo } = useHistory();
 
   const containerClass =
     layoutMode === "fixed" ? "max-w-[1440px] mx-auto" : "max-w-none w-full";
@@ -146,13 +149,22 @@ export default function CalendarPage() {
   // filter by staff (user assignment)
   const [staffFilter, setStaffFilter] = useState<Record<string, boolean>>(() => {
     const base: Record<string, boolean> = { unassigned: true };
-    users.forEach((u) => {
-      base[u.id] = true;
+    activeMembers.forEach((member) => {
+      base[member.user_id!] = true;
     });
     return base;
   });
 
   const now = new Date();
+
+  const events = useMemo(() => {
+    const derivedJobs = (jobs || []).flatMap((job: any) => {
+      const date = job.scheduledFor || job.dueDateISO || job.dueDate;
+      return date ? [{ id: `job:${job.id}:${date}`, type: 'job' as const, title: job.description || `Job ${job.refNo || job.id}`, start: date, allDay: true, jobId: job.id, assignedTo: job.assignedTo, derived: true }] : [];
+    });
+    const derivedInvoices = (invoices || []).flatMap((invoice: any) => invoice.dueDateISO ? [{ id: `invoice:${invoice.id}:${invoice.dueDateISO}`, type: 'other' as const, title: `Invoice ${invoice.number || invoice.id} due`, start: invoice.dueDateISO, allDay: true, invoiceId: invoice.id, derived: true }] : []);
+    return [...manualEvents, ...derivedJobs, ...derivedInvoices];
+  }, [manualEvents, jobs, invoices]);
 
   const rbcEvents = useMemo(() => {
     // first filter by event type
@@ -198,7 +210,7 @@ export default function CalendarPage() {
       ? (jobs as any[]).find((j) => j.id === selectedEvent.jobId)
       : null;
 
-  function handleSelectSlot(slotInfo: any) {
+  async function handleSelectSlot(slotInfo: any) {
     const start: Date = slotInfo.start;
     const end: Date = slotInfo.end || addHours(start, 1);
 
@@ -208,7 +220,7 @@ export default function CalendarPage() {
       : `New multi-day event`;
 
     // 🔧 FIX: Always create timed events (no all-day row at the top)
-    const ev = addEvent({
+    const result = await addEvent({
       type: "appointment",
       title,
       start: start.toISOString(),
@@ -217,34 +229,39 @@ export default function CalendarPage() {
     });
 
     // Auto-open sidebar with the new event
-    setSelectedEventId(ev.id);
+    if (!result.ok || !result.event) { toast(result.error || 'Could not create event', 'error'); return; }
+    setSelectedEventId(result.event.id);
     toast("Event created", "success");
   }
 
-  function handleEventDrop({ event, start, end }: any) {
+  async function handleEventDrop({ event, start, end }: any) {
     const id = event.id as string;
-    updateEvent(id, {
+    if (event.resource?.derived) return;
+    const result = await updateEvent(id, {
       start: start.toISOString(),
       end: end.toISOString(),
     });
-    toast("Event moved", "success");
+    toast(result.ok ? "Event moved" : (result.error || 'Could not move event'), result.ok ? "success" : "error");
   }
 
-  function handleEventResize({ event, start, end }: any) {
+  async function handleEventResize({ event, start, end }: any) {
     const id = event.id as string;
-    updateEvent(id, {
+    if (event.resource?.derived) return;
+    const result = await updateEvent(id, {
       start: start.toISOString(),
       end: end.toISOString(),
     });
-    toast("Event resized", "success");
+    toast(result.ok ? "Event resized" : (result.error || 'Could not resize event'), result.ok ? "success" : "error");
   }
 
-  function handleChangeField<K extends keyof CalendarEvent>(
+  async function handleChangeField<K extends keyof CalendarEvent>(
     key: K,
     value: CalendarEvent[K]
   ) {
     if (!selectedEvent) return;
-    updateEvent(selectedEvent.id, { [key]: value } as any);
+    if (selectedEvent.derived) return;
+    const result = await updateEvent(selectedEvent.id, { [key]: value } as any);
+    if (!result.ok) toast(result.error || 'Could not save event', 'error');
   }
 
   function handleOpenJob() {
@@ -263,10 +280,11 @@ export default function CalendarPage() {
 
     const staffKey = ev.assignedTo || "unassigned";
     const staffDot = staffColorById[staffKey] || "#9ca3af";
+    const canonicalMember = activeMembers.find((member) => member.user_id === staffKey);
     const staffName =
       staffKey === "unassigned"
         ? ""
-        : staffNameById[staffKey] || ev.assignedTo || "";
+        : canonicalMember?.full_name || canonicalMember?.email || `Inactive or unresolved: ${ev.assignedTo}`;
 
     const statusDot = statusColor[ev.status || "confirmed"] || "#6b7280";
     const statusLabel = ev.status || "confirmed";
@@ -301,6 +319,15 @@ export default function CalendarPage() {
     setStaffFilter((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
+  async function handleImportLegacy() {
+    const count = getLegacyCalendarEventCount();
+    if (!count || !window.confirm(`Import ${count} legacy calendar events into ${companyName || 'this company'}? Original browser data will be preserved.`)) return;
+    const result = await importLegacy();
+    if (!result.ok) { toast(result.error || 'Could not import calendar events', 'error'); return; }
+    const detail = result.failures.length ? ` ${result.failures.length} failed.` : '';
+    toast(`${result.imported} imported, ${result.skipped} already imported.${detail}`, result.failures.length ? 'error' : 'success');
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-emerald-50/40 to-slate-50">
       {/* UNDO BAR */}
@@ -326,6 +353,8 @@ export default function CalendarPage() {
               <div>
                 <h1 className="text-lg font-semibold text-slate-900">Calendar</h1>
               </div>
+
+              {getLegacyCalendarEventCount() > 0 && <button type="button" onClick={handleImportLegacy} className="text-xs px-2 py-1 border rounded">Import legacy events</button>}
 
               {/* Search bar */}
               <input
@@ -383,22 +412,22 @@ export default function CalendarPage() {
                   <span>Unassigned</span>
                 </button>
 
-                {users.map((u) => (
+                {activeMembers.map((member) => (
                   <button
-                    key={u.id}
+                    key={member.user_id}
                     type="button"
-                    onClick={() => toggleStaff(u.id)}
+                    onClick={() => toggleStaff(member.user_id!)}
                     className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs ${
-                      staffFilter[u.id]
+                      staffFilter[member.user_id!]
                         ? "bg-white text-slate-700 border-slate-400"
                         : "bg-slate-100 text-slate-400 border-slate-200"
                     }`}
                   >
                     <span
                       className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: u.color }}
+                      style={{ backgroundColor: staffColorById[member.user_id!] || "#64748b" }}
                     />
-                    <span>{u.name}</span>
+                    <span>{member.full_name || member.email}</span>
                   </button>
                 ))}
               </div>
@@ -453,11 +482,12 @@ export default function CalendarPage() {
             {selectedEvent && (
               <div className="space-y-3 text-sm">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                  <label htmlFor="calendar-event-title" className="block text-xs font-medium text-slate-700 mb-1">
                     Title
                   </label>
                   <input
                     className="w-full rounded-lg border p-2 text-sm bg-white/95"
+                    id="calendar-event-title"
                     value={selectedEvent.title}
                     onChange={(e) => handleChangeField("title", e.target.value)}
                   />
@@ -520,12 +550,16 @@ export default function CalendarPage() {
                     }
                   >
                     <option value="">Unassigned</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
+                    {selectedEvent.assignedTo && !activeMembers.some((member) => member.user_id === selectedEvent.assignedTo) && (
+                      <option value={selectedEvent.assignedTo}>Inactive or unresolved: {selectedEvent.assignedTo}</option>
+                    )}
+                    {activeMembers.map((member) => (
+                      <option key={member.user_id} value={member.user_id!}>
+                        {member.full_name || member.email}
                       </option>
                     ))}
                   </select>
+                  {(membersLoading || membersError) && <p className="mt-1 text-xs text-amber-700">{membersLoading ? "Loading staff..." : "Staff choices could not be loaded."}</p>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -671,17 +705,11 @@ export default function CalendarPage() {
                         onCancel: () => {
                           setConfirmModal((prev) => ({ ...prev, isOpen: false }));
                         },
-                        onConfirm: () => {
+                        onConfirm: async () => {
                           setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-                          // Store deleted event in history for undo
-                          addToHistory({
-                            type: "deleteEvent",
-                            data: selectedEvent,
-                            undo: () => {
-                              addEvent(selectedEvent);
-                            },
-                          });
-                          deleteEvent(selectedEvent.id);
+                          if (selectedEvent.derived) return;
+                          const result = await deleteEvent(selectedEvent.id);
+                          if (!result.ok) { toast(result.error || 'Could not delete event', 'error'); return; }
                           setSelectedEventId(null);
                           toast("Event deleted", "success");
                         },

@@ -51,9 +51,8 @@ CRON_SECRET=your_random_secret_string
 3. Add environment variables in Vercel dashboard: Settings → Environment Variables
 4. Deploy!
 
-### 5. Cron Job Setup
-The `vercel.json` file is already configured to run daily at 9 AM.
-No additional setup needed - Vercel handles this automatically!
+### 5. Scheduled Automation
+Scheduled automation is not available for release. `vercel.json` has no cron entry and the scheduled-check endpoint returns unavailable. Use the manual campaign controls only.
 
 ## Testing Locally
 

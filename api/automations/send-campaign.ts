@@ -15,7 +15,7 @@ type MicrosoftTokenResponse = {
 
 // Import Supabase server client
 import { createClient } from '@supabase/supabase-js';
-import { requireActiveTrialUserId } from '../lib/auth.js';
+import { requireCompanyWriteAccess } from '../lib/auth.js';
 
 const createSupabaseServerClient = () => {
   const url = process.env.SUPABASE_URL;
@@ -59,21 +59,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     recipients,
   } = req.body || {};
 
-  const normalizedMessage = typeof message === 'string' ? message : messageTemplate;
+  const normalizedMessage = (typeof message === 'string' ? message : messageTemplate || '').trim();
   const normalizedCampaignName = typeof campaignName === 'string' && campaignName.trim().length > 0
-    ? campaignName
+    ? campaignName.trim()
     : 'Campaign';
   const normalizedEmails = (Array.isArray(recipientEmails) ? recipientEmails : Array.isArray(recipients) ? recipients : [])
-    .filter((e: unknown) => typeof e === 'string' && e.includes('@'));
+    .filter((e: unknown) => typeof e === 'string' && e.includes('@'))
+    .map((e: string) => e.trim().toLowerCase())
+    .filter((e: string, index: number, values: string[]) => values.indexOf(e) === index);
   const normalizedPhones = (Array.isArray(recipientPhones) ? recipientPhones : [])
-    .filter((p: unknown) => typeof p === 'string' && p.startsWith('+'));
+    .filter((p: unknown) => typeof p === 'string' && p.trim().startsWith('+'))
+    .map((p: string) => p.trim())
+    .filter((p: string, index: number, values: string[]) => values.indexOf(p) === index);
 
   if (!normalizedMessage || !channel) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
   try {
-    const userId = await requireActiveTrialUserId(req);
+    const { userId, companyAccountId } = await requireCompanyWriteAccess(req);
+    if (channel === 'mailchimp') return res.status(501).json({ success: false, error: 'Mailchimp sending is not available yet' });
 
     // Get user's API credentials
     const credentials = await getUserApiCredentials(userId);
@@ -113,7 +118,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               body: new URLSearchParams({
                 From: `whatsapp:${credentials.twilio_whatsapp_number}`,
                 To: `whatsapp:${phone}`,
-                Body: message,
+                Body: normalizedMessage,
               }).toString(),
             }
           );
@@ -173,10 +178,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             },
             body: JSON.stringify({
               message: {
-                subject: `Campaign: ${campaignName}`,
+                subject: `Campaign: ${normalizedCampaignName}`,
                 body: {
                   contentType: 'Text',
-                  content: message,
+                  content: normalizedMessage,
                 },
                 toRecipients: [
                   {
@@ -225,8 +230,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               },
               body: JSON.stringify({
                 message: {
-                  subject: `Campaign: ${campaignName}`,
-                  text: message,
+                  subject: `Campaign: ${normalizedCampaignName}`,
+                  text: normalizedMessage,
                   from_email: credentials.outlook_from_email || 'noreply@framingapp.com',
                   to: [{ email }],
                 },
@@ -252,6 +257,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Log the campaign send
     const sendLog = {
       campaignId,
+      companyAccountId,
       campaignName: normalizedCampaignName,
       channel,
       sentAt: new Date().toISOString(),
@@ -261,16 +267,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log('Campaign sent:', sendLog);
 
-    return res.status(200).json({
-      success: true,
-      message: `Campaign "${normalizedCampaignName}" sent to ${sent} recipients`,
+    return res.status(sent === 0 ? 502 : 200).json({
+      success: sent > 0,
+      message: sent === 0
+        ? `Campaign "${normalizedCampaignName}" could not be submitted to any recipients`
+        : `Campaign "${normalizedCampaignName}" submitted to ${sent} of ${channel === 'whatsapp' ? normalizedPhones.length : normalizedEmails.length} recipients`,
       sent,
       log: sendLog,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to send campaign';
     console.error('Campaign send error:', error);
-    if (message === 'Trial expired' || message === 'Account is read-only') {
+    if (message === 'Trial expired' || message === 'Account is read-only' || message === 'No active company access' || message === 'Company selection required' || message === 'Unauthorized company access') {
       return res.status(403).json({
         error: message,
       });

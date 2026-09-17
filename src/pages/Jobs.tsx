@@ -268,7 +268,7 @@ export default function JobsPage() {
   });
   const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
 
-  const handleNewJob = useCallback(() => {
+  const handleNewJob = useCallback(async () => {
     setSearchInput("");
     setSearchTerm("");
     setStatusFilter("all");
@@ -276,7 +276,7 @@ export default function JobsPage() {
 
     const id = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-    jobsStore?.add?.({
+    const result = await jobsStore?.add?.({
       id,
       status: "new",
       customer: {},
@@ -286,7 +286,11 @@ export default function JobsPage() {
       notes: "",
     });
 
-    setSelectedId(id);
+    if (!result?.ok) {
+      toast(result?.error || "Could not save job", "error");
+      return;
+    }
+    setSelectedId(result.job.id);
     toast("New job created. Fill in the job details on the right.", "success");
   }, [jobsStore, toast]);
 
@@ -337,32 +341,38 @@ export default function JobsPage() {
       onCancel: () => {
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       },
-      onConfirm: () => {
+      onConfirm: async () => {
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-        selectedJobIds.forEach((id) => remove(id));
+        const results = await Promise.all([...selectedJobIds].map((id) => remove(id)));
+        const failed = results.find((result: any) => !result?.ok);
+        if (failed) { toast(failed.error || "Could not delete jobs", "error"); return; }
         setSelectedJobIds(new Set());
         toast(`${count} job${count === 1 ? "" : "s"} deleted`, "success");
       },
     });
   };
 
-  const bulkChangeStatus = (newStatus: JobStatus) => {
-    selectedJobIds.forEach((id) => {
-      upsert({ id, status: newStatus });
-    });
+  const bulkChangeStatus = async (newStatus: JobStatus) => {
+    const results = await Promise.all([...selectedJobIds].map((id) => upsert({ id, status: newStatus })));
+    const failed = results.find((result: any) => !result?.ok);
+    if (failed) { toast(failed.error || "Could not update jobs", "error"); return; }
     const count = selectedJobIds.size;
     toast(`${count} job${count === 1 ? "" : "s"} updated to ${newStatus}`, "success");
     setSelectedJobIds(new Set());
   };
   // Update version with timeline tracking
-  const bulkChangeStatusWithTimeline = (newStatus: JobStatus) => {
-    selectedJobIds.forEach((id) => {
+  const bulkChangeStatusWithTimeline = async (newStatus: JobStatus) => {
+    const results = await Promise.all([...selectedJobIds].filter((id) => jobs.some((job) => job.id === id && job.status !== newStatus)).map(async (id) => {
       const job = jobs.find((j) => j.id === id);
       if (job && job.status !== newStatus) {
-        upsert({ id, status: newStatus });
-        addTimelineEvent(id, "status_change", { fromStatus: job.status, toStatus: newStatus });
+        const result = await upsert({ id, status: newStatus });
+        if (result?.ok) addTimelineEvent(id, "status_change", { fromStatus: job.status, toStatus: newStatus });
+        return result;
       }
-    });
+      return { ok: true };
+    }));
+    const failed = results.find((result: any) => !result?.ok);
+    if (failed) { toast(failed.error || "Could not update jobs", "error"); return; }
     const count = selectedJobIds.size;
     toast(`${count} job${count === 1 ? "" : "s"} updated to ${newStatus}`, "success");
     setSelectedJobIds(new Set());
@@ -412,7 +422,7 @@ export default function JobsPage() {
     const onGlobalNew = (event: Event) => {
       const detail = (event as CustomEvent).detail as { type?: string };
       if (detail?.type === "job") {
-        handleNewJob();
+        void handleNewJob();
       }
     };
 
@@ -458,24 +468,15 @@ export default function JobsPage() {
   }, [searchInput, statusFilter, sortBy]);
   
   // --- Safe store helpers (support different store shapes) ---
-  const upsert = (patch: Partial<Job> & { id: string }) =>
-    jobsStore?.update?.(patch) ??
-    jobsStore?.patch?.(patch) ??
-    (() => {
-      const bag = (jobsStore?.jobs ?? jobs) as Job[];
-      const idx = bag.findIndex((j: Job) => j.id === patch.id);
-      if (idx >= 0 && jobsStore?.jobs)
-        jobsStore.jobs[idx] = { ...jobsStore.jobs[idx], ...patch };
-      return patch.id;
-    })();
+  const upsert = async (patch: Partial<Job> & { id: string }) => {
+    if (typeof jobsStore?.update !== "function") return { ok: false, error: "No job update function available" };
+    return jobsStore.update(patch);
+  };
 
-  const remove = (id: string) =>
-    jobsStore?.remove?.(id) ??
-    jobsStore?.delete?.(id) ??
-    jobsStore?.splice?.(
-      (jobs as Job[]).findIndex((j: Job) => j.id === id),
-      1
-    );
+  const remove = async (id: string) => {
+    if (typeof jobsStore?.remove !== "function") return { ok: false, error: "No job delete function available" };
+    return jobsStore.remove(id);
+  };
 
   const handleDelete = (job: Job, jobView: any) => {
     const displayName = jobView?.title || jobView?.customerName || `Job ${String(job.id).slice(0, 6)}`;
@@ -486,39 +487,40 @@ export default function JobsPage() {
       onCancel: () => {
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       },
-      onConfirm: () => {
+      onConfirm: async () => {
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-        remove(job.id);
+        const result = await remove(job.id);
+        if (!result?.ok) { toast(result?.error || "Could not delete job", "error"); return; }
         if (selectedId === job.id) setSelectedId(null);
         toast("Job deleted successfully", "success");
       },
     });
   };
 
-  const toggleComplete = (job: Job) => {
+  const toggleComplete = async (job: Job) => {
     const currentStatus = String(job.status || "").toLowerCase();
     const isCompleted = currentStatus === "completed";
     if (isCompleted) {
       // Move back to in-progress
-      upsert({ id: job.id, status: "in-progress", completedAt: undefined });
+      await upsert({ id: job.id, status: "in-progress", completedAt: undefined });
     } else {
       const when = new Date().toISOString();
-      upsert({
+      await upsert({
         id: job.id,
         status: "completed",
         completedAt: job.completedAt ?? when,
       });
     }
   };
-  const toggleCompleteWithTimeline = (job: Job) => {
+  const toggleCompleteWithTimeline = async (job: Job) => {
     const currentStatus = String(job.status || "").toLowerCase();
     const isCompleted = currentStatus === "completed";
     if (isCompleted) {
-      upsert({ id: job.id, status: "in-progress", completedAt: undefined });
+      await upsert({ id: job.id, status: "in-progress", completedAt: undefined });
       addTimelineEvent(job.id, "status_change", { fromStatus: "completed", toStatus: "in-progress" });
     } else {
       const when = new Date().toISOString();
-      upsert({
+      await upsert({
         id: job.id,
         status: "completed",
         completedAt: job.completedAt ?? when,
@@ -842,6 +844,17 @@ export default function JobsPage() {
   const selectedStatus = String(selected?.status || "").toLowerCase();
   const selectedIsCompleted = selectedStatus === "completed";
 
+  const importLegacyJobs = async () => {
+    const count = jobsStore.getLegacyLocalJobCount?.() || 0;
+    if (!count) { toast("No saved local jobs to import", "info"); return; }
+    const companyName = jobsStore.companyName || "this company";
+    if (!window.confirm(`Import ${count} saved jobs into "${companyName}"? The original browser data will be kept as-is.`)) return;
+    const result = await jobsStore.importLegacyLocalJobs?.();
+    if (!result?.ok) { toast(result?.error || "Could not import jobs", "error"); return; }
+    const failures = result.failures?.length ? `, failed: ${result.failures.map((failure: any) => `${failure.id} (${failure.reason})`).join("; ")}` : "";
+    toast(`${result.imported} imported, ${result.skipped} already imported, ${result.collisions} reference collisions, ${result.unresolved} unresolved references${failures}`, result.imported ? "success" : "info");
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <main className="w-full p-6 space-y-6">
@@ -853,14 +866,18 @@ export default function JobsPage() {
                 Track job progress, deadlines, and production status in one place.
               </p>
             </div>
-            <button
-              onClick={handleNewJob}
-              className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50"
-            >
-              New job
-            </button>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => void importLegacyJobs()} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50">Import saved jobs</button>
+              <button type="button" onClick={() => void handleNewJob()} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50">New job</button>
+            </div>
           </div>
         </header>
+        {jobsStore.loading && (
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">Loading jobs…</div>
+        )}
+        {jobsStore.error && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">Could not load jobs: {jobsStore.error}</div>
+        )}
         {/* OVERVIEW SECTION – matches Quotes style */}
         <section className="rounded-2xl ring-1 ring-slate-200 bg-white p-4 md:p-5">
           <div className="flex items-center justify-between mb-3">

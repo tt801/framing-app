@@ -191,7 +191,7 @@ async function handleInvite(req: VercelRequest, res: VercelResponse) {
 
   if (memberError || !member) throw memberError || new Error("Could not save invite");
 
-  const redirectTo = `${getBaseUrl(req)}/#/auth/callback`;
+  const redirectTo = `${getBaseUrl(req)}/auth/callback`;
   const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
     redirectTo,
     data: {
