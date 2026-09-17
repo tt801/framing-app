@@ -53,6 +53,10 @@ end $$;
 
 revoke all on public.calendar_events from anon, authenticated;
 grant select on public.calendar_events to authenticated;
+revoke all on function public.calendar_event_writable(uuid) from public, anon, authenticated;
+revoke all on function public.create_calendar_event(text,uuid,jsonb,text,text,text) from public, anon, authenticated;
+revoke all on function public.update_calendar_event(text,uuid,jsonb,text,text,text,bigint) from public, anon, authenticated;
+revoke all on function public.delete_calendar_event(text,uuid,bigint) from public, anon, authenticated;
 grant execute on function public.create_calendar_event(text,uuid,jsonb,text,text,text),public.update_calendar_event(text,uuid,jsonb,text,text,text,bigint),public.delete_calendar_event(text,uuid,bigint) to authenticated;
 drop policy if exists "Calendar members can read" on public.calendar_events;
 create policy "Calendar members can read" on public.calendar_events for select using (exists(select 1 from public.company_accounts where id=company_account_id and owner_user_id=auth.uid()) or public.is_active_company_member(company_account_id));

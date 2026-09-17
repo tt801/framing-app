@@ -11,4 +11,5 @@ begin
   if tg_op='UPDATE' and new.company_account_id<>old.company_account_id then raise exception 'Calendar company_account_id cannot be changed'; end if;
   return new;
 end $$;
+revoke all on function public.check_calendar_event_references() from public, anon, authenticated;
 commit;

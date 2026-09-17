@@ -95,6 +95,7 @@ begin
 end;
 $$;
 
+revoke all on function public.expire_stripe_checkout_attempt(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.begin_stripe_checkout(uuid,text,text,boolean,integer) from public,anon,authenticated;
 revoke all on function public.save_stripe_checkout_session(uuid,uuid,text,text,text,timestamptz) from public,anon,authenticated;
 revoke all on function public.complete_founder_checkout(uuid,text,text,text) from public,anon,authenticated;
