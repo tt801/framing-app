@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const stripeMock = vi.hoisted(() => ({
   webhooks: { constructEvent: vi.fn() },
   paymentIntents: { retrieve: vi.fn() },
   subscriptions: { retrieve: vi.fn(), list: vi.fn() },
+  customers: { retrieve: vi.fn() },
 }))
 
 const supabaseMock = vi.hoisted(() => {
@@ -41,7 +43,7 @@ const supabaseMock = vi.hoisted(() => {
     if (name === 'release_stripe_subscription_reconciliation') return { data: true, error: null }
     if (name === 'reconcile_stripe_subscription_state') {
       if (args.p_company_account_id !== 'company-a') return { data: false, error: null }
-      state.accounts.set(args.p_company_account_id, { subscriptionId: args.p_subscription_id, planStatus: args.p_status })
+      state.accounts.set(args.p_company_account_id, { ...state.accounts.get(args.p_company_account_id), subscriptionId: args.p_subscription_id, planStatus: args.p_status })
       return { data: true, error: null }
     }
     if (name === 'complete_founder_checkout') return state.failAccountUpdate ? { data: null, error: new Error('account update failed') } : { data: true, error: null }
@@ -50,8 +52,9 @@ const supabaseMock = vi.hoisted(() => {
   const from = vi.fn(() => {
     const query: any = {
       update: (values: any) => { query.values = values; return query },
-      eq: (_column: string, value: string) => { query.accountId = value; return query },
+      eq: (column: string, value: string) => { query.column = column; query.accountId = value; return query },
       select: () => query,
+      maybeSingle: async () => ({ data: [...state.accounts.values()].find(account => account[query.column] === query.accountId) || null, error: null }),
       single: async () => {
         if (state.failAccountUpdate) return { data: null, error: new Error('account update failed') }
         state.accounts.set(query.accountId, { ...(state.accounts.get(query.accountId) || {}), ...query.values })
@@ -64,7 +67,7 @@ const supabaseMock = vi.hoisted(() => {
 })
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => supabaseMock }))
-vi.mock('stripe', () => ({ default: class Stripe { webhooks = stripeMock.webhooks; paymentIntents = stripeMock.paymentIntents; subscriptions = stripeMock.subscriptions } }))
+vi.mock('stripe', () => ({ default: class Stripe { webhooks = stripeMock.webhooks; paymentIntents = stripeMock.paymentIntents; subscriptions = stripeMock.subscriptions; customers = stripeMock.customers } }))
 
 import handler from '@/../api/billing/webhook'
 
@@ -74,10 +77,18 @@ const request = (event: any, valid = true) => {
   return { method: 'POST', headers: { 'stripe-signature': 'sig' }, async *[Symbol.asyncIterator]() { yield JSON.stringify(event) } } as any
 }
 const response = () => { const out: any = {}; return { out, status(code: number) { out.status = code; return this }, json(body: any) { out.body = body; return this }, end() { out.ended = true; return this } } as any }
-const subscription = (id: string, company = 'company-a') => ({ id, metadata: { company_account_id: company }, status: 'active', cancel_at: null, items: { data: [{ price: { id: 'price-1' }, current_period_end: 2000 }] } })
+const subscription = (id: string, company = 'company-a') => ({ id, customer: 'cus-a', metadata: { company_account_id: company }, status: 'active', cancel_at: null, items: { data: [{ price: { id: 'price-1' }, current_period_end: 2000 }] } })
 const event = (id: string, type = 'customer.subscription.updated', created = 1000, object = subscription('sub-1')) => ({ id, type, created, data: { object } })
 
-beforeEach(() => { state.logs.clear(); state.accounts.clear(); state.subscriptions.clear(); state.authoritative = [subscription('sub-1')]; state.failAccountUpdate = false; state.successfulClaims = 0; stripeMock.subscriptions.list.mockImplementation(async () => ({ data: state.authoritative })); vi.clearAllMocks() })
+beforeEach(() => {
+  vi.clearAllMocks()
+  state.logs.clear(); state.accounts.clear(); state.subscriptions.clear()
+  state.accounts.set('company-a', { id: 'company-a', stripe_customer_id: 'cus-a' })
+  state.authoritative = [subscription('sub-1')]
+  state.failAccountUpdate = false; state.successfulClaims = 0
+  stripeMock.subscriptions.list.mockImplementation(async () => ({ data: state.authoritative, has_more: false }))
+  stripeMock.customers.retrieve.mockResolvedValue({ id: 'cus-other', metadata: {} })
+})
 
 describe('Block 3A webhook reliability', () => {
   it('processes once and processed duplicates are no-ops', async () => {
@@ -85,6 +96,7 @@ describe('Block 3A webhook reliability', () => {
     const second = response(); await handler(request(event('evt-1')), second); expect(second.out.body.duplicate).toBe(true); expect(state.accounts.get('company-a').subscriptionId).toBe('sub-1')
   })
   it('retries a failed first attempt and does not mark failure processed', async () => {
+    state.accounts.get('company-a').stripe_customer_id = 'cus-founder'
     state.failAccountUpdate = true; stripeMock.paymentIntents.retrieve.mockResolvedValueOnce({ metadata: { company_account_id: 'company-a' } }); const founder = { id: 'evt-retry', type: 'checkout.session.completed', created: 1000, data: { object: { mode: 'payment', payment_status: 'paid', customer: 'cus-founder', payment_intent: 'pi-retry' } } }; const failed = response(); await handler(request(founder), failed); expect(failed.out.status).toBe(400); expect(state.logs.get('evt-retry')?.status).toBe('failed')
     state.failAccountUpdate = false; stripeMock.paymentIntents.retrieve.mockResolvedValueOnce({ metadata: { company_account_id: 'company-a' } }); const retried = response(); await handler(request(founder), retried); expect(retried.out.status).toBe(200); expect(state.logs.get('evt-retry')?.status).toBe('processed')
   })
@@ -108,7 +120,7 @@ describe('Block 3A webhook reliability', () => {
   it('fails lookup and retries, and does not process a missing account', async () => {
     stripeMock.subscriptions.list.mockRejectedValueOnce(new Error('lookup failed'))
     const failed = response(); await handler(request(event('evt-lookup')), failed); expect(failed.out.status).toBe(400); expect(state.logs.get('evt-lookup')?.status).toBe('failed')
-    stripeMock.subscriptions.list.mockResolvedValueOnce({ data: [subscription('sub-1')] })
+    stripeMock.subscriptions.list.mockResolvedValueOnce({ data: [subscription('sub-1')], has_more: false })
     const retried = response(); await handler(request(event('evt-lookup')), retried); expect(retried.out.status).toBe(200)
     const missing = response(); await handler(request(event('evt-missing', 'customer.subscription.updated', 1000, subscription('sub-1', 'missing-company'))), missing); expect(missing.out.status).toBe(400); expect(state.logs.get('evt-missing')?.status).toBe('failed')
   })
@@ -120,6 +132,6 @@ describe('Block 3A webhook reliability', () => {
     expect(deletedOld.out.status).toBe(200)
   })
   it('rejects invalid signatures before claiming or mutating', async () => {
-    const result = response(); await handler(request(event('evt-invalid'), false), result); expect(result.out.status).toBe(400); expect(state.logs.size).toBe(0); expect(state.accounts.size).toBe(0)
+    const result = response(); await handler(request(event('evt-invalid'), false), result); expect(result.out.status).toBe(400); expect(state.logs.size).toBe(0); expect(state.accounts.size).toBe(1); expect(state.accounts.get('company-a')).toEqual({ id: 'company-a', stripe_customer_id: 'cus-a' })
   })
 })

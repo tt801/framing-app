@@ -23,7 +23,30 @@ async function requireUpdatedAccount(companyAccountId: string, values: Record<st
   if (error || !data) throw error || new Error("Target company account was not updated");
 }
 
-async function reconcileCompanySubscription(companyAccountId: string, eventId: string, claimToken: string) {
+// Checkout persists this association and stamps company metadata on its Stripe
+// customer and subscription. Unknown customers without either marker are not ours;
+// conflicting or incomplete FramersApp identity must not be acknowledged.
+function customerIdOf(customer: string | Stripe.Customer | Stripe.DeletedCustomer | null | undefined) {
+  return typeof customer === "string" ? customer : customer?.id;
+}
+
+async function resolveCompanyAccount(customerId: string | undefined, metadataCompanyId: string | undefined) {
+  if (!customerId) throw new Error("Billing event has no Stripe customer identity");
+  const { data: account, error } = await supabase.from("company_accounts")
+    .select("id, stripe_customer_id").eq("stripe_customer_id", customerId).maybeSingle();
+  if (error) throw error;
+  if (metadataCompanyId) {
+    if (!account || account.id !== metadataCompanyId) throw new Error("Company/customer billing identity mismatch");
+    return account as { id: string; stripe_customer_id: string };
+  }
+  if (account) throw new Error("FramersApp billing event is missing company metadata");
+  const customer = await stripe.customers.retrieve(customerId);
+  if (!("metadata" in customer)) throw new Error("Stripe customer is deleted; cannot classify billing event");
+  if (customer.metadata?.company_account_id) throw new Error("Company-marked Stripe customer is missing its account association");
+  return null; // No stored association and no FramersApp customer metadata.
+}
+
+async function reconcileCompanySubscription(companyAccountId: string, customerId: string, eventId: string, claimToken: string) {
   const reconcileToken = randomUUID();
   const { data: claimed, error: claimError } = await supabase.rpc("claim_stripe_subscription_reconciliation", {
     p_company_account_id: companyAccountId,
@@ -34,9 +57,24 @@ async function reconcileCompanySubscription(companyAccountId: string, eventId: s
   if (claimed !== true) throw new Error("Subscription reconciliation is busy; retry webhook");
 
   try {
-    const listed = await stripe.subscriptions.list({ status: "all", limit: 100 });
-    const matching = listed.data
-      .filter(subscription => subscription.metadata?.company_account_id === companyAccountId)
+    const subscriptions: Stripe.Subscription[] = [];
+    let startingAfter: string | undefined;
+    while (true) {
+      const page = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 100,
+        ...(startingAfter ? { starting_after: startingAfter } : {}) });
+      if (!Array.isArray(page.data) || typeof page.has_more !== "boolean") throw new Error("Incomplete Stripe subscription response");
+      for (const subscription of page.data) {
+        if (customerIdOf(subscription.customer) !== customerId || subscription.metadata?.company_account_id !== companyAccountId) {
+          throw new Error("Subscription does not match verified company/customer identity");
+        }
+        subscriptions.push(subscription);
+      }
+      if (!page.has_more) break;
+      const lastId = page.data.at(-1)?.id;
+      if (!lastId || lastId === startingAfter) throw new Error("Stripe subscription pagination did not advance");
+      startingAfter = lastId;
+    }
+    const matching = subscriptions
       .filter(subscription => ["active", "trialing", "past_due", "unpaid", "paused"].includes(subscription.status))
       .sort((left, right) => (getPeriodEnd(right) ?? 0) - (getPeriodEnd(left) ?? 0));
     const current = matching[0];
@@ -66,12 +104,14 @@ async function handleFounderPayment(session: Stripe.Checkout.Session) {
   const companyAccountId = session.payment_intent
     ? (await stripe.paymentIntents.retrieve(session.payment_intent as string)).metadata?.company_account_id
     : undefined;
+  const account = await resolveCompanyAccount(customerIdOf(session.customer), companyAccountId);
+  if (!account) return; // Unrelated Stripe checkout.
   if (!companyAccountId) throw new Error("Founder payment is missing company metadata");
   if (session.mode !== "payment" || session.payment_status !== "paid") throw new Error("Founder checkout is not paid");
-  const customerId = session.customer ? (typeof session.customer === "string" ? session.customer : session.customer.id) : null;
+  const customerId = customerIdOf(session.customer) || null;
   const founderPriceId = process.env.VITE_STRIPE_PRICE_FOUNDER || "";
   const { data, error } = await supabase.rpc("complete_founder_checkout", {
-    p_company_account_id: companyAccountId,
+    p_company_account_id: account.id,
     p_session_id: session.id,
     p_customer_id: customerId,
     p_founder_price_id: founderPriceId,
@@ -81,23 +121,32 @@ async function handleFounderPayment(session: Stripe.Checkout.Session) {
 }
 
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventId: string, claimToken: string) {
-  if (!session.subscription) return;
+  if (session.mode !== "subscription") {
+    await resolveCompanyAccount(customerIdOf(session.customer), undefined);
+    return; // Unknown customer is unrelated; a known company throws for retry.
+  }
+  const sessionCustomerId = customerIdOf(session.customer);
+  if (!session.subscription) {
+    await resolveCompanyAccount(sessionCustomerId, undefined);
+    return; // Unrelated Stripe checkout; a known one throws for retry.
+  }
   const subscription = await stripe.subscriptions.retrieve(typeof session.subscription === "string" ? session.subscription : session.subscription.id);
-  const companyAccountId = subscription.metadata?.company_account_id;
-  if (!companyAccountId) return;
-  await reconcileCompanySubscription(companyAccountId, eventId, claimToken);
+  if (customerIdOf(subscription.customer) !== sessionCustomerId) throw new Error("Checkout and subscription customer mismatch");
+  const account = await resolveCompanyAccount(sessionCustomerId, subscription.metadata?.company_account_id);
+  if (!account) return;
+  await reconcileCompanySubscription(account.id, account.stripe_customer_id, eventId, claimToken);
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription, eventId: string, claimToken: string) {
-  const companyAccountId = subscription.metadata?.company_account_id;
-  if (!companyAccountId) return;
-  await reconcileCompanySubscription(companyAccountId, eventId, claimToken);
+  const account = await resolveCompanyAccount(customerIdOf(subscription.customer), subscription.metadata?.company_account_id);
+  if (!account) return;
+  await reconcileCompanySubscription(account.id, account.stripe_customer_id, eventId, claimToken);
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription, eventId: string, claimToken: string) {
-  const companyAccountId = subscription.metadata?.company_account_id;
-  if (!companyAccountId) return;
-  await reconcileCompanySubscription(companyAccountId, eventId, claimToken);
+  const account = await resolveCompanyAccount(customerIdOf(subscription.customer), subscription.metadata?.company_account_id);
+  if (!account) return;
+  await reconcileCompanySubscription(account.id, account.stripe_customer_id, eventId, claimToken);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -115,7 +164,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
   if (claimError) return res.status(500).json({ error: "Webhook claim failed" });
   const claimRow = Array.isArray(claim) ? claim[0] : claim;
-  if (!claimRow?.claimed) return res.status(200).json({ received: true, duplicate: claimRow?.status === "processed", retryable: claimRow?.status !== "processed" });
+  if (claimRow?.claimed === false && claimRow.status === "processed") return res.status(200).json({ received: true, duplicate: true });
+  if (claimRow?.claimed !== true || claimRow.status !== "pending") {
+    return res.status(503).json({ error: "Webhook event has not been claimed for processing; retry delivery" });
+  }
 
   try {
     switch (event.type) {
