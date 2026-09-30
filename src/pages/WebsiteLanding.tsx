@@ -131,14 +131,14 @@ const landingContent = {
     },
     {
       id: "automation",
-      title: "Follow-up Automations",
-      tagline: "Send follow-ups and campaigns manually when you are ready.",
+      title: "Campaign planning",
+      tagline: "Prepare follow-ups and campaigns for your studio.",
       bullets: [
-        "Send quote follow-ups manually by email or WhatsApp",
-        "Send review requests manually after a completed job",
-        "Launch campaigns manually to selected customers",
+        "Draft quote follow-ups and review request templates",
+        "Build audiences from your customer records",
+        "Export audience lists for use outside FramersApp",
         "Use campaign templates for upgrades, re-frames, and gifting periods",
-        "All messages are branded under your studio name with reusable personalization tokens",
+        "Provider sending and scheduled automation are planned for a later release",
       ],
     },
   ],
@@ -175,9 +175,9 @@ const landingContent = {
       bullets: [
         "Everything in Starter",
         "Multi-user teams (up to 5 seats)",
-        "Quote follow-up automations",
-        "Review request automations",
-        "Mailchimp & accounting integrations",
+        "Campaign drafting and audience export",
+        "Reusable follow-up templates",
+        "External integrations (coming soon)",
         "Priority support",
       ],
     },
@@ -191,8 +191,8 @@ const landingContent = {
       bullets: [
         "Everything in Growth",
         "Unlimited team seats",
-        "Advanced API integrations",
-        "Xero & QuickBooks sync",
+        "Advanced API integrations (coming soon)",
+        "Xero & QuickBooks sync (coming soon)",
         "Dedicated onboarding",
         "Priority phone support",
       ],
@@ -209,7 +209,7 @@ const landingContent = {
         "Lifetime access to all features",
         "All future updates included",
         "Up to 5 team seats",
-        "Automations & integrations",
+        "Future automations & integrations",
         "Founding member badge & community",
         "Locked-in pricing forever",
       ],
@@ -562,38 +562,33 @@ function RoomMockup({ demoStep = 0 }: { demoStep?: number }) {
 
 function AutomationMockup() {
   return (
-    <MockupShell url="app.framersapp.co.za / automations">
+    <MockupShell url="app.framersapp.co.za / marketing">
       <div className="p-3 text-[11px]">
-        <p className="mb-2.5 font-bold text-slate-300">Active Automations</p>
+        <p className="mb-2.5 font-bold text-slate-300">Campaign drafts and templates</p>
         {[
           {
             label: "Quote follow-up",
-            trigger: "3 days after send · no reply",
-            stat: "8 sent this month",
-            on: true,
+            trigger: "Reusable message template",
+            stat: "Ready to copy",
           },
           {
             label: "Review request",
-            trigger: "Job marked Collected",
-            stat: "14 sent this month",
-            on: true,
+            trigger: "Reusable message template",
+            stat: "Ready to edit",
           },
           {
             label: "Re-engagement campaign",
-            trigger: "60 days no activity",
-            stat: "Paused",
-            on: false,
+            trigger: "Prepare an audience for export",
+            stat: "Draft",
           },
         ].map((a) => (
           <div key={a.label} className="mb-2 rounded-lg border border-white/10 bg-slate-800 px-3 py-2.5">
             <div className="flex items-center justify-between">
               <span className="font-semibold text-white">{a.label}</span>
               <span
-                className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
-                  a.on ? "bg-emerald-400/20 text-emerald-300" : "bg-slate-600/50 text-slate-400"
-                }`}
+                className="rounded-full bg-slate-600/50 px-2 py-0.5 text-[9px] font-bold text-slate-300"
               >
-                {a.on ? "Active" : "Paused"}
+                Draft
               </span>
             </div>
             <p className="mt-0.5 text-slate-400">{a.trigger}</p>
@@ -978,15 +973,15 @@ export default function WebsiteLanding() {
         {/* ── INTEGRATIONS ──────────────────────────────────────────────── */}
         <section id="integrations" className="mx-auto mt-16 max-w-5xl scroll-mt-6 reveal-up" style={{ animationDelay: "70ms" }}>
           <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">Integrations</p>
-          <h2 className="font-display text-3xl text-white sm:text-4xl">Connect the tools your studio already uses.</h2>
+          <h2 className="font-display text-3xl text-white sm:text-4xl">External connections are planned.</h2>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300/85">
-            Framers App links quoting, communication, marketing, and accounting in one flow so your team can move faster without retyping customer data into five different systems.
+            Provider messaging, marketing delivery, and accounting sync are not available for the initial release. You can prepare campaigns and export audiences today.
           </p>
 
           <div className="mt-7 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-r from-slate-900/70 via-cyan-950/35 to-slate-900/70 p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-cyan-200">Connected apps</p>
-              <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">Sync + messaging + marketing</span>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-cyan-200">Planned connections — not yet available</p>
+              <span className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-slate-300">Future releases</span>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
@@ -1012,7 +1007,7 @@ export default function WebsiteLanding() {
             {[
               {
                 title: "Accounting sync",
-                body: "Push invoices and payment status into your books automatically, with less month-end cleanup.",
+                body: "Planned: sync invoices and payment status into your books.",
                 logos: [
                   { label: "Xero", src: "/integrations/xero.svg" },
                   { label: "QuickBooks", src: "/integrations/quickbooks.svg" },
@@ -1021,21 +1016,21 @@ export default function WebsiteLanding() {
               },
               {
                 title: "Client messaging",
-                body: "Send approvals, follow-ups, and pickup updates from the same job record in seconds.",
+                body: "Planned: send approvals, follow-ups, and pickup updates through connected providers.",
                 logos: [
                   { label: "WhatsApp", src: "/integrations/whatsapp.svg" },
                   { label: "Email", src: "/integrations/email.svg" },
                 ],
-                points: ["Quote reminders via WhatsApp", "Email templates with merge fields", "Unified contact timeline"],
+                points: ["Planned: WhatsApp quote reminders", "Planned: provider email delivery", "Planned: unified contact timeline"],
               },
               {
                 title: "Marketing engine",
-                body: "Keep your pipeline warm with campaigns that target the right customers at the right time.",
+                body: "Draft campaigns and export audiences now; provider delivery is planned for later.",
                 logos: [
                   { label: "Mailchimp", src: "/integrations/mailchimp.svg" },
                   { label: "Automation", src: "/integrations/email.svg" },
                 ],
-                points: ["Segment by job type and spend", "Seasonal promotions on schedule", "Track opens, clicks, and re-bookings"],
+                points: ["Draft messages and choose audiences now", "Export audience lists now", "Planned: scheduled sending and delivery tracking"],
               },
             ].map((item) => (
               <article key={item.title} className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
@@ -1084,19 +1079,19 @@ export default function WebsiteLanding() {
                   </ul>
                   {feature.id === "automation" && (
                     <div className="mt-6 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 p-4">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-200">Automated marketing outcomes</p>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-200">Campaign preparation</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         <div className="rounded-xl border border-white/15 bg-slate-900/45 p-3">
                           <p className="text-[10px] uppercase tracking-wide text-slate-400">Lead recovery</p>
-                          <p className="mt-1 text-sm font-bold text-white">Recover quiet quotes automatically</p>
+                          <p className="mt-1 text-sm font-bold text-white">Draft quote follow-up templates</p>
                         </div>
                         <div className="rounded-xl border border-white/15 bg-slate-900/45 p-3">
                           <p className="text-[10px] uppercase tracking-wide text-slate-400">Repeat business</p>
-                          <p className="mt-1 text-sm font-bold text-white">Re-engage past clients each season</p>
+                          <p className="mt-1 text-sm font-bold text-white">Prepare seasonal campaign audiences</p>
                         </div>
                         <div className="rounded-xl border border-white/15 bg-slate-900/45 p-3">
                           <p className="text-[10px] uppercase tracking-wide text-slate-400">Time saved</p>
-                          <p className="mt-1 text-sm font-bold text-white">Replace manual follow-ups with triggers</p>
+                          <p className="mt-1 text-sm font-bold text-white">Reuse and copy message templates</p>
                         </div>
                       </div>
                     </div>

@@ -10,6 +10,6 @@ describe('Block 5A Mailchimp launch guard', () => {
     const provider = vi.fn(); vi.stubGlobal('fetch', provider)
     const out: any = {}; const res: any = { status(code: number) { out.status = code; return this }, json(body: any) { out.body = body; return this } }
     await sendCampaign({ method: 'POST', headers: {}, body: { channel: 'mailchimp', message: 'hello', recipientEmails: ['a@test.local'] } } as any, res)
-    expect(out.status).toBe(501); expect(out.body.success).toBe(false); expect(provider).not.toHaveBeenCalled()
+    expect(out.status).toBe(501); expect(out.body).toEqual({ success: false, error: 'External provider integrations are not available for the initial release' }); expect(provider).not.toHaveBeenCalled()
   })
 })

@@ -13,6 +13,7 @@ type VercelResponse = {
 };
 import { createClient } from '@supabase/supabase-js';
 import { requireCompanyWriteAccess } from '../lib/auth.js';
+import { externalProvidersAvailable, providerUnavailable } from '../lib/providerAvailability.js';
 
 type UserApiCredentials = {
   twilio_account_sid?: string;
@@ -73,6 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+  if (!externalProvidersAvailable()) return res.status(501).json(providerUnavailable);
 
   try {
     const { userId } = await requireCompanyWriteAccess(req);

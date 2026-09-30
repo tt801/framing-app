@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createMarketingActions } from '@/lib/marketingActions'
+import { createMarketingActions, marketingSubmissionOutcome } from '@/lib/marketingActions'
 
 function make(overrides: any = {}) {
   return {
@@ -9,6 +9,31 @@ function make(overrides: any = {}) {
 }
 
 describe('Block 6F marketing actions', () => {
+  for (const [name, status, result] of [
+    ['HTTP 501', 501, { success: false, sent: 5, error: 'Provider unavailable' }],
+    ['HTTP failure', 503, { success: true, sent: 5, error: 'Provider unavailable' }],
+    ['rejected result', 200, { success: false, sent: 5, error: 'Provider unavailable' }],
+  ] as const) {
+    it(`${name} with misleading sent count cannot create an accepted-send record or success feedback`, async () => {
+      const response = new Response(JSON.stringify(result), { status })
+      const deps = make({
+        submit: vi.fn(async () => marketingSubmissionOutcome(response, await response.json(), 5)),
+        record: vi.fn(),
+      })
+      await createMarketingActions(deps).send({ kind: 'campaign', companyId: 'company-a', payload: {}, recipientCount: 5 })
+      expect(deps.record).not.toHaveBeenCalled()
+      expect(deps.feedback).toHaveBeenCalledWith('Provider unavailable', 'error')
+      expect(deps.feedback).not.toHaveBeenCalledWith(expect.anything(), 'success')
+    })
+  }
+
+  it('does not log a disabled or rejected provider submission as accepted', async () => {
+    const deps = make({ submit: vi.fn().mockResolvedValue({ accepted: 0, failed: 1, message: 'Provider unavailable' }), record: vi.fn() })
+    await createMarketingActions(deps).send({ kind: 'campaign', companyId: 'company-a', payload: {}, recipientCount: 1 })
+    expect(deps.record).not.toHaveBeenCalled()
+    expect(deps.feedback).toHaveBeenCalledWith('Provider unavailable', 'error')
+  })
+
   it('reports partial provider acceptance without claiming delivery', async () => {
     const deps = make({ submit: vi.fn().mockResolvedValue({ accepted: 2, failed: 1 }), record: vi.fn().mockResolvedValue({ ok: true }) })
     await createMarketingActions(deps).send({ kind: 'campaign', companyId: 'company-a', payload: {}, recipientCount: 3 })

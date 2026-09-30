@@ -30,19 +30,12 @@ describe('Block 4 launch safety', () => {
     expect(await result.json()).toMatchObject({ error: 'AI room generation is not available yet' })
   })
 
-  it('normalizes the message and reports partial manual delivery accurately', async () => {
-    const originalFetch = globalThis.fetch
-    const calls: RequestInit[] = []
-    globalThis.fetch = vi.fn(async (input: any, init?: RequestInit) => {
-      calls.push(init || {})
-      if (String(input).includes('login.microsoftonline.com')) return new Response(JSON.stringify({ access_token: 'token' }), { status: 200 })
-      return new Response('', { status: calls.length === 2 ? 202 : 500 })
-    }) as any
+  it('rejects manual Outlook delivery without contacting a provider', async () => {
+    const provider = vi.fn(); vi.stubGlobal('fetch', provider)
     const result = response()
-    await sendCampaign({ method: 'POST', headers: {}, body: { channel: 'email', messageTemplate: 'Normalized body', campaignName: 'Manual', recipientEmails: ['a@test.local', 'b@test.local'] } } as any, result)
-    globalThis.fetch = originalFetch
-    expect(result.out.status).toBe(200)
-    expect(result.out.body).toMatchObject({ success: true, sent: 1, log: { recipientCount: 2, sent: 1 } })
-    expect(String(calls[1].body)).toContain('Normalized body')
+    await sendCampaign({ method: 'POST', headers: {}, body: { channel: 'email', messageTemplate: 'Normalized body', campaignName: 'Manual', recipientEmails: ['a@test.local'] } } as any, result)
+    expect(result.out).toMatchObject({ status: 501, body: { success: false, error: 'External provider integrations are not available for the initial release' } })
+    expect(provider).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
   })
 })

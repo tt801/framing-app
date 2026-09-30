@@ -9,7 +9,7 @@ import { useHistory } from "@/lib/history";
 import { getAccessToken } from "@/lib/supabase";
 import { useBillingAccess } from "@/lib/billingAccess";
 import { useCompanyMarketingData, type MarketingRecord } from "@/lib/marketingData";
-import { createMarketingActions } from "@/lib/marketingActions";
+import { createMarketingActions, marketingSubmissionOutcome } from "@/lib/marketingActions";
 
 /** Minimal inline icons (no external deps) */
 const Icon = {
@@ -125,7 +125,7 @@ export default function MarketingPage() {
   const companyScopeRef = React.useRef(companyAccountId);
   useEffect(() => { companyScopeRef.current = companyAccountId; }, [companyAccountId]);
   const marketingActions = useMemo(() => createMarketingActions({
-    submit: async (payload) => { const response = await fetch("/api/automations/send-campaign", { method: "POST", headers: await getAuthHeaders(), body: JSON.stringify(payload) }); const result = await response.json(); return { accepted: result.sent ?? 0, failed: Math.max(0, (payload.recipientEmails?.length || payload.recipients?.length || 0) - (result.sent ?? 0)), message: result.message }; },
+    submit: async (payload) => { const response = await fetch("/api/automations/send-campaign", { method: "POST", headers: await getAuthHeaders(), body: JSON.stringify(payload) }); const result = await response.json(); return marketingSubmissionOutcome(response, result, payload.recipientEmails?.length || payload.recipients?.length || 0); },
     record: async (submission) => { const result = await marketing.recordSubmission({ campaignId: submission.kind === "campaign" ? submission.payload.campaignId : undefined, templateId: submission.kind === "template" ? submission.payload.templateId : undefined, channel: submission.payload.channel, providerAccepted: true, providerOutcome: "accepted", recipientCount: submission.recipientCount }); return result.ok ? { ok: true } : { ok: false, recordingError: result.recordingError }; },
     confirm: window.confirm, feedback: toast, scope: () => companyScopeRef.current || "", legacyImport: marketing.importLegacy, legacyCount: () => marketing.legacyCount, companyName: () => companyName || "this company",
   }), [marketing, toast]);
@@ -896,7 +896,7 @@ export default function MarketingPage() {
     URL.revokeObjectURL(url);
 
     window.alert(
-      `Exported ${lapsedList.length} lapsed customers.\n\nYou can upload this CSV to Mailchimp, WhatsApp broadcast lists, SMS tools, or your email platform to run a win-back campaign.`
+      `Exported ${lapsedList.length} lapsed customers.\n\nIn-app provider delivery is unavailable for the initial release; use the CSV with your own external tools.`
     );
   };
 
@@ -1102,57 +1102,12 @@ export default function MarketingPage() {
             Create and manage custom campaigns that keep customers engaged.
           </p>
 
-          {/* Automation Settings Panel - NOW AT TOP */}
-          <div className="mb-4 rounded-lg border-2 border-blue-200 bg-blue-50 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="text-sm font-semibold text-blue-900">⚡ Automation Settings</div>
-                <div className="text-xs text-blue-700">Send campaigns automatically via API integrations</div>
-              </div>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={automationSettings.enabled}
-                  onChange={(e) =>
-                    saveAutomationSettings({
-                      ...automationSettings,
-                      enabled: e.target.checked,
-                    })
-                  }
-                  className="w-4 h-4 rounded"
-                />
-                <span className="text-xs font-semibold text-blue-900">
-                  {automationSettings.enabled ? "✓ Enabled" : "Disabled"}
-                </span>
-              </label>
-            </div>
-
-            {automationSettings.enabled ? (
-              <div className="mt-3 text-xs text-blue-800">
-                Manual messaging is available via Email or WhatsApp. Scheduled automation and Mailchimp sending are not available yet.
-                <a
-                  href="https://github.com/yourusername/framing-app/blob/main/AUTOMATION_SETUP.md"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-2 underline hover:text-blue-900"
-                >
-                  View setup guide
-                </a>
-              </div>
-            ) : (
-              <div className="mt-3 text-xs text-blue-700">
-                Scheduled automation is not available yet. Use manual Email or WhatsApp campaigns when ready.
-                <a
-                  href="https://github.com/yourusername/framing-app/blob/main/AUTOMATION_SETUP.md"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-2 underline hover:text-blue-800"
-                >
-                  Setup guide
-                </a>
-              </div>
-            )}
+          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-xs text-blue-800">
+            Campaign and template drafting is available. Provider delivery and scheduled automation are not available for the initial release.
           </div>
+          <button type="button" onClick={exportLapsedCustomersCSV} className="mb-4 rounded border border-blue-300 px-3 py-2 text-xs text-blue-800 hover:bg-blue-50">
+            Export lapsed customers CSV
+          </button>
 
           {/* Campaigns List */}
           <div className="mt-6 space-y-3">
@@ -1203,12 +1158,7 @@ export default function MarketingPage() {
                     >
                       ✏️ Edit
                     </button>
-                    <button
-                      onClick={() => sendCampaignNow(campaign)}
-                      className="px-3 py-1.5 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 transition whitespace-nowrap"
-                    >
-                      📤 Send Now
-                    </button>
+                    <span className="text-xs text-slate-500">Delivery unavailable</span>
                     <button
                       disabled
                       title="Scheduled sends are not available yet"
@@ -1336,7 +1286,7 @@ export default function MarketingPage() {
                       onChange={(e) => updateEditingCampaign({ channel: e.target.value as any })}
                       className="w-4 h-4"
                     />
-                    <span className="text-xs">📧 Email</span>
+                    <span className="text-xs text-slate-500">📧 Email (delivery unavailable)</span>
                   </label>
                   <label className="flex items-center gap-2">
                     <input
@@ -1347,7 +1297,7 @@ export default function MarketingPage() {
                       onChange={(e) => updateEditingCampaign({ channel: e.target.value as any })}
                       className="w-4 h-4"
                     />
-                    <span className="text-xs">💬 WhatsApp</span>
+                    <span className="text-xs text-slate-500">💬 WhatsApp (delivery unavailable)</span>
                   </label>
                   <label className="flex items-center gap-2">
                     <input
@@ -1576,11 +1526,11 @@ export default function MarketingPage() {
                 <div className="space-y-2">
                   <label className="flex items-center gap-2">
                     <input type="radio" name="newChannel" value="email" defaultChecked className="w-4 h-4" />
-                    <span className="text-xs">📧 Email</span>
+                    <span className="text-xs text-slate-500">📧 Email (delivery unavailable)</span>
                   </label>
                   <label className="flex items-center gap-2">
                     <input type="radio" name="newChannel" value="whatsapp" className="w-4 h-4" />
-                    <span className="text-xs">💬 WhatsApp</span>
+                    <span className="text-xs text-slate-500">💬 WhatsApp (delivery unavailable)</span>
                   </label>
                   <label className="flex items-center gap-2">
                     <input type="radio" name="newChannel" value="mailchimp" className="w-4 h-4" disabled />
@@ -1810,18 +1760,6 @@ export default function MarketingPage() {
                       >
                         {copiedId === template.id ? "✓ Copied!" : "Copy"}
                       </button>
-                      <button
-                        onClick={() => openTemplateSender(template.id, "email")}
-                        className="text-xs rounded px-3 py-1 bg-blue-500 text-white hover:bg-blue-600 font-semibold transition"
-                      >
-                        📧 Send Email
-                      </button>
-                      <button
-                        onClick={() => openTemplateSender(template.id, "whatsapp")}
-                        className="text-xs rounded px-3 py-1 bg-green-500 text-white hover:bg-green-600 font-semibold transition"
-                      >
-                        💬 Send WhatsApp
-                      </button>
                     </div>
                   </>
                 )}
@@ -1911,15 +1849,15 @@ export default function MarketingPage() {
         </div>
       )}
 
-      {/* Template Send History */}
+      {/* Template Submission History */}
       <section className="mb-8">
-        <Card title="📊 Template Send History" icon="MessageSquare">
+        <Card title="📊 Template Submission History" icon="MessageSquare">
           <p className="mb-4 text-xs text-slate-500">
-            Log of all template sends. Track which customers received which templates and when.
+            Local history of template submissions. Provider acceptance does not confirm delivery or receipt.
           </p>
 
           {templateSends.length === 0 ? (
-            <p className="text-xs text-slate-500 text-center py-4">No template sends yet</p>
+            <p className="text-xs text-slate-500 text-center py-4">No template submissions yet</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -1929,7 +1867,7 @@ export default function MarketingPage() {
                     <th className="px-3 py-2 text-left font-semibold text-slate-700">Recipient</th>
                     <th className="px-3 py-2 text-left font-semibold text-slate-700">Channel</th>
                     <th className="px-3 py-2 text-left font-semibold text-slate-700">Status</th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700">Sent</th>
+                    <th className="px-3 py-2 text-left font-semibold text-slate-700">Submitted</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1951,7 +1889,7 @@ export default function MarketingPage() {
                               : "bg-red-100 text-red-700"
                           }`}
                         >
-                          {send.status === "sent" ? "✓ Sent" : "✗ Failed"}
+                          {send.status === "sent" ? "Accepted by provider" : "Not accepted"}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-slate-600">
@@ -1966,7 +1904,7 @@ export default function MarketingPage() {
                 </tbody>
               </table>
               {templateSends.length > 20 && (
-                <p className="text-xs text-slate-500 mt-2">Showing latest 20 of {templateSends.length} sends</p>
+                <p className="text-xs text-slate-500 mt-2">Showing latest 20 of {templateSends.length} submissions</p>
               )}
             </div>
           )}

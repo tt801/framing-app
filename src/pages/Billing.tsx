@@ -105,12 +105,6 @@ export default function BillingPage() {
                   >
                     {portalLoading ? "Opening portal..." : "Manage subscription"}
                   </button>
-                  <a
-                    href="#/api-settings"
-                    className="rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    API settings
-                  </a>
                 </div>
               </div>
 

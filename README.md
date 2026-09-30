@@ -8,7 +8,7 @@ Install dependencies with `npm install`, configure `VITE_SUPABASE_URL` and `VITE
 
 Database setup requires a Supabase-initialized database with Auth enabled. Apply the ordered baseline scripts and forward migrations in [RELEASE_RUNBOOK.md](RELEASE_RUNBOOK.md). Do not apply the baseline scripts to vanilla PostgreSQL. Release checks and environment variable names are documented in [RELEASE_READINESS_CHECKLIST.md](RELEASE_READINESS_CHECKLIST.md).
 
-Scheduled automation is unavailable. Manual marketing submissions must remain provider-credentialed by the authenticated user.
+Scheduled automation and external provider sending are unavailable for the initial release. Marketing supports campaign and template drafting, audience preparation, CSV export, and copying message templates without provider credentials.
 
 ## Vite Notes
 

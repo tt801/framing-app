@@ -12,7 +12,6 @@ import type { Frame, Mat, Glazing, PrintingMaterial } from "@/lib/store";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import { useBillingPortal, useBillingSummary } from "@/lib/billing";
 import { useToast } from "@/lib/toast";
-import APISettingsPage from "@/pages/APISettings";
 import { helpSections } from "@/lib/helpContent";
 import { useUsers, type AppUserRole, type AppUser } from "@/lib/users";
 import { deleteCompanyMember, inviteCompanyMember, updateCompanyMember, useCompanyMembers } from "@/lib/companyMembers";
@@ -1670,12 +1669,8 @@ function IntegrationsPanel({
       <div>
         <h2 className="text-lg font-semibold">Integrations</h2>
         <p className="text-sm text-slate-500">
-          Manage your connected apps, messaging tools, and billing access in one place.
+          External provider connections are not available for the initial release. Billing access remains available below.
         </p>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-        <APISettingsPage embedded />
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">

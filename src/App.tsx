@@ -23,7 +23,6 @@ const StockPage = React.lazy(() => import("./pages/Stock"));
 const JobsPage = React.lazy(() => import("./pages/Jobs"));
 const CalendarPage = React.lazy(() => import("./pages/Calendar"));
 const DashboardPage = React.lazy(() => import("./pages/Dashboard"));
-const APISettingsPage = React.lazy(() => import("./pages/APISettings"));
 const WebsiteLanding = React.lazy(() => import("./pages/WebsiteLanding"));
 const ComingSoon = React.lazy(() => import("./pages/ComingSoon"));
 const LegalPolicyPage = React.lazy(() => import("./pages/LegalPolicy"));
@@ -167,7 +166,6 @@ function App() {
   const isMarketing = route.startsWith("/marketing");
   const isStock = route.startsWith("/stock");
   const isCalendar = route.startsWith("/calendar");
-  const isAPISettings = route.startsWith("/api-settings");
   const isDashboard = route.startsWith("/dashboard");
   const isBilling = route.startsWith("/billing");
   const isBillingSuccess = route.startsWith("/billing/success");
@@ -183,7 +181,6 @@ function App() {
     !isMarketing &&
     !isStock &&
     !isCalendar &&
-    !isAPISettings &&
     !isVisualizer &&
     !isDashboard &&
     !isBilling &&
@@ -192,6 +189,10 @@ function App() {
 
   const isPublicRoute = isLanding || isLegal || isAuthRoute;
   const isPublicOrSupport = isPublicRoute || isSupport || (!isLaunchMode && isOnboarding);
+
+  useEffect(() => {
+    if (route.startsWith("/api-settings")) window.location.hash = "#/dashboard";
+  }, [route]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -427,7 +428,7 @@ function App() {
     ? "app"
     : "dashboard";
 
-  const showCreateButton = !billingAccess.readOnly && !(isMarketing || isStock || isAdmin || isDashboard || isVisualizer || isCalendar || isAPISettings);
+  const showCreateButton = !billingAccess.readOnly && !(isMarketing || isStock || isAdmin || isDashboard || isVisualizer || isCalendar);
 
   function triggerCreate(key: string) {
     const opt = createOptions.find((o) => o.key === key) || primaryCreate;
@@ -720,8 +721,6 @@ function App() {
               <MarketingPage />
             ) : isStock ? (
               <StockPage />
-            ) : isAPISettings ? (
-              <APISettingsPage />
             ) : isVisualizer ? (
               <VisualizerApp />
             ) : (

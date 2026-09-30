@@ -16,6 +16,7 @@ type MicrosoftTokenResponse = {
 // Import Supabase server client
 import { createClient } from '@supabase/supabase-js';
 import { requireCompanyWriteAccess } from '../lib/auth.js';
+import { externalProvidersAvailable, providerUnavailable } from '../lib/providerAvailability.js';
 
 const createSupabaseServerClient = () => {
   const url = process.env.SUPABASE_URL;
@@ -47,6 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+  if (!externalProvidersAvailable()) return res.status(501).json(providerUnavailable);
 
   const {
     campaignId,

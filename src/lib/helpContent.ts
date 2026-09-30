@@ -110,7 +110,7 @@ export const helpSections: Record<HelpArea, HelpSection> = {
     entries: [
       makeEntry("What can I do from the dashboard?", "Use Dashboard as the main starting point for the day. It gives you quick access into customers, quotes, invoices, jobs, calendar, stock, marketing, billing, and admin.", ["dashboard", "overview", "home", "start", "summary"]),
       makeEntry("What should I check first each day?", "Start with Dashboard for the overview, then move into Jobs for production work, Calendar for scheduled items, and Quotes or Invoices for anything waiting on customer or payment action.", ["today", "daily", "check first", "morning", "priorities"]),
-      makeEntry("Where are my integrations?", "Open Admin and go to Integrations. Connected apps such as WhatsApp, Mailchimp, Outlook, QuickBooks, and Xero live there now.", ["integration", "connected apps", "mailchimp", "outlook", "whatsapp", "quickbooks", "xero"]),
+      makeEntry("Where are my integrations?", "Admin > Integrations shows billing information. External provider connections are not available for the initial release.", ["integration", "connected apps", "mailchimp", "outlook", "whatsapp", "quickbooks", "xero"]),
       makeEntry("How do I get to billing?", "Use the Billing page for subscription status, upgrades, and Stripe management. Admin > Integrations also shows a billing overview and a shortcut into the Stripe portal.", ["billing", "subscription", "stripe", "founder", "upgrade"]),
       makeEntry("How do I create something quickly?", "Use the global create button from the app header to jump straight into a new customer, quote, invoice, or job without leaving your current area.", ["create", "quick create", "new record", "new item", "header"]),
     ],
@@ -226,7 +226,7 @@ export const helpSections: Record<HelpArea, HelpSection> = {
   marketing: {
     area: "marketing",
     title: "Marketing",
-    summary: "Build campaigns, choose audiences, and manage customer outreach tools and automations.",
+    summary: "Draft campaigns, choose audiences, and prepare customer outreach without provider delivery.",
     quickPrompts: [
       "How do I send a campaign?",
       "Where do I connect Mailchimp?",
@@ -234,11 +234,11 @@ export const helpSections: Record<HelpArea, HelpSection> = {
       "Can I automate follow-ups?",
     ],
     entries: [
-      makeEntry("How do I send a campaign?", "Use Marketing to build your campaign, choose the audience, review the content, and then trigger the send action from there.", ["campaign", "send campaign", "marketing"]),
-      makeEntry("Where do I connect Mailchimp?", "Open Admin > Integrations. Mailchimp credentials are stored there alongside your other connected apps.", ["mailchimp", "integrations", "connected apps"]),
+      makeEntry("How do I send a campaign?", "You can draft campaigns and export audiences in Marketing. Provider sending is not available for the initial release.", ["campaign", "send campaign", "marketing"]),
+      makeEntry("Where do I connect Mailchimp?", "Mailchimp connection and sending are not available for the initial release.", ["mailchimp", "integrations", "connected apps"]),
       makeEntry("How do I choose recipients?", "In Marketing, use the audience controls to target all customers, filtered groups, or a custom list of selected recipients.", ["recipients", "audience", "segment", "customers"]),
-      makeEntry("Can I automate follow-ups?", "Yes. Automations are intended for recurring marketing and customer follow-up actions such as quote follow-ups or review requests once the relevant integrations are connected.", ["automate", "follow up", "review request", "automation", "quote followup"]),
-      makeEntry("What does Marketing depend on?", "Marketing works best once customer data is clean and integrations such as Mailchimp or messaging tools are connected in Admin > Integrations.", ["depends on", "requirements", "mailchimp", "data"]),
+      makeEntry("Can I automate follow-ups?", "No. Scheduled follow-ups and provider delivery are not available for the initial release. You can prepare templates and audiences in Marketing.", ["automate", "follow up", "review request", "automation", "quote followup"]),
+      makeEntry("What does Marketing depend on?", "Marketing drafts and audiences use your company customer data. Provider integrations are not required for drafting or CSV export.", ["depends on", "requirements", "mailchimp", "data"]),
     ],
   },
   stock: {
@@ -270,7 +270,7 @@ export const helpSections: Record<HelpArea, HelpSection> = {
       "Where do I update company settings?",
     ],
     entries: [
-      makeEntry("Where are connected apps?", "Go to Admin > Integrations. WhatsApp, Mailchimp, Outlook, QuickBooks, Xero credentials, and the billing overview are managed there.", ["connected apps", "integrations", "mailchimp", "outlook", "twilio", "whatsapp", "quickbooks", "xero"]),
+      makeEntry("Where are connected apps?", "External provider connections are not available for the initial release. Admin > Integrations still shows billing information.", ["connected apps", "integrations", "mailchimp", "outlook", "twilio", "whatsapp", "quickbooks", "xero"]),
       makeEntry("How do I manage billing?", "Use the Billing page for plan and subscription management. Admin > Integrations also includes a billing overview and Stripe portal access.", ["billing", "subscription", "stripe", "billing overview"]),
       makeEntry("Where is user management?", "Open Admin > Users. That section is now the first-pass workspace user manager for local team members, roles, colors, and active status.", ["users", "roles", "team", "admin users", "staff"]),
       makeEntry("Where do I update company settings?", "Use the company-related tabs in Admin for workspace settings, catalog setup, and operational defaults that apply across the system.", ["company settings", "workspace settings", "admin setup"]),
@@ -298,7 +298,7 @@ export const helpSections: Record<HelpArea, HelpSection> = {
   integrations: {
     area: "integrations",
     title: "Integrations",
-    summary: "Connected apps, billing overview, and third-party service setup.",
+    summary: "Billing overview; external provider connections are not available for the initial release.",
     quickPrompts: [
       "Where do I connect WhatsApp?",
       "Where do I connect Outlook?",
@@ -306,11 +306,11 @@ export const helpSections: Record<HelpArea, HelpSection> = {
       "Where do QuickBooks and Xero live?",
     ],
     entries: [
-      makeEntry("Where do I connect WhatsApp?", "Open Admin > Integrations and enter your Twilio WhatsApp credentials in the Connected apps section.", ["whatsapp", "twilio", "integrations", "connected apps"]),
-      makeEntry("Where do I connect Outlook?", "Open Admin > Integrations and enter your Microsoft and Outlook details in the Connected apps section.", ["outlook", "microsoft", "email", "integrations"]),
-      makeEntry("Where do I connect Mailchimp?", "Open Admin > Integrations and add your Mailchimp API key and server value in the Connected apps section.", ["mailchimp", "email marketing", "integrations"]),
-      makeEntry("Where do QuickBooks and Xero live?", "QuickBooks and Xero connection and sync controls belong in Admin > Integrations alongside the other connected services.", ["quickbooks", "xero", "accounting", "sync", "integrations"]),
-      makeEntry("Why is an integration not working?", "Start by checking the credentials in Admin > Integrations, then confirm the connected service account is active and the required keys or IDs were saved correctly.", ["integration not working", "broken integration", "credentials", "api key", "setup issue"]),
+      makeEntry("Where do I connect WhatsApp?", "Twilio WhatsApp connections are not available for the initial release.", ["whatsapp", "twilio", "integrations", "connected apps"]),
+      makeEntry("Where do I connect Outlook?", "Microsoft and Outlook connections are not available for the initial release.", ["outlook", "microsoft", "email", "integrations"]),
+      makeEntry("Where do I connect Mailchimp?", "Mailchimp connections are not available for the initial release.", ["mailchimp", "email marketing", "integrations"]),
+      makeEntry("Where do QuickBooks and Xero live?", "QuickBooks and Xero connections are not available for the initial release. Admin > Integrations shows billing information.", ["quickbooks", "xero", "accounting", "sync", "integrations"]),
+      makeEntry("Why is an integration not working?", "External provider connections and sending are not available for the initial release.", ["integration not working", "credentials", "api key", "setup issue"]),
     ],
   },
 };
