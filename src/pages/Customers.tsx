@@ -34,20 +34,14 @@ const formatAddress = (c: any) =>
 
 export default function CustomersPage() {
   const { catalog } = useCatalog();
-  const custStore = useCustomers() as any;
+  const custStore = useCustomers();
   const customers: any[] = custStore.customers ?? [];
   const { invoices } = useInvoices();
   const { add: toast } = useToast();
   const { add: addToHistory, canUndo, undo } = useHistory();
   const { isFavorited, toggle: toggleFavorite } = useFavorites();
 
-  const updateCustomer: (c: any) => void =
-    custStore.update ||
-    custStore.updateCustomer ||
-    custStore.setCustomer ||
-    ((c: any) => {
-      console.warn("No updateCustomer function found on customers store", c);
-    });
+  const updateCustomer = custStore.update;
 
   const FILTER_KEY = "customers.filters.v1";
 
@@ -384,8 +378,8 @@ export default function CustomersPage() {
       return;
     }
     const result = await updateCustomer({ id: c.id, ...c });
-    if (!result || result.ok === false) {
-      toast(result?.error || "Failed to save customer", "error");
+    if (result.ok === false) {
+      toast(result.error || "Failed to save customer", "error");
       return;
     }
     const displayName = `${c.firstName} ${c.lastName}`;
@@ -425,9 +419,9 @@ export default function CustomersPage() {
     };
 
     const result = await custStore.add(blank);
-    if (!result || result.ok === false) {
-      console.warn("Failed to create/import customer", result?.error);
-      toast(result?.error || "Failed to save customer", "error");
+    if (result.ok === false) {
+      console.warn("Failed to create/import customer", result.error);
+      toast(result.error || "Failed to save customer", "error");
       return null;
     }
 
@@ -484,8 +478,8 @@ export default function CustomersPage() {
     const backup = customer;
     const result = await custStore.remove(id);
 
-    if (!result || result.ok === false) {
-      toast(result?.error || "Failed to delete customer", "error");
+    if (result.ok === false) {
+      toast(result.error || "Failed to delete customer", "error");
       return;
     }
 
@@ -638,8 +632,8 @@ export default function CustomersPage() {
     if (!confirmed) return;
 
     const result = await custStore.importLegacyLocalCustomers();
-    if (!result || result.ok === false) {
-      toast(result?.error || "Failed to import saved browser customers", "error");
+    if (result.ok === false) {
+      toast(result.error || "Failed to import saved browser customers", "error");
       return;
     }
 

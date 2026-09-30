@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCatalog } from './store'
 import { supabase } from '@/lib/supabase'
 import { useBillingAccess, useBillingWriteGuard } from '@/lib/billingAccess'
+import { isFiniteNumber, isRecord, normalizeLineItems } from './persistedRows'
 
 export type InvoiceItem = { id: string; description?: string; name?: string; qty: number; unitPrice: number; [key: string]: any }
 export type Payment = { id: string; dateISO?: string; createdAt?: string; amount: number; method?: string; notes?: string; [key: string]: any }
@@ -43,19 +44,26 @@ export function getLegacyLocalInvoiceCount(): number { return loadLegacyLocalInv
 
 type InvoiceRow = {
   id: string
-  payload: Record<string, any>
+  payload: unknown
   customer_id: string | null
   quote_id: string | null
   invoice_number: string
+  created_at?: string
 }
 
-const rowToInvoice = (row: InvoiceRow): Invoice => ({
-  ...(row.payload || {}),
-  id: row.id,
-  number: row.invoice_number || row.payload?.number || '',
-  customerId: row.customer_id || row.payload?.customerId || undefined,
-  quoteId: row.quote_id || row.payload?.quoteId || undefined,
-})
+export const rowToInvoice = (row: InvoiceRow): Invoice | null => {
+  const payload = row.payload
+  if (!isRecord(payload) || !isFiniteNumber(payload.subtotal) || !isFiniteNumber(payload.total)) return null
+  const items = normalizeLineItems(payload.items)
+  const createdAt = typeof payload.createdAt === 'string' && payload.createdAt ? payload.createdAt : row.created_at
+  if (!items || !createdAt) return null
+  return {
+    ...payload, id: row.id, number: row.invoice_number || (typeof payload.number === 'string' ? payload.number : ''),
+    createdAt, items, subtotal: payload.subtotal, total: payload.total,
+    customerId: row.customer_id || (typeof payload.customerId === 'string' ? payload.customerId : undefined),
+    quoteId: row.quote_id || (typeof payload.quoteId === 'string' ? payload.quoteId : undefined),
+  }
+}
 
 const errorMessage = (error: any, fallback: string) => error?.message || fallback
 
@@ -78,7 +86,7 @@ export function useInvoices() {
     setLoading(true)
     const { data, error: fetchError } = await supabase
       .from('invoices')
-      .select('id, payload, customer_id, quote_id, invoice_number')
+      .select('id, payload, customer_id, quote_id, invoice_number, created_at')
       .eq('company_account_id', companyAccountId)
       .order('created_at', { ascending: false })
 
@@ -86,8 +94,9 @@ export function useInvoices() {
     if (fetchError) {
       setInvoices([]); setError(fetchError.message); setLoading(false); return
     }
-    setInvoices(((data || []) as InvoiceRow[]).map(rowToInvoice))
-    setError(null); setLoading(false)
+    const mapped = ((data || []) as InvoiceRow[]).map(rowToInvoice)
+    setInvoices(mapped.filter((invoice): invoice is Invoice => invoice !== null))
+    setError(mapped.includes(null) ? 'Some saved invoices have incomplete data and were not shown.' : null); setLoading(false)
   }, [companyAccountId])
 
   useEffect(() => { void refresh() }, [refresh])
@@ -97,8 +106,9 @@ export function useInvoices() {
     if (!supabase || !companyAccountId) return { ok: false, error: 'No active company account' }
 
     const { __payload, ...inputFields } = input as Partial<Invoice> & { __payload?: Record<string, any> }
-    const payload = { ...(__payload || inputFields), id: input.id || rid(), createdAt: input.createdAt || new Date().toISOString() }
-    const settings = catalog?.settings || {}
+    const payload: Partial<Invoice> = { ...(__payload || inputFields), id: input.id || rid(), createdAt: input.createdAt || new Date().toISOString() }
+    if (!isFiniteNumber(payload.subtotal) || !isFiniteNumber(payload.total) || !normalizeLineItems(payload.items)) return { ok: false, error: 'Invoice totals or line items are incomplete' }
+    const settings = catalog.settings
     const { data, error: insertError } = await supabase.rpc('create_invoice', {
       p_id: payload.id,
       p_company_account_id: companyAccountId,
@@ -110,6 +120,7 @@ export function useInvoices() {
     })
     if (insertError || !data) return { ok: false, error: errorMessage(insertError, 'Could not save invoice') }
     const invoice = rowToInvoice(data as InvoiceRow)
+    if (!invoice) return { ok: false, error: 'Saved invoice has incomplete data' }
     setInvoices(prev => [invoice, ...prev.filter(row => row.id !== invoice.id)])
     return { ok: true, invoice }
   }, [allowWrite, companyAccountId, catalog])
@@ -127,10 +138,11 @@ export function useInvoices() {
       .update({ payload: merged, customer_id: merged.customerId || null, quote_id: merged.quoteId || null })
       .eq('id', id)
       .eq('company_account_id', companyAccountId)
-      .select('id, payload, customer_id, quote_id, invoice_number')
+      .select('id, payload, customer_id, quote_id, invoice_number, created_at')
       .single()
     if (updateError || !data) return { ok: false, error: errorMessage(updateError, 'Could not update invoice') }
     const invoice = rowToInvoice(data as InvoiceRow)
+    if (!invoice) return { ok: false, error: 'Saved invoice has incomplete data' }
     setInvoices(prev => prev.map(row => row.id === invoice.id ? invoice : row))
     return { ok: true, invoice }
   }, [allowWrite, companyAccountId, invoices])
@@ -154,6 +166,7 @@ export function useInvoices() {
     })
     if (paymentError || !data) return { ok: false, error: errorMessage(paymentError, 'Could not record payment') }
     const invoice = rowToInvoice(data as InvoiceRow)
+    if (!invoice) return { ok: false, error: 'Saved invoice has incomplete data' }
     setInvoices(prev => prev.map(row => row.id === invoice.id ? invoice : row))
     return { ok: true, invoice }
   }, [allowWrite, companyAccountId])
@@ -198,9 +211,9 @@ export function useInvoices() {
         quoteId: validQuote ? legacyInvoice.quoteId : undefined,
         __payload: legacyInvoice,
       })
-      if (result.ok) {
+      if (result.ok === true) {
         imported++; idsPresent.set(result.invoice.id, result.invoice.number); numbersPresent.set(result.invoice.number, result.invoice.id)
-      } else {
+      } else if (result.ok === false) {
         failures.push({ id: legacyInvoice.id, reason: result.error })
       }
     }

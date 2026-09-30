@@ -1,22 +1,56 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useBillingAccess, useBillingWriteGuard } from '@/lib/billingAccess'
+import { isRecord } from './persistedRows'
 
 export type JobStatus = 'new' | 'in_progress' | 'on_hold' | 'done' | 'cancelled' | string
+export type JobChecklistItem =
+  | { id: string; text: string; done?: boolean; [key: string]: unknown }
+  | { key: string; label: string; done: boolean; [key: string]: unknown }
 export type Job = {
   id: string; refNo?: number; createdAt: string; updatedAt?: string; dueDateISO?: string
   priority?: 'low' | 'normal' | 'high' | 'urgent' | string; status: JobStatus; assignedTo?: string
   customerId?: string; invoiceId?: string; quoteId?: string; customer: Record<string, any>
   artwork: Record<string, any>; frame: Record<string, any>
-  checklist: Array<{ key: string; label: string; done: boolean }>; notes?: string; [key: string]: any
+  checklist: JobChecklistItem[]; notes?: string; [key: string]: any
 }
 export type JobOpResult = { ok: true; job: Job } | { ok: false; error: string }
 const LEGACY_STORAGE_KEY = 'jobs_v1'
 function safeParse<T>(raw: string | null): T | null { try { return raw ? JSON.parse(raw) as T : null } catch { return null } }
 function loadLegacyJobs(): Job[] { return typeof window === 'undefined' ? [] : safeParse<Job[]>(localStorage.getItem(LEGACY_STORAGE_KEY)) || [] }
 export function getLegacyLocalJobCount() { return loadLegacyJobs().length }
-type JobRow = { id: string; ref_no: number; payload: Record<string, any>; customer_id: string | null; quote_id: string | null; invoice_id: string | null; updated_at: string }
-const rowToJob = (row: JobRow): Job => ({ ...(row.payload || {}), id: row.id, refNo: row.ref_no, customerId: row.customer_id || row.payload?.customerId, quoteId: row.quote_id || row.payload?.quoteId, invoiceId: row.invoice_id || row.payload?.invoiceId, updatedAt: row.updated_at })
+type JobRow = { id: string; ref_no: number; payload: unknown; customer_id: string | null; quote_id: string | null; invoice_id: string | null; created_at?: string; updated_at: string }
+const isChecklistItem = (value: unknown): value is JobChecklistItem => {
+  if (!isRecord(value)) return false
+  if (typeof value.id === 'string' && value.id.length > 0 && typeof value.text === 'string' && value.text.length > 0)
+    return value.done === undefined || typeof value.done === 'boolean'
+  return typeof value.key === 'string' && value.key.length > 0 &&
+    typeof value.label === 'string' && value.label.length > 0 && typeof value.done === 'boolean'
+}
+export const rowToJob = (row: JobRow): Job | null => {
+  const payload = row.payload
+  if (!isRecord(payload)) return null
+  const createdAt = typeof payload.createdAt === 'string' && payload.createdAt ? payload.createdAt : row.created_at || row.updated_at
+  const structures = [payload.customer, payload.artwork, payload.frame]
+  if (!createdAt || structures.some(value => value !== undefined && !isRecord(value))) return null
+  const rawChecklist = payload.checklist === undefined ? [] : payload.checklist
+  if (!Array.isArray(rawChecklist)) return null
+  const checklist: Job['checklist'] = []
+  for (const item of rawChecklist) {
+    if (!isChecklistItem(item)) return null
+    checklist.push(item)
+  }
+  return {
+    ...payload, id: row.id, refNo: row.ref_no, createdAt, updatedAt: row.updated_at,
+    status: typeof payload.status === 'string' ? payload.status : 'new',
+    customer: isRecord(payload.customer) ? payload.customer : {},
+    artwork: isRecord(payload.artwork) ? payload.artwork : {},
+    frame: isRecord(payload.frame) ? payload.frame : {}, checklist,
+    customerId: row.customer_id || (typeof payload.customerId === 'string' ? payload.customerId : undefined),
+    quoteId: row.quote_id || (typeof payload.quoteId === 'string' ? payload.quoteId : undefined),
+    invoiceId: row.invoice_id || (typeof payload.invoiceId === 'string' ? payload.invoiceId : undefined),
+  }
+}
 const message = (error: any, fallback: string) => error?.message || fallback
 
 export function useJobs() {
@@ -26,10 +60,11 @@ export function useJobs() {
     const requestId = ++requestIdRef.current
     if (!supabase || !companyAccountId) { setJobs([]); setError(null); setLoading(false); return }
     setJobs([]); setLoading(true)
-    const { data, error: fetchError } = await supabase.from('jobs').select('id, ref_no, payload, customer_id, quote_id, invoice_id, updated_at').eq('company_account_id', companyAccountId).order('created_at', { ascending: false })
+    const { data, error: fetchError } = await supabase.from('jobs').select('id, ref_no, payload, customer_id, quote_id, invoice_id, created_at, updated_at').eq('company_account_id', companyAccountId).order('created_at', { ascending: false })
     if (requestIdRef.current !== requestId) return
     if (fetchError) { setJobs([]); setError(fetchError.message); setLoading(false); return }
-    setJobs(((data || []) as JobRow[]).map(rowToJob)); setError(null); setLoading(false)
+    const mapped = ((data || []) as JobRow[]).map(rowToJob)
+    setJobs(mapped.filter((job): job is Job => job !== null)); setError(mapped.includes(null) ? 'Some saved jobs have incomplete data and were not shown.' : null); setLoading(false)
   }, [companyAccountId])
   useEffect(() => { void refresh() }, [refresh])
 
@@ -40,7 +75,7 @@ export function useJobs() {
     const payload = { ...(__payload || fields), id: input.id || Math.random().toString(36).slice(2, 10), createdAt: input.createdAt || new Date().toISOString() }
     const { data, error: createError } = await supabase.rpc('create_job', { p_id: payload.id, p_company_account_id: companyAccountId, p_payload: payload, p_customer_id: input.customerId || input.customer?.id || null, p_quote_id: input.quoteId || null, p_invoice_id: input.invoiceId || null, p_ref_no: input.refNo || null })
     if (createError || !data) return { ok: false, error: message(createError, 'Could not save job') }
-    const job = rowToJob(data as JobRow); setJobs(prev => [job, ...prev.filter(row => row.id !== job.id)]); return { ok: true, job }
+    const job = rowToJob(data as JobRow); if (!job) return { ok: false, error: 'Saved job has incomplete data' }; setJobs(prev => [job, ...prev.filter(row => row.id !== job.id)]); return { ok: true, job }
   }, [allowWrite, companyAccountId])
 
   const update = useCallback(async (patch: Partial<Job> & { id: string }): Promise<JobOpResult> => {
@@ -50,9 +85,9 @@ export function useJobs() {
     const merged = { ...current, ...patch, id: current.id, refNo: current.refNo }
     let query = supabase.from('jobs').update({ ref_no: merged.refNo, customer_id: merged.customerId || merged.customer?.id || null, quote_id: merged.quoteId || null, invoice_id: merged.invoiceId || null, payload: merged }).eq('id', patch.id).eq('company_account_id', companyAccountId)
     if (current.updatedAt) query = query.eq('updated_at', current.updatedAt)
-    const { data, error: updateError } = await query.select('id, ref_no, payload, customer_id, quote_id, invoice_id, updated_at').single()
+    const { data, error: updateError } = await query.select('id, ref_no, payload, customer_id, quote_id, invoice_id, created_at, updated_at').single()
     if (updateError || !data) return { ok: false, error: message(updateError, 'Job changed or no longer exists') }
-    const job = rowToJob(data as JobRow); setJobs(prev => prev.map(row => row.id === job.id ? job : row)); return { ok: true, job }
+    const job = rowToJob(data as JobRow); if (!job) return { ok: false, error: 'Saved job has incomplete data' }; setJobs(prev => prev.map(row => row.id === job.id ? job : row)); return { ok: true, job }
   }, [allowWrite, companyAccountId, jobs])
 
   const remove = useCallback(async (id: string): Promise<{ ok: true } | { ok: false; error: string }> => {
@@ -79,7 +114,7 @@ export function useJobs() {
       const customerId = legacyJob.customerId || legacyJob.customer?.id; const validCustomer = !customerId || customerSet.has(customerId); const validQuote = !legacyJob.quoteId || quoteSet.has(legacyJob.quoteId); const validInvoice = !legacyJob.invoiceId || invoiceSet.has(legacyJob.invoiceId)
       if (!validCustomer) unresolved++; if (!validQuote) unresolved++; if (!validInvoice) unresolved++
       const result = await add({ ...legacyJob, customerId: validCustomer ? customerId : undefined, quoteId: validQuote ? legacyJob.quoteId : undefined, invoiceId: validInvoice ? legacyJob.invoiceId : undefined, __payload: legacyJob })
-      if (result.ok) { imported++; idSet.add(result.job.id); if (result.job.refNo != null) refSet.add(result.job.refNo) } else failures.push({ id: legacyJob.id, reason: result.error })
+      if (result.ok === true) { imported++; idSet.add(result.job.id); if (result.job.refNo != null) refSet.add(result.job.refNo) } else if (result.ok === false) failures.push({ id: legacyJob.id, reason: result.error })
     }
     await refresh(); return { ok: true as const, imported, skipped, collisions, unresolved, failures }
   }, [add, allowWrite, companyAccountId, refresh])

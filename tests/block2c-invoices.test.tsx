@@ -7,6 +7,13 @@ const { requests, supabaseMock } = vi.hoisted(() => {
   const requests = new Map<string, { promise: Promise<any>; resolve: (value: any) => void }[]>()
   const supabaseMock = {
     from: vi.fn((table: string) => {
+      if (table === 'company_catalog' || table === 'company_settings') {
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
+          }),
+        }
+      }
       let companyId = ''
       const query: any = {
         select: () => query,
@@ -86,13 +93,13 @@ describe('Block 2C invoice verification', () => {
     expect(result.current.invoices).toEqual([])
 
     requests.get(companyB)![0].resolve({
-      data: [{ id: 'invoice-b', invoice_number: 'INV-B', customer_id: null, quote_id: null, payload: { total: 20 } }],
+      data: [{ id: 'invoice-b', invoice_number: 'INV-B', customer_id: null, quote_id: null, created_at: '2026-09-01', payload: { items: [], subtotal: 20, total: 20 } }],
       error: null,
     })
     await waitFor(() => expect(result.current.invoices.map(invoice => invoice.id)).toEqual(['invoice-b']))
 
     requests.get(companyA)![0].resolve({
-      data: [{ id: 'invoice-a', invoice_number: 'INV-A', customer_id: null, quote_id: null, payload: { total: 10 } }],
+      data: [{ id: 'invoice-a', invoice_number: 'INV-A', customer_id: null, quote_id: null, created_at: '2026-09-01', payload: { items: [], subtotal: 10, total: 10 } }],
       error: null,
     })
     await new Promise(resolve => setTimeout(resolve, 0))

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useCompanyPresets, type VisualizerPreset } from "@/lib/presets";
+import { useCompanyPresets, type VisualizerPreset, type PersistedPreset } from "@/lib/presets";
 
 type Props = {
   companyName: string;
@@ -32,7 +32,7 @@ export default function PresetControls({ companyName, customerKey, hasSavedCusto
     setFeedback(result.ok ? "Preset saved." : result.error);
   }
 
-  async function deletePreset(preset: VisualizerPreset) {
+  async function deletePreset(preset: PersistedPreset) {
     const scopeAtStart = scope;
     const result = await remove(preset);
     if (current(scopeAtStart)) setFeedback(result.ok ? "Preset deleted." : result.error);

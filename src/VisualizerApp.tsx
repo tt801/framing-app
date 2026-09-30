@@ -954,7 +954,7 @@ export default function VisualizerApp() {
     if (!selectedCustomerId || selectedCustomerId === "__new__") {
       const result = await addCustomer?.({ ...cust, id: "" } as any);
       if (!result || result.ok === false) {
-        alert(result?.error || "Failed to save customer to CRM.");
+        alert(result && result.ok === false ? result.error : "Failed to save customer to CRM.");
         return;
       }
       setSelectedCustomerId(result.customer.id);
@@ -965,7 +965,7 @@ export default function VisualizerApp() {
         ...cust,
       } as any);
       if (!result || result.ok === false) {
-        alert(result?.error || "Failed to update customer in CRM.");
+        alert(result && result.ok === false ? result.error : "Failed to update customer in CRM.");
         return;
       }
       alert("Saved to CRM (updated).");

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useBillingAccess, useBillingWriteGuard } from '@/lib/billingAccess'
+import { isRecord, normalizeLineItems } from './persistedRows'
 
 export type Quote = {
   id: string
@@ -42,9 +43,15 @@ export function getLegacyLocalQuoteCount(): number {
   return loadLegacyLocalQuotes().length
 }
 
-type QuoteRow = { id: string; payload: Record<string, any> }
+type QuoteRow = { id: string; payload: unknown }
 
-const rowToQuote = (row: QuoteRow): Quote => ({ ...(row.payload || {}), id: row.id })
+export const rowToQuote = (row: QuoteRow): Quote | null => {
+  const payload = row.payload
+  if (!isRecord(payload)) return null
+  const items = normalizeLineItems(payload.items)
+  if (!items) return null
+  return { ...payload, id: row.id, customerId: typeof payload.customerId === 'string' ? payload.customerId : '', items }
+}
 
 /** React hook for database-backed quote CRUD, scoped to the current company account. */
 export function useQuotes() {
@@ -83,8 +90,9 @@ export function useQuotes() {
       return
     }
 
-    setQuotes(((data || []) as QuoteRow[]).map(rowToQuote))
-    setError(null)
+    const mapped = ((data || []) as QuoteRow[]).map(rowToQuote)
+    setQuotes(mapped.filter((quote): quote is Quote => quote !== null))
+    setError(mapped.includes(null) ? 'Some saved quotes have incomplete data and were not shown.' : null)
     setLoading(false)
   }, [companyAccountId])
 
@@ -112,6 +120,7 @@ export function useQuotes() {
       }
 
       const quote = rowToQuote(data as QuoteRow)
+      if (!quote) return { ok: false, error: 'Saved quote has incomplete data' }
       setQuotes(prev => [quote, ...prev])
       return { ok: true, quote }
     },
@@ -140,6 +149,7 @@ export function useQuotes() {
       }
 
       const quote = rowToQuote(data as QuoteRow)
+      if (!quote) return { ok: false, error: 'Saved quote has incomplete data' }
       setQuotes(prev => prev.map(q => (q.id === quote.id ? quote : q)))
       return { ok: true, quote }
     },

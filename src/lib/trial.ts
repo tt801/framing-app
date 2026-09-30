@@ -57,7 +57,7 @@ const isCompanyMembersMissing = (error: unknown) => {
 
 export const getBillingAccessFromRecord = (
   record: Pick<CompanyAccountRecord, "plan_status" | "company_name" | "is_founder"> & { stripe_price_id?: string | null }
-): BillingAccess => {
+): Pick<BillingAccess, "readOnly" | "hasFullAccess" | "canUsePremiumFeatures" | "isFounder" | "isPastDue" | "statusMessage"> => {
   const isFounder = Boolean(record.is_founder) || record.stripe_price_id === FOUNDER_PRICE_ID;
   const hasFullAccess =
     isFounder || record.plan_status === "trialing" || record.plan_status === "active";

@@ -336,6 +336,7 @@ export function useCatalog() {
   const company = useCompany();
   const companyAccountId = (company as any).companyAccountId;
   const [catalog, _setCatalog] = useState<Catalog>(() => emptyCatalog);
+  const [catalogCompanyId, setCatalogCompanyId] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [revision, setRevision] = useState(1);
@@ -344,30 +345,31 @@ export function useCatalog() {
 
   useEffect(() => {
     const request = ++requestId.current;
-    if (!supabase || !companyAccountId) { _setCatalog(emptyCatalog); setCatalogLoading(false); return; }
-    setCatalogLoading(true); _setCatalog(emptyCatalog);
+    if (!supabase || !companyAccountId) { _setCatalog(emptyCatalog); setCatalogCompanyId(null); setCatalogLoading(false); return; }
+    setCatalogLoading(true); _setCatalog(emptyCatalog); setCatalogCompanyId(null);
     void supabase.from('company_catalog').select('catalog, revision').eq('company_account_id', companyAccountId).maybeSingle().then(({ data, error }) => {
       if (requestId.current !== request) return;
       if (error) { setCatalogError(error.message); setCatalogLoading(false); return; }
-      _setCatalog(data?.catalog ? migrateCatalog(data.catalog) : emptyCatalog); setRevision(data?.revision || 1); setHasServerCatalog(Boolean(data)); setCatalogError(null); setCatalogLoading(false);
+      _setCatalog(data?.catalog ? migrateCatalog(data.catalog) : emptyCatalog); setCatalogCompanyId(companyAccountId); setRevision(data?.revision || 1); setHasServerCatalog(Boolean(data)); setCatalogError(null); setCatalogLoading(false);
     });
   }, [companyAccountId]);
 
+  const scopedCatalog = catalogCompanyId === companyAccountId ? catalog : emptyCatalog;
   const setCatalog = async (updater: Catalog | ((prev: Catalog) => Catalog)) => {
     if (!allowWrite("update your catalog")) return { ok: false, error: "Read-only account" };
     if (!supabase || !companyAccountId) return { ok: false, error: "No active company account" };
-    const previous = catalog;
+    const previous = scopedCatalog;
     const nextCatalog = migrateCatalog(typeof updater === "function" ? (updater as any)(previous) : updater);
-    if (JSON.stringify({ ...nextCatalog, settings: undefined }) === JSON.stringify({ ...previous, settings: undefined })) return { ok: true, unchanged: true };
-    const { data, error } = hasServerCatalog
-      ? await supabase.rpc('update_company_catalog', { p_company_account_id: companyAccountId, p_catalog: { ...nextCatalog, settings: undefined }, p_revision: revision })
-      : await supabase.from('company_catalog').insert({ company_account_id: companyAccountId, catalog: { ...nextCatalog, settings: undefined }, revision: 1 }).select('catalog, revision').single();
+    if (JSON.stringify(nextCatalog) === JSON.stringify(previous)) return { ok: true, unchanged: true };
+    const { data, error } = hasServerCatalog && catalogCompanyId === companyAccountId
+      ? await supabase.rpc('update_company_catalog', { p_company_account_id: companyAccountId, p_catalog: nextCatalog, p_revision: revision })
+      : await supabase.from('company_catalog').insert({ company_account_id: companyAccountId, catalog: nextCatalog, revision: 1 }).select('catalog, revision').single();
     if (error || !data) {
       const conflict = !hasServerCatalog && error?.code === '23505';
       const message = conflict ? 'Catalog already contains products or stock. Resolve conflicts before importing.' : (error?.message || 'Could not save catalog');
       setCatalogError(message); return { ok: false, error: message };
     }
-    _setCatalog({ ...migrateCatalog(data.catalog), settings: company.profile }); setRevision(data.revision); setHasServerCatalog(true); return { ok: true };
+    _setCatalog(migrateCatalog(data.catalog)); setCatalogCompanyId(companyAccountId); setRevision(data.revision); setHasServerCatalog(true); return { ok: true };
   };
 
   const exportJSON = () => {
@@ -399,17 +401,34 @@ export function useCatalog() {
     setCatalog(defaultCatalog);
   };
 
-  const effectiveCatalog = useMemo(() => ({ ...catalog, settings: company.profile }), [catalog, company.profile]);
+  const effectiveCatalog = useMemo((): Catalog => {
+    const profile = company.profile;
+    const settings: Settings = {
+      ...scopedCatalog.settings,
+      currencySymbol: profile.currencySymbol, currencyCode: profile.currencyCode,
+      companyName: profile.companyName, companyEmail: profile.companyEmail,
+      companyPhone: profile.companyPhone, companyAddress: profile.companyAddress,
+      invoicePrefix: profile.invoicePrefix, invoiceStartNumber: profile.invoiceStartNumber,
+      bankDetails: profile.bankDetails, paymentTermsDays: profile.paymentTermsDays,
+      taxRatePct: profile.taxRatePct, taxLabel: profile.taxLabel, vatNumber: profile.vatNumber,
+      ...(typeof profile.labourBase === 'number' && Number.isFinite(profile.labourBase) ? { labourBase: profile.labourBase } : {}),
+      ...(typeof profile.printingPerSqM === 'number' && Number.isFinite(profile.printingPerSqM) ? { printingPerSqM: profile.printingPerSqM } : {}),
+      ...(typeof profile.marginMultiplier === 'number' && Number.isFinite(profile.marginMultiplier) ? { marginMultiplier: profile.marginMultiplier } : {}),
+      ...(profile.unit === 'metric' || profile.unit === 'imperial' ? { unit: profile.unit } : {}),
+      ...(typeof profile.themeColor === 'string' && profile.themeColor ? { themeColor: profile.themeColor } : {}),
+    };
+    return { ...scopedCatalog, settings };
+  }, [scopedCatalog, company.profile]);
   const maps = useMemo(() => {
-    const frameMap = new Map(catalog.frames.map((f) => [f.id, f]));
-    const matMap = new Map(catalog.mats.map((m) => [m.id, m]));
-    const glazingMap = new Map(catalog.glazing.map((g) => [g.id, g]));
+    const frameMap = new Map(scopedCatalog.frames.map((f) => [f.id, f]));
+    const matMap = new Map(scopedCatalog.mats.map((m) => [m.id, m]));
+    const glazingMap = new Map(scopedCatalog.glazing.map((g) => [g.id, g]));
     const printMap = new Map(
-      (catalog.printingMaterials || []).map((pm) => [pm.id, pm])
+      (scopedCatalog.printingMaterials || []).map((pm) => [pm.id, pm])
     );
     // backerMap can be added later if needed
     return { frameMap, matMap, glazingMap, printMap };
-  }, [catalog]);
+  }, [scopedCatalog]);
 
   const legacyCatalogPreview = useMemo(() => { const legacy = migrateCatalog(loadCatalog()); return { frameCount: legacy.frames.length, matCount: legacy.mats.length, glazingCount: legacy.glazing.length, stockCount: (legacy.stock?.frames?.length || 0) + (legacy.stock?.sheets?.length || 0) + (legacy.stock?.rolls?.length || 0) }; }, []);
   const importLegacyCatalog = async () => {
