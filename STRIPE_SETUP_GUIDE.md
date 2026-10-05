@@ -1,6 +1,6 @@
 ## Stripe Payment Integration Setup
 
-This document walks you through setting up Stripe payments for the Framers App subscription system.
+This document describes future setup; it is **not authorization to configure Stripe Live**. Alex verified the newly enabled Live account has no subscriptions, payments, Checkout sessions, products/prices or webhook destinations. All prior Stripe work was test-mode. Run the isolated sandbox lifecycle against the v2 implementation first. Then follow [RELEASE_RUNBOOK.md](RELEASE_RUNBOOK.md)'s approved EXPAND → deploy → Live-configuration sequence, with separate approval for each production change. Recheck the Live account before release; do not reuse sandbox price IDs, signing secrets or keys in Live.
 
 ---
 
@@ -65,7 +65,7 @@ Repeat the above but for the Growth plan:
 
 ## Step 5: Update Your Environment Variables
 
-### In Vercel (Production):
+### In Vercel (Production; only after the sandbox lifecycle and separate Alex approval):
 
 1. Go to your Vercel project → **Settings** → **Environment Variables**
 2. Add:
@@ -102,16 +102,9 @@ VITE_SUPABASE_ANON_KEY=your_anon_key
 
 ## Step 6: Run Database Migration
 
-1. Go to your **Supabase Dashboard**
-2. Click **SQL Editor** (left sidebar)
-3. Click **+ New Query**
-4. Copy the entire contents of `STRIPE_SETUP.sql` from your repo
-5. Paste it into the SQL editor
-6. Click **Run**
-
-This adds:
-- Stripe columns to `company_accounts` table
-- `stripe_webhook_logs` table for webhook debugging
+1. For a **fresh** installation only, use the baseline sequence in `RELEASE_RUNBOOK.md` (including `STRIPE_SETUP.sql`). Do not rerun baseline SQL on an existing production database.
+2. For an existing installation, apply only approved ordered forward migrations; the proposed `20261001_founder_paid_history.sql` EXPAND is not yet approved and must precede the v2 deployment.
+3. Check transactional error stopping, signatures, grants and trigger behavior before moving to deployment.
 
 ---
 
@@ -156,24 +149,42 @@ STRIPE_WEBHOOK_SECRET=whsec_test_...
 
 ---
 
-## Step 8: Set Up Webhooks for Production
+## Step 8: Set Up Webhooks for Production (Later, With Separate Approval)
 
-Once deployed to Vercel:
+The Stripe Live account currently has **no webhook endpoint**. Only configure
+one after the sandbox lifecycle, approved EXPAND and v2 deployment, and after
+old checkout/webhook instances have drained. Then, in the **Live** Dashboard:
 
 1. In Stripe Dashboard, go to **Developers** → **Webhooks** (left sidebar)
 2. Click **+ Add endpoint**
 3. Fill in:
-   - **Endpoint URL**: `https://your-vercel-domain.vercel.app/api/billing/webhook`
+   - **Endpoint URL**: `https://framersapp.com/api/billing/webhook` (verify the deployed route first)
    - **Events to send**: Replace default with just these events:
      - `checkout.session.completed`
      - `customer.subscription.updated`
      - `customer.subscription.deleted`
+     - `invoice.payment_succeeded` **(required for durable recurring paid-history)**
 
 4. Click **Add endpoint**
 5. You'll see the new endpoint. Click it.
 6. Scroll down to **Signing secret**. Click **Reveal**. Copy it.
 7. Go to Vercel → **Settings** → **Environment Variables**
 8. Update `STRIPE_WEBHOOK_SECRET` with this production secret
+
+Before enabling Live Checkout, verify the **actual live endpoint** is subscribed
+to all four events and signed delivery reaches the v2 webhook. The source guide
+does not prove event configuration. Create the recurring Starter/Growth/Pro
+products/prices and Founder lifetime one-time product/price only after separate
+Alex approval, and verify amount, currency, active status and mode before wiring
+Live price IDs. Do not enable paid recurring Checkout before
+`invoice.payment_succeeded` is being handled.
+
+The current `has_ever_paid_recurring` trust rule records a signed, positive-amount
+`invoice.payment_succeeded` for the matched FramersApp customer and recurring
+subscription. It assumes card-only subscription Checkout, with no application-
+configured trial or promotion codes. Adding credit-balance-funded service, free/
+zero-value arrangements, asynchronous payment methods, or another payment
+provenance requires revisiting this trust rule **before enabling the capability**.
 
 ---
 
@@ -196,22 +207,15 @@ Once deployed to Vercel:
 
 ---
 
-## Step 10: Push to Production
+## Step 10: Release Gate (Do Not Deploy Without Approval)
 
-1. Commit all changes:
-   ```bash
-   git add .
-   git commit -m "Add Stripe payment integration"
-   ```
-
-2. Push to GitHub:
-   ```bash
-   git push origin main
-   ```
-
-3. Vercel will auto-deploy
-4. Check that `STRIPE_SECRET_KEY`, `VITE_STRIPE_PUBLIC_KEY`, `VITE_STRIPE_PRICE_STARTER`, `VITE_STRIPE_PRICE_GROWTH`, and `STRIPE_WEBHOOK_SECRET` are set in Vercel
-4. Check that `VITE_STRIPE_PRICE_PRO`, `VITE_STRIPE_PRICE_FOUNDER`, and `FOUNDER_MAX_PURCHASES` are also set in Vercel if you want the full pricing matrix and Founder cap enforced
+Review the development-branch changes and tests; complete isolated sandbox
+validation first, then obtain Alex's explicit approvals for EXPAND, deployment
+and eventual Live Stripe setup separately. The Live account currently has no
+products, prices or endpoint to validate. Never push directly to `main`.
+Verify the required Vercel variable **names/scopes** without exposing values:
+`STRIPE_SECRET_KEY`, `VITE_STRIPE_PUBLIC_KEY`, the recurring and Founder price
+IDs, `STRIPE_WEBHOOK_SECRET`, and `FOUNDER_MAX_PURCHASES` when configured.
 
 ---
 

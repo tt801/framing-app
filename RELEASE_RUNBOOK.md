@@ -40,15 +40,73 @@ Apply forward migrations in this exact order:
 
 Before upgrade, verify Supabase Auth and these baseline objects exist: `auth.users`, `public.company_accounts`, `public.company_members`, Stripe webhook tables, support tables, and baseline helper functions. Apply one migration at a time with transactional error stopping; verify RPC signatures, grants, RLS, policies, triggers, and representative reads afterward.
 
+## Billing EXPAND/DEPLOY Gate (Not Yet Approved)
+
+Alex verified the newly enabled Stripe **Live** account has zero subscriptions,
+payments, Checkout sessions, products/prices, and webhook destinations. Production
+Supabase has no stored Stripe customer/subscription/price IDs, Founder accounts,
+or Checkout attempts; its five historical webhook objects are test-mode. This is
+**CASE 1: no existing Live billing state**, not proof that sandbox sessions are
+closed or that Live will remain empty. Recheck both provider and database counts
+immediately before any approved release. Do not build historical live-event
+replay or customer migration for nonexistent Live billing state.
+
+`migrations/20261001_founder_paid_history.sql` is an **unapplied EXPAND proposal**
+beyond the thirteen-migration sequence above. It adds nullable paid history,
+server-owned eligibility, v2 reservation/Founder completion functions, and a
+trigger that rejects direct Founder activation without a completed reservation.
+The legacy begin signature remains for recurring Checkout but denies Founder;
+the legacy four-argument Founder completion remains callable only by the
+service role and fails closed. The new API uses explicit v2 RPCs. No CONTRACT
+migration or production migration is approved. The old deployed `main` Checkout
+creates a Founder Stripe session without a database RPC: do **not** configure
+payable Live Founder pricing while old checkout or webhook instances can serve.
+A database-only bridge cannot prevent that old Stripe session creation.
+
+Approved design order, **not execution authority**:
+1. Complete the isolated Stripe **test-mode** lifecycle against the proposed v2
+   code/schema using existing sandbox resources; no preview infrastructure or
+   Live Stripe configuration is authorized in this step. Verify Founder expiry,
+   concurrent final-slot reservation, paid completion, invoice history, and
+   session-specific return. Resolve any open sandbox sessions before changing
+   the sandbox endpoint or credentials.
+2. Recheck Stripe Live remains empty and production Supabase prerequisites match;
+   obtain separate approval, snapshot/backup, then apply EXPAND transactionally
+   with error stopping. Verify column/trigger, old and v2 signatures, grants,
+   legacy Founder denial and ordinary recurring behavior. No Live payable
+   products/endpoint exist during the old-code overlap.
+3. With separate deployment approval, deploy v2 API/frontend and verify the new
+   billing routes, webhook signature handling and instance drain. Keep Live
+   purchasing unavailable until the matching endpoint and prices are configured.
+   Old browser tabs must reload before Live launch.
+4. Only with later separate approval, create **Live** recurring and Founder
+   products/prices, configure the production webhook for
+   `checkout.session.completed`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, and `invoice.payment_succeeded`, and supply
+   the correct Live environment-variable names/scopes without exposing values.
+   Verify all four event subscriptions and signed delivery, then allow payable
+   Live Checkout; ensure old webhook/checkout instances are no longer serving.
+   Never enable paid recurring Checkout before invoice event handling is ready.
+5. Remove obsolete compatibility RPCs in a separately reviewed CONTRACT
+   migration only after old instances and pending old sessions are drained.
+
+The paid-history rule assumes card-only recurring Checkout without application-
+configured trials or promotion codes. Credit-funded, zero-value, asynchronous,
+or alternate payment provenance requires reviewing the trust rule first.
+
 ## Coordination And Recovery
 
-1. Create and verify a backup/snapshot and record the current schema state.
-2. Apply forward migrations in a maintenance window.
-3. Deploy the frontend built against the verified schema.
-4. Run preview smoke checks before reopening writes.
-5. Require already-open tabs to reload; old tabs may hold stale revisions and company context.
+1. Create and verify a backup/snapshot and record schema and Stripe Live state.
+2. Apply approved forward migrations in order, stopping on error; EXPAND must
+   precede the v2 deployment, with no Live payable Checkout during overlap.
+3. Deploy the API/frontend built against the verified schema only with separate
+   approval; verify v2 RPCs and webhook handling before configuring Live billing.
+4. Require existing tabs to reload; old tabs may hold stale revisions and company context.
 
-Do not roll back to an old frontend after incompatible RLS, RPC, or enforcement changes unless it is explicitly compatible. Keep old tabs read-only or require reload. If migration/deployment fails, stop, preserve the previous deployment where compatible, restore the backup or use a reviewed forward repair, and do not automatically reverse migrations.
+Do not roll back to an old billing deployment after new payable sessions or paid
+history exist. On failure, keep Live Checkout disabled, preserve payment/event
+records, and prefer a reviewed forward fix; never drop paid history or release a
+reservation just because its timestamp passed.
 
 ## Required Preview Checks
 

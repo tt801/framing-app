@@ -110,14 +110,35 @@ async function handleFounderPayment(session: Stripe.Checkout.Session) {
   if (session.mode !== "payment" || session.payment_status !== "paid") throw new Error("Founder checkout is not paid");
   const customerId = customerIdOf(session.customer) || null;
   const founderPriceId = process.env.VITE_STRIPE_PRICE_FOUNDER || "";
-  const { data, error } = await supabase.rpc("complete_founder_checkout", {
+  const { data, error } = await supabase.rpc("complete_founder_checkout_v2", {
     p_company_account_id: account.id,
     p_session_id: session.id,
     p_customer_id: customerId,
     p_founder_price_id: founderPriceId,
+    p_founder_max: Number(process.env.FOUNDER_MAX_PURCHASES || 10),
   });
   if (error) throw error;
   if (data !== true) throw new Error("Founder checkout reservation was not found or could not be completed");
+}
+
+async function handlePaidRecurringInvoice(invoice: Stripe.Invoice, eventId: string, claimToken: string) {
+  if (invoice.status !== "paid" || invoice.amount_paid <= 0) return;
+  const subscriptionRef = invoice.parent?.subscription_details?.subscription;
+  if (!subscriptionRef) return; // One-off invoices are not recurring entitlement evidence.
+  const subscriptionId = typeof subscriptionRef === "string" ? subscriptionRef : subscriptionRef.id;
+  const customerId = customerIdOf(invoice.customer);
+  if (!customerId) throw new Error("Paid invoice has no customer");
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  if (customerIdOf(subscription.customer) !== customerId || !subscription.metadata?.company_account_id) {
+    throw new Error("Paid invoice/subscription identity mismatch");
+  }
+  const account = await resolveCompanyAccount(customerId, subscription.metadata.company_account_id);
+  if (!account) return;
+  const { data, error } = await supabase.rpc("record_paid_recurring_invoice", {
+    p_company_account_id: account.id, p_event_id: eventId, p_claim_token: claimToken,
+    p_customer_id: customerId, p_subscription_id: subscriptionId,
+  });
+  if (error || data !== true) throw error || new Error("Paid recurring history was not recorded");
 }
 
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, eventId: string, claimToken: string) {
@@ -179,6 +200,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       case "customer.subscription.updated": await handleSubscriptionUpdated(event.data.object as Stripe.Subscription, event.id, claimToken); break;
       case "customer.subscription.deleted": await handleSubscriptionDeleted(event.data.object as Stripe.Subscription, event.id, claimToken); break;
+      case "invoice.payment_succeeded": await handlePaidRecurringInvoice(event.data.object as Stripe.Invoice, event.id, claimToken); break;
       default: break;
     }
     const { data: finished, error: finishError } = await supabase.rpc("finish_stripe_webhook", { p_event_id: event.id, p_claim_token: claimToken, p_status: "processed" });

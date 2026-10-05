@@ -4,6 +4,7 @@ import { useStripeCheckout } from "@/lib/trial";
 interface UpgradeModalProps {
   onClose?: () => void;
   embedded?: boolean;
+  founderEligible?: boolean;
 }
 
 type PlanId = "starter" | "growth" | "pro" | "founder";
@@ -86,11 +87,12 @@ const PLANS: {
   },
 ];
 
-export default function UpgradeModal({ onClose, embedded = false }: UpgradeModalProps) {
+export default function UpgradeModal({ onClose, embedded = false, founderEligible = false }: UpgradeModalProps) {
   const { startCheckout, loading, error } = useStripeCheckout();
   const [selectedPlan, setSelectedPlan] = useState<PlanId>("growth");
 
-  const selected = PLANS.find((p) => p.id === selectedPlan)!;
+  const availablePlans = founderEligible ? PLANS : PLANS.filter((plan) => plan.id !== "founder");
+  const selected = availablePlans.find((p) => p.id === selectedPlan) || availablePlans[0];
 
   const handleCheckout = async () => {
     if (selected.priceId) {
@@ -103,11 +105,11 @@ export default function UpgradeModal({ onClose, embedded = false }: UpgradeModal
       <div className={`w-full max-w-4xl rounded-2xl border border-white/20 bg-slate-900 p-6 shadow-2xl sm:p-10 ${embedded ? "mx-auto" : ""}`}>
         <h2 className="font-display text-2xl text-white sm:text-3xl">Choose your plan</h2>
         <p className="mt-2 text-sm text-slate-300">
-          Your free trial has ended. Select a plan to continue using Framers App.
+          Select a plan to continue using Framers App.
         </p>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {PLANS.map((plan) => (
+          {availablePlans.map((plan) => (
             <button
               key={plan.id}
               type="button"

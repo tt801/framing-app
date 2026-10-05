@@ -56,7 +56,7 @@ const supabaseMock = vi.hoisted(() => ({
       account.stripe_subscription_id = args.p_subscription_id
       return { data: true, error: null }
     }
-    if (name === 'complete_founder_checkout') { state.founderCompletions++; return { data: true, error: null } }
+    if (name === 'complete_founder_checkout_v2') { state.founderCompletions++; return { data: true, error: null } }
     throw new Error(`Unexpected RPC: ${name}`)
   }),
   from: vi.fn((table: string) => {

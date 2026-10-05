@@ -26,6 +26,10 @@
       "destination": "/api/billing/manage?billingAction=create-portal"
     },
     {
+      "source": "/api/billing/confirm-checkout",
+      "destination": "/api/billing/manage?billingAction=confirm-checkout"
+    },
+    {
       "source": "/api/integrations/quickbooks/connect",
       "destination": "/api/integrations/quickbooks?integrationAction=connect"
     },

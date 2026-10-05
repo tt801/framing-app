@@ -62,9 +62,30 @@ function getBaseUrl(req: VercelRequest) {
   return "http://localhost:5173";
 }
 
+async function releaseExpiredFounderReservations() {
+  const { data: stale, error } = await supabase.from('stripe_checkout_attempts')
+    .select('id,company_account_id,session_id,expires_at')
+    .eq('founder_reserved', true).eq('status', 'pending')
+    .lte('expires_at', new Date().toISOString());
+  if (error) throw error;
+  for (const attempt of stale || []) {
+    if (attempt.session_id) {
+      const session = await stripe.checkout.sessions.retrieve(attempt.session_id);
+      // A timestamp alone cannot release a slot: payment may precede a late
+      // webhook. Only Stripe's terminal expired/unpaid state is safe to free.
+      if (session.status !== 'expired' || session.payment_status === 'paid') continue;
+    }
+    const { data: released, error: releaseError } = await supabase.rpc('expire_stripe_checkout_attempt', {
+      p_attempt_id: attempt.id, p_company_account_id: attempt.company_account_id,
+    });
+    if (releaseError || released !== true) throw releaseError || new Error('Founder reservation could not be released');
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).end();
 
+  let unreturnedFounderAttempt: { id: string; companyId: string } | null = null;
   try {
     const { user, account } = await requireBillingUser(req);
     const { priceId, isOneTime } = req.body;
@@ -77,8 +98,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw new Error("Invalid plan configuration");
     }
 
-    let idempotencyKey = `checkout:${account.id}:${priceId}`;
-    const beginAttempt = () => supabase.rpc("begin_stripe_checkout", {
+    let idempotencyKey = isFounderCheckout
+      ? `checkout:${account.id}:${priceId}:${randomUUID()}`
+      : `checkout:${account.id}:${priceId}`;
+    const beginAttempt = () => supabase.rpc("begin_stripe_checkout_v2", {
       p_company_account_id: account.id,
       p_price_id: priceId,
       p_idempotency_key: idempotencyKey,
@@ -88,6 +111,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let { data: attempt, error: attemptError } = await beginAttempt();
     if (attemptError) throw attemptError;
     let checkoutAttempt = Array.isArray(attempt) ? attempt[0] : attempt;
+    if (isFounderCheckout && checkoutAttempt?.reason === 'Founder plan is sold out') {
+      await releaseExpiredFounderReservations();
+      ({ data: attempt, error: attemptError } = await beginAttempt());
+      if (attemptError) throw attemptError;
+      checkoutAttempt = Array.isArray(attempt) ? attempt[0] : attempt;
+    }
+    if (!checkoutAttempt?.allowed && isFounderCheckout && checkoutAttempt?.reason?.startsWith('Stripe session status must be confirmed') && !checkoutAttempt.existing_session_id) {
+      await releaseExpiredFounderReservations();
+      ({ data: attempt, error: attemptError } = await beginAttempt());
+      if (attemptError) throw attemptError;
+      checkoutAttempt = Array.isArray(attempt) ? attempt[0] : attempt;
+    }
     if (!checkoutAttempt?.allowed && checkoutAttempt?.reason?.startsWith("Stripe session status must be confirmed") && checkoutAttempt.existing_session_id) {
       const existing = await stripe.checkout.sessions.retrieve(checkoutAttempt.existing_session_id);
       if (existing.status === "expired" && existing.payment_status !== "paid") {
@@ -104,6 +139,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (!checkoutAttempt?.allowed) throw new Error(checkoutAttempt?.reason || "Checkout is unavailable");
     if (checkoutAttempt.existing_session_id) return res.status(200).json({ sessionId: checkoutAttempt.existing_session_id, url: checkoutAttempt.existing_session_url });
+    if (isFounderCheckout) unreturnedFounderAttempt = { id: checkoutAttempt.attempt_id, companyId: account.id };
 
     // Create or retrieve Stripe customer
     let customerId = account.stripe_customer_id;
@@ -142,6 +178,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
       ],
       mode: isFounderCheckout ? "payment" : "subscription",
+      ...(isFounderCheckout ? { expires_at: Math.floor(Date.now() / 1000) + 35 * 60 } : {}),
       success_url: `${baseUrl}#/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}#/app`,
       ...(isFounderCheckout
@@ -168,8 +205,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (sessionSaveError || sessionSaved !== true) throw sessionSaveError || new Error("Checkout session could not be recorded");
 
     if (!session.url) throw new Error("Stripe checkout URL missing");
+    unreturnedFounderAttempt = null;
     res.status(200).json({ sessionId: session.id, url: session.url });
   } catch (error) {
+    if (unreturnedFounderAttempt) {
+      try {
+        const { data: released, error: releaseError } = await supabase.rpc('expire_stripe_checkout_attempt', {
+          p_attempt_id: unreturnedFounderAttempt.id, p_company_account_id: unreturnedFounderAttempt.companyId,
+        });
+        if (releaseError || released !== true) console.error('[create-checkout] Founder release failed:', releaseError || 'not released');
+      } catch (releaseError) {
+        console.error('[create-checkout] Founder release failed:', releaseError);
+      }
+    }
     console.error("[create-checkout] Error:", error);
     res.status(400).json({ error: error instanceof Error ? error.message : "Unknown error" });
   }

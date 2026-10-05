@@ -46,7 +46,8 @@ const supabaseMock = vi.hoisted(() => {
       state.accounts.set(args.p_company_account_id, { ...state.accounts.get(args.p_company_account_id), subscriptionId: args.p_subscription_id, planStatus: args.p_status })
       return { data: true, error: null }
     }
-    if (name === 'complete_founder_checkout') return state.failAccountUpdate ? { data: null, error: new Error('account update failed') } : { data: true, error: null }
+    if (name === 'complete_founder_checkout_v2') return state.failAccountUpdate ? { data: null, error: new Error('account update failed') } : { data: true, error: null }
+    if (name === 'record_paid_recurring_invoice') return { data: true, error: null }
     throw new Error(`unexpected rpc ${name}`)
   })
   const from = vi.fn(() => {
@@ -78,7 +79,7 @@ const request = (event: any, valid = true) => {
 }
 const response = () => { const out: any = {}; return { out, status(code: number) { out.status = code; return this }, json(body: any) { out.body = body; return this }, end() { out.ended = true; return this } } as any }
 const subscription = (id: string, company = 'company-a') => ({ id, customer: 'cus-a', metadata: { company_account_id: company }, status: 'active', cancel_at: null, items: { data: [{ price: { id: 'price-1' }, current_period_end: 2000 }] } })
-const event = (id: string, type = 'customer.subscription.updated', created = 1000, object = subscription('sub-1')) => ({ id, type, created, data: { object } })
+const event = (id: string, type = 'customer.subscription.updated', created = 1000, object: any = subscription('sub-1')) => ({ id, type, created, data: { object } })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -91,6 +92,28 @@ beforeEach(() => {
 })
 
 describe('Block 3A webhook reliability', () => {
+  it('records paid recurring history only from a verified positive subscription invoice', async () => {
+    const invoice = { id: 'in-a', customer: 'cus-a', status: 'paid', amount_paid: 500,
+      parent: { subscription_details: { subscription: 'sub-1' } } }
+    stripeMock.subscriptions.retrieve.mockResolvedValue(subscription('sub-1'))
+    const paid = response(); await handler(request(event('evt-invoice', 'invoice.payment_succeeded', 1000, invoice)), paid)
+    expect(paid.out.status).toBe(200)
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('record_paid_recurring_invoice', expect.objectContaining({
+      p_company_account_id: 'company-a', p_event_id: 'evt-invoice', p_customer_id: 'cus-a', p_subscription_id: 'sub-1',
+    }))
+    const before = supabaseMock.rpc.mock.calls.filter(([name]) => name === 'record_paid_recurring_invoice').length
+    const noPayment = response(); await handler(request(event('evt-zero', 'invoice.payment_succeeded', 1000, { ...invoice, amount_paid: 0 })), noPayment)
+    expect(noPayment.out.status).toBe(200)
+    expect(supabaseMock.rpc.mock.calls.filter(([name]) => name === 'record_paid_recurring_invoice')).toHaveLength(before)
+  })
+  it('passes the configured cap to Founder completion', async () => {
+    state.accounts.get('company-a').stripe_customer_id = 'cus-founder'
+    stripeMock.paymentIntents.retrieve.mockResolvedValue({ metadata: { company_account_id: 'company-a' } })
+    const paid = { id: 'evt-founder', type: 'checkout.session.completed', data: { object: { id: 'cs-founder', mode: 'payment', payment_status: 'paid', customer: 'cus-founder', payment_intent: 'pi-founder' } } }
+    const result = response(); await handler(request(paid), result)
+    expect(result.out.status).toBe(200)
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('complete_founder_checkout_v2', expect.objectContaining({ p_founder_max: expect.any(Number) }))
+  })
   it('processes once and processed duplicates are no-ops', async () => {
     const first = response(); await handler(request(event('evt-1')), first); expect(first.out.status).toBe(200); expect(state.logs.get('evt-1')?.status).toBe('processed')
     const second = response(); await handler(request(event('evt-1')), second); expect(second.out.body.duplicate).toBe(true); expect(state.accounts.get('company-a').subscriptionId).toBe('sub-1')

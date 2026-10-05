@@ -13,6 +13,7 @@ type CompanyAccount = {
   subscription_cancel_at: string | null;
   trial_started_at: string;
   trial_ends_at: string;
+  has_ever_paid_recurring: boolean | null;
 };
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -36,7 +37,7 @@ async function requireBillingUser(req: VercelRequest) {
   const { data: account, error: acErr } = await supabase
     .from("company_accounts")
     .select(
-      "id, company_name, plan_status, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_renewed_at, subscription_cancel_at, trial_started_at, trial_ends_at"
+      "id, company_name, plan_status, stripe_customer_id, stripe_subscription_id, stripe_price_id, subscription_renewed_at, subscription_cancel_at, trial_started_at, trial_ends_at, has_ever_paid_recurring"
     )
     .eq("owner_user_id", data.user.id)
     .single();
@@ -82,8 +83,25 @@ async function handleSummary(req: VercelRequest, res: VercelResponse) {
 
   if (error) throw error;
 
-  const founderPurchasedCount = count || 0;
-  const founderRemaining = Math.max(founderMaxPurchases - founderPurchasedCount, 0);
+  const { count: reservedCount, error: reservationError } = await supabase
+    .from("stripe_checkout_attempts")
+    .select("id", { count: "exact", head: true })
+    .eq("founder_reserved", true)
+    .eq("status", "pending");
+  if (reservationError) throw reservationError;
+  if (count === null || reservedCount === null || !Number.isInteger(founderMaxPurchases) || founderMaxPurchases < 1) {
+    throw new Error("Founder capacity is unavailable");
+  }
+
+  const founderPurchasedCount = count;
+  const founderRemaining = Math.max(founderMaxPurchases - founderPurchasedCount - reservedCount, 0);
+  const now = Date.now();
+  const trialStart = Date.parse(account.trial_started_at);
+  const trialEnd = Date.parse(account.trial_ends_at);
+  const founderEligible = founderRemaining > 0 && account.plan_status === "trialing" &&
+    account.has_ever_paid_recurring === false && account.stripe_subscription_id === null &&
+    account.stripe_price_id !== "founder_lifetime" && Number.isFinite(trialStart) && Number.isFinite(trialEnd) &&
+    trialStart <= now && now < trialEnd && now < trialStart + 14 * 24 * 60 * 60 * 1000;
 
   return res.status(200).json({
     account,
@@ -92,6 +110,7 @@ async function handleSummary(req: VercelRequest, res: VercelResponse) {
       purchasedCount: founderPurchasedCount,
       remaining: founderRemaining,
       soldOut: founderRemaining === 0,
+      eligible: founderEligible,
     },
     portalEligible: Boolean(
       account.stripe_customer_id &&
@@ -124,6 +143,54 @@ async function handleCreatePortal(req: VercelRequest, res: VercelResponse) {
   return res.status(200).json({ url: session.url });
 }
 
+// Read-only confirmation: a returned URL is not proof of payment or entitlement.
+// Look up the session under the authenticated owner's company before contacting
+// Stripe, then require this exact session's payment and matching persisted access.
+async function handleConfirmCheckout(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "GET") return res.status(405).end();
+  const { account } = await requireBillingUser(req);
+  const raw = req.query?.session_id;
+  const sessionId = Array.isArray(raw) ? null : raw;
+  if (typeof sessionId !== "string" || !/^cs_[a-zA-Z0-9_]{1,220}$/.test(sessionId)) {
+    return res.status(400).json({ error: "Invalid Checkout session" });
+  }
+  const { data: attempt, error } = await supabase.from("stripe_checkout_attempts")
+    .select("company_account_id,session_id,customer_id,price_id,status,founder_reserved")
+    .eq("company_account_id", account.id).eq("session_id", sessionId).maybeSingle();
+  if (error) throw error;
+  if (!attempt) return res.status(404).json({ error: "Checkout session not found" });
+  if (!account.stripe_customer_id || attempt.customer_id !== account.stripe_customer_id) {
+    return res.status(409).json({ error: "Checkout customer mismatch" });
+  }
+  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  if (session.id !== sessionId || customerId !== account.stripe_customer_id) {
+    return res.status(409).json({ error: "Checkout identity mismatch" });
+  }
+  const founder = attempt.price_id === process.env.VITE_STRIPE_PRICE_FOUNDER && Boolean(process.env.VITE_STRIPE_PRICE_FOUNDER);
+  if ((founder && session.mode !== "payment") || (!founder && session.mode !== "subscription")) {
+    return res.status(409).json({ error: "Checkout mode mismatch" });
+  }
+  if (attempt.status === "failed" || session.status === "expired") {
+    return res.status(200).json({ status: "rejected" });
+  }
+  if (session.status !== "complete" || session.payment_status !== "paid") {
+    return res.status(200).json({ status: "pending" });
+  }
+  if (founder) {
+    if (attempt.status === "completed" && account.plan_status === "active" && account.stripe_price_id === "founder_lifetime") {
+      return res.status(200).json({ status: "confirmed", kind: "founder", companyName: account.company_name });
+    }
+  } else {
+    const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+    if (subscriptionId && account.plan_status === "active" && account.stripe_subscription_id === subscriptionId &&
+        account.stripe_price_id === attempt.price_id) {
+      return res.status(200).json({ status: "confirmed", kind: "recurring", companyName: account.company_name });
+    }
+  }
+  return res.status(200).json({ status: "pending" });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const action = getAction(req);
@@ -134,6 +201,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (action === "create-portal") {
       return await handleCreatePortal(req, res);
+    }
+    if (action === "confirm-checkout") {
+      return await handleConfirmCheckout(req, res);
     }
 
     return res.status(404).json({ error: "Unknown billing action" });

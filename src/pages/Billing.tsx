@@ -2,7 +2,6 @@ import React from "react";
 import UpgradeModal from "@/components/UpgradeModal";
 import { useToast } from "@/lib/toast";
 import { useBillingSummary, useBillingPortal } from "@/lib/billing";
-import { useTrialStatus } from "@/lib/trial";
 
 const formatDate = (value?: string | null) => {
   if (!value) return "Not available";
@@ -13,7 +12,6 @@ const formatDate = (value?: string | null) => {
 
 export default function BillingPage() {
   const { add: toast } = useToast();
-  const { trial } = useTrialStatus(true);
   const { summary, loading, error, refresh } = useBillingSummary(true);
   const { openPortal, loading: portalLoading } = useBillingPortal();
 
@@ -26,7 +24,9 @@ export default function BillingPage() {
     }
   };
 
-  const showUpgradeOptions = !trial?.isFounder;
+  const isFounder = summary?.account.stripe_price_id === "founder_lifetime";
+  const showUpgradeOptions = !loading && !error && !!summary && !isFounder &&
+    (summary.account.plan_status === "trialing" || summary.account.plan_status === "expired");
 
   return (
     <div className="min-h-dvh w-full bg-slate-50 text-slate-900">
@@ -60,7 +60,7 @@ export default function BillingPage() {
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
-                    {trial?.isFounder ? "Founder" : summary.account.plan_status.replace("_", " ")}
+                    {isFounder ? "Founder" : summary.account.plan_status.replace("_", " ")}
                   </span>
                   {summary.portalEligible ? (
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
@@ -79,7 +79,7 @@ export default function BillingPage() {
                   <div>
                     <p className="text-xs uppercase tracking-wide text-slate-500">Renews / Access until</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900">
-                      {trial?.isFounder ? "Lifetime access" : formatDate(summary.account.subscription_renewed_at || summary.account.trial_ends_at)}
+                      {isFounder ? "Lifetime access" : formatDate(summary.account.subscription_renewed_at || summary.account.trial_ends_at)}
                     </p>
                   </div>
                   <div>
@@ -122,7 +122,7 @@ export default function BillingPage() {
 
         {showUpgradeOptions ? (
           <section className="rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
-            <UpgradeModal embedded />
+            <UpgradeModal embedded founderEligible={summary?.founder.eligible === true} />
           </section>
         ) : null}
       </main>

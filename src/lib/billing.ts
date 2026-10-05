@@ -19,6 +19,7 @@ export type BillingSummary = {
     purchasedCount: number;
     remaining: number;
     soldOut: boolean;
+    eligible: boolean;
   };
   portalEligible: boolean;
 };
@@ -77,6 +78,17 @@ export function useBillingSummary(enabled = true) {
   }, [enabled]);
 
   return { summary, loading, error, refresh: load };
+}
+
+export type CheckoutConfirmation =
+  | { status: "pending" | "rejected" }
+  | { status: "confirmed"; kind: "founder" | "recurring"; companyName: string | null };
+
+export function confirmCheckout(sessionId: string): Promise<CheckoutConfirmation> {
+  return fetchWithAuth<CheckoutConfirmation>(
+    `/api/billing/confirm-checkout?session_id=${encodeURIComponent(sessionId)}`,
+    { method: "GET" }
+  );
 }
 
 export function useBillingPortal() {
