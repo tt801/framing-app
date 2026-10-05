@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BillingSummary } from '@/lib/billing'
 
@@ -41,6 +41,28 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers() })
 
 describe('billing page entitlement presentation', () => {
+  it('shows recurring plan, billed amount, period and secure portal action', () => {
+    mocks.summary = { ...summary('active', 'price-growth'), plan: { name: 'Growth', unitAmount: 3500, currency: 'gbp', interval: 'month', intervalCount: 1 } }
+    render(<BillingPage />)
+    expect(screen.getByText('Growth')).toBeTruthy()
+    expect(screen.getByText(/£35.*month/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Manage subscription' }))
+    expect(mocks.portal).toHaveBeenCalledOnce()
+  })
+  it('shows original trial end and upgrade choices without a renewal claim', () => {
+    mocks.summary = summary('trialing')
+    render(<BillingPage />)
+    expect(screen.getByText('Free trial')).toBeTruthy()
+    expect(screen.getByText('Trial ends')).toBeTruthy()
+    expect(screen.getByTestId('upgrade-options')).toBeTruthy()
+  })
+  it('identifies Founder lifetime and never renders the sentinel as renewal', () => {
+    mocks.summary = { ...summary('active', 'founder_lifetime'), account: { ...summary('active', 'founder_lifetime').account, subscription_renewed_at: '2126-01-01T00:00:00Z', stripe_subscription_id: null } }
+    render(<BillingPage />)
+    expect(screen.getByText('Founder Lifetime')).toBeTruthy()
+    expect(screen.getByText('No recurring subscription')).toBeTruthy()
+    expect(screen.queryByText('2126')).toBeNull()
+  })
   it('shows Founder lifetime and no purchase options even when a second trial hook has no identity', () => {
     mocks.summary = summary('active', 'founder_lifetime')
     render(<BillingPage />)
@@ -48,7 +70,7 @@ describe('billing page entitlement presentation', () => {
     expect(screen.getByText('Lifetime access')).toBeTruthy()
     expect(mocks.trialHook).not.toHaveBeenCalled()
     expect(screen.queryByTestId('upgrade-options')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Manage subscription' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Manage subscription' })).toBeNull()
   })
   it.each(['trialing', 'active', 'past_due', 'expired'] as const)('renders %s from the authenticated summary', status => {
     mocks.summary = summary(status, status === 'trialing' ? null : 'price-regular')

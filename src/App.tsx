@@ -383,6 +383,7 @@ function App() {
     { label: "Calendar", href: "#/calendar", active: isCalendar },
     { label: "Marketing", href: "#/marketing", active: isMarketing },
     { label: "Stock", href: "#/stock", active: isStock },
+    ...(trial?.workspaceRole === "owner" ? [{ label: "Billing", href: "#/billing", active: isBilling }] : []),
     ...(hasAdminAccess ? [{ label: "Admin", href: "#/admin", active: isAdmin }] : []),
   ];
 
@@ -533,6 +534,14 @@ function App() {
         </div>
       </BillingAccessProvider>
     );
+  }
+
+  if (isBilling && !trialLoading && trial?.workspaceRole !== "owner") {
+    return <main className="p-8 text-center">Billing is available to the company owner.</main>;
+  }
+
+  if (isBilling && trialLoading) {
+    return <div className="flex min-h-dvh items-center justify-center"><LoadingSpinner size="lg" /></div>;
   }
 
   if (isBilling) {

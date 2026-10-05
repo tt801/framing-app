@@ -150,6 +150,7 @@ export default function UpgradeModal({ onClose, embedded = false, founderEligibl
           ))}
         </div>
 
+        {!selected.priceId && <p role="alert" className="mt-6 text-sm text-amber-200">Checkout temporarily unavailable for {selected.name}. Please try again later or contact support.</p>}
         {error && <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -165,6 +166,8 @@ export default function UpgradeModal({ onClose, embedded = false, founderEligibl
           >
             {loading
               ? "Redirecting to Stripe..."
+              : !selected.priceId
+              ? "Checkout unavailable"
               : selected.oneTime
               ? `Buy ${selected.name} — ${selected.price}`
               : `Start ${selected.name} Plan — ${selected.price}${selected.period}`}

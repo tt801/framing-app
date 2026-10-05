@@ -8,6 +8,7 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, 'src') },
   },
   test: {
+    exclude: ['admin/**', '**/node_modules/**', '**/dist/**'],
     environment: 'jsdom',
     testTimeout: 10000,
   },

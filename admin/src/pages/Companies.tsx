@@ -134,7 +134,7 @@ export default function Companies() {
                     )}
                   </td>
                   <td className="text-muted">
-                    {c.subscription_renewed_at
+                    {c.stripe_price_id !== "founder_lifetime" && c.stripe_subscription_id && c.plan_status === "active" && !c.subscription_cancel_at && c.subscription_renewed_at && new Date(c.subscription_renewed_at).getFullYear() < 2100
                       ? new Date(c.subscription_renewed_at).toLocaleDateString()
                       : "—"}
                   </td>

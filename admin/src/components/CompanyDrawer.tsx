@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import {
   getPlatformMembers,
+  getPlatformBillingHistory,
   listPlatformTickets,
   type PlatformCompany,
+  type PlatformCheckoutAttempt,
   type PlatformMember,
   type PlatformTicket,
 } from "@/lib/api";
@@ -59,6 +61,23 @@ export default function CompanyDrawer({ company, onClose }: Props) {
   const [tickets, setTickets] = useState<PlatformTicket[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [loadingTickets, setLoadingTickets] = useState(true);
+  const [attempts, setAttempts] = useState<PlatformCheckoutAttempt[]>([]);
+  const [billingError, setBillingError] = useState(false);
+  const founder = company.stripe_price_id === "founder_lifetime";
+  const renewal = !founder && company.stripe_subscription_id && company.plan_status === "active"
+    && !company.subscription_cancel_at && company.subscription_renewed_at
+    && new Date(company.subscription_renewed_at).getFullYear() < 2100
+    ? company.subscription_renewed_at : null;
+
+  useEffect(() => {
+    let current = true;
+    setAttempts([]);
+    setBillingError(false);
+    getPlatformBillingHistory(company.id)
+      .then(({ attempts }) => { if (current) setAttempts(attempts); })
+      .catch(() => { if (current) setBillingError(true); });
+    return () => { current = false; };
+  }, [company.id]);
 
   useEffect(() => {
     setLoadingMembers(true);
@@ -105,7 +124,7 @@ export default function CompanyDrawer({ company, onClose }: Props) {
             <div className="drawer-info-grid">
               <div className="drawer-info-item">
                 <span className="drawer-info-label">Plan</span>
-                <span className="drawer-info-value">{planLabel(company.stripe_price_id)}</span>
+                <span className="drawer-info-value">{founder ? "Founder Lifetime" : company.plan_name ? company.plan_name[0].toUpperCase() + company.plan_name.slice(1) : planLabel(company.stripe_price_id)}</span>
               </div>
               <div className="drawer-info-item">
                 <span className="drawer-info-label">Status</span>
@@ -115,10 +134,10 @@ export default function CompanyDrawer({ company, onClose }: Props) {
                   </span>
                 </span>
               </div>
-              <div className="drawer-info-item">
-                <span className="drawer-info-label">Renewal date</span>
-                <span className="drawer-info-value muted">{fmt(company.subscription_renewed_at)}</span>
-              </div>
+              <div className="drawer-info-item"><span className="drawer-info-label">Effective access</span><span className="drawer-info-value">{founder && company.plan_status === "active" ? "Lifetime access" : company.plan_status === "active" ? "Full access" : company.plan_status === "trialing" && company.trial_ends_at && new Date(company.trial_ends_at).getTime() > Date.now() ? "Trial access" : "Restricted"}</span></div>
+              {renewal && <div className="drawer-info-item"><span className="drawer-info-label">Next billing date (stored period end)</span><span className="drawer-info-value muted">{fmt(renewal)}</span></div>}
+              {company.subscription_cancel_at && !founder && <div className="drawer-info-item"><span className="drawer-info-label">Cancellation scheduled</span><span className="drawer-info-value muted">{fmt(company.subscription_cancel_at)}</span></div>}
+              <div className="drawer-info-item"><span className="drawer-info-label">Trial started</span><span className="drawer-info-value muted">{fmt(company.trial_started_at)}</span></div>
               <div className="drawer-info-item">
                 <span className="drawer-info-label">Trial ends</span>
                 <span className="drawer-info-value muted">{fmt(company.trial_ends_at)}</span>
@@ -138,6 +157,21 @@ export default function CompanyDrawer({ company, onClose }: Props) {
                 </span>
               </div>
             </div>
+          </section>
+
+          <section>
+            <div className="drawer-info-grid">
+              <div className="drawer-info-item"><span className="drawer-info-label">Stripe customer ID</span><span className="drawer-info-value">{company.stripe_customer_id ?? "—"}</span></div>
+              <div className="drawer-info-item"><span className="drawer-info-label">Stripe subscription ID</span><span className="drawer-info-value">{company.stripe_subscription_id ?? "None (no recurring subscription)"}</span></div>
+              <div className="drawer-info-item"><span className="drawer-info-label">Ever paid recurring</span><span className="drawer-info-value">{company.has_ever_paid_recurring === null ? "Unknown" : company.has_ever_paid_recurring ? "Yes" : "No"}</span></div>
+            </div>
+            <p className="drawer-section-label">Checkout history (latest 20)</p>
+            {billingError ? <p className="drawer-empty">Checkout history unavailable.</p> : attempts.length === 0 ? <p className="drawer-empty">No checkout attempts recorded.</p> : (
+              <ul>{attempts.map((attempt) => <li key={attempt.id} className="drawer-info-item">
+                {attempt.price_id === "founder_lifetime" ? "Founder purchase" : "Subscription checkout"} — {attempt.status} · {fmt(attempt.completed_at ?? attempt.created_at)}
+              </li>)}</ul>
+            )}
+            <p className="drawer-empty">Checkout attempts are not Stripe invoices or payment receipts. Customer quote invoices are separate.</p>
           </section>
 
           {/* Members */}

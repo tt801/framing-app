@@ -27,6 +27,11 @@ import App from '@/App'
 
 beforeEach(() => { table.mockReset(); credentialForm.mockReset(); window.location.hash = '#/api-settings' })
 describe('removed credential route', () => {
+  it('exposes Billing in the normal owner navigation', async () => {
+    window.location.hash = '#/dashboard'
+    render(<App />)
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Billing' }).getAttribute('href')).toBe('#/billing'))
+  })
   it('redirects direct navigation without mounting the credential form or reading its table', async () => {
     render(<App />)
     await waitFor(() => expect(window.location.hash).toBe('#/dashboard'))

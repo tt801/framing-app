@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
   completed: 0,
   reserved: 0 as number | null,
 }))
-const stripeMock = vi.hoisted(() => ({ checkout: { sessions: { retrieve: vi.fn() } }, billingPortal: { sessions: { create: vi.fn() } } }))
+const stripeMock = vi.hoisted(() => ({ checkout: { sessions: { retrieve: vi.fn() } }, billingPortal: { sessions: { create: vi.fn() } }, prices: { retrieve: vi.fn() } }))
 const supabaseMock = vi.hoisted(() => ({
   auth: { getUser: vi.fn(async (token: string) => token === 'valid' ? { data: { user: { id: 'user-a' } }, error: null } : { data: { user: null }, error: new Error('invalid') }) },
   from: vi.fn((table: string) => {
@@ -24,7 +24,7 @@ const supabaseMock = vi.hoisted(() => ({
   }),
 }))
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => supabaseMock }))
-vi.mock('stripe', () => ({ default: class Stripe { checkout = stripeMock.checkout; billingPortal = stripeMock.billingPortal } }))
+vi.mock('stripe', () => ({ default: class Stripe { checkout = stripeMock.checkout; billingPortal = stripeMock.billingPortal; prices = stripeMock.prices } }))
 process.env.SUPABASE_URL = 'http://local'; process.env.SUPABASE_SERVICE_ROLE_KEY = 'service'; process.env.STRIPE_SECRET_KEY = 'stripe'; process.env.VITE_STRIPE_PRICE_FOUNDER = 'price-founder'; process.env.FOUNDER_MAX_PURCHASES = '1'
 const { default: handler } = await import('@/../api/billing/manage')
 const req = (action: string, sessionId = 'cs_a', token = 'valid') => ({ method: 'GET', headers: { authorization: `Bearer ${token}` }, query: { billingAction: action, session_id: sessionId } } as any)
@@ -35,6 +35,26 @@ beforeEach(() => {
   state.attempt = { company_account_id: 'company-a', session_id: 'cs_a', customer_id: 'cus-a', price_id: 'price-founder', founder_reserved: true, status: 'pending' }
   state.completed = 0; state.reserved = 0
   stripeMock.checkout.sessions.retrieve.mockReset()
+  stripeMock.prices.retrieve.mockReset()
+  stripeMock.prices.retrieve.mockResolvedValue({ id: 'price-growth', unit_amount: 3500, currency: 'gbp', recurring: { interval: 'month', interval_count: 1 } })
+})
+describe('customer subscription management', () => {
+  it('shows authoritative plan and Stripe price for a recurring owner', async () => {
+    state.account.plan_status = 'active'; state.account.stripe_price_id = 'price-growth'; state.account.stripe_subscription_id = 'sub-a'
+    process.env.VITE_STRIPE_PRICE_GROWTH = 'price-growth'
+    const response = res(); await handler(req('summary'), response)
+    expect(response.out.body.plan).toEqual({ name: 'Growth', unitAmount: 3500, currency: 'gbp', interval: 'month', intervalCount: 1 })
+  })
+  it('uses the stored customer to open a portal and rejects unauthenticated requests', async () => {
+    state.account.plan_status = 'active'; state.account.stripe_price_id = 'price-growth'; state.account.stripe_subscription_id = 'sub-a'
+    stripeMock.billingPortal.sessions.create.mockResolvedValue({ url: 'https://billing.stripe.test/portal' })
+    const request = { ...req('create-portal'), method: 'POST', body: { customerId: 'cus-attacker' } }
+    const response = res(); await handler(request, response)
+    expect(response.out.body.url).toBe('https://billing.stripe.test/portal')
+    expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ customer: 'cus-a' }))
+    const denied = res(); await handler({ ...request, headers: { authorization: 'Bearer invalid' } }, denied)
+    expect(denied.out.status).not.toBe(200)
+  })
 })
 
 describe('authenticated billing summary', () => {

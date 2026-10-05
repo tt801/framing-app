@@ -54,8 +54,13 @@ export type PlatformCompany = {
   owner_user_id: string;
   plan_status: string;
   stripe_price_id: string | null;
+  plan_name?: string;
+  stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  has_ever_paid_recurring: boolean | null;
   subscription_renewed_at: string | null;
+  subscription_cancel_at: string | null;
+  trial_started_at: string | null;
   trial_ends_at: string | null;
   created_at: string;
   member_count: number;
@@ -184,6 +189,21 @@ export async function getPlatformStats() {
 
 export async function getPlatformCompanies() {
   return apiFetch<{ companies: PlatformCompany[] }>("/api/platform/companies");
+}
+
+export type PlatformCheckoutAttempt = {
+  id: string;
+  price_id: string;
+  status: string;
+  founder_reserved: boolean;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export async function getPlatformBillingHistory(companyId: string) {
+  return apiFetch<{ attempts: PlatformCheckoutAttempt[] }>(
+    `/api/platform/company-billing?companyId=${encodeURIComponent(companyId)}`
+  );
 }
 
 // ─── Members ─────────────────────────────────────────────────────────────────

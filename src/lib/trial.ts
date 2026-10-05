@@ -97,16 +97,18 @@ const getCompanyFallbackName = (email?: string | null) => {
     .join(" ");
 };
 
-const daysRemainingFromEndDate = (trialEndsAtIso: string) => {
+const daysRemainingFromEndDate = (trialStartedAtIso: string, trialEndsAtIso: string) => {
   const now = Date.now();
+  const start = new Date(trialStartedAtIso).getTime();
   const end = new Date(trialEndsAtIso).getTime();
   const ms = end - now;
-  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+  const originalDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+  return Math.max(0, Math.min(originalDays, Math.ceil(ms / (1000 * 60 * 60 * 24))));
 };
 
 const toTrialStatus = (record: CompanyAccountRecord, workspaceRole: AppUserRole): TrialStatus => {
-  const daysRemaining = daysRemainingFromEndDate(record.trial_ends_at);
-  const expiredByDate = new Date(record.trial_ends_at).getTime() < Date.now();
+  const daysRemaining = daysRemainingFromEndDate(record.trial_started_at, record.trial_ends_at);
+  const expiredByDate = new Date(record.trial_ends_at).getTime() <= Date.now();
   const expiredByStatus = record.plan_status === "expired";
   const billingAccess = getBillingAccessFromRecord(record);
   const expiredTrial = expiredByDate && record.plan_status === "trialing";
@@ -118,7 +120,7 @@ const toTrialStatus = (record: CompanyAccountRecord, workspaceRole: AppUserRole)
     trialStartedAt: record.trial_started_at,
     trialEndsAt: record.trial_ends_at,
     daysRemaining,
-    expired: expiredByDate || expiredByStatus,
+    expired: !billingAccess.isFounder && (expiredTrial || expiredByStatus),
     ...(expiredTrial
       ? {
           readOnly: true,

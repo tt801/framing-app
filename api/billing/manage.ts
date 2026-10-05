@@ -103,8 +103,32 @@ async function handleSummary(req: VercelRequest, res: VercelResponse) {
     account.stripe_price_id !== "founder_lifetime" && Number.isFinite(trialStart) && Number.isFinite(trialEnd) &&
     trialStart <= now && now < trialEnd && now < trialStart + 14 * 24 * 60 * 60 * 1000;
 
+  const planNames: Array<[string | undefined, string]> = [
+    [process.env.VITE_STRIPE_PRICE_STARTER, "Starter"],
+    [process.env.VITE_STRIPE_PRICE_GROWTH, "Growth"],
+    [process.env.VITE_STRIPE_PRICE_PRO, "Pro"],
+  ];
+  const planName = account.stripe_price_id === "founder_lifetime" ? "Founder Lifetime"
+    : account.stripe_price_id
+      ? planNames.find(([id]) => id && id === account.stripe_price_id)?.[1] || "Subscription"
+      : "Free trial";
+  let plan: { name: string; unitAmount: number | null; currency: string | null; interval: string | null; intervalCount: number | null } =
+    { name: planName, unitAmount: null, currency: null, interval: null, intervalCount: null };
+  if (account.stripe_subscription_id && account.stripe_price_id && account.stripe_price_id !== "founder_lifetime") {
+    try {
+      const price = await stripe.prices.retrieve(account.stripe_price_id);
+      if (price.id === account.stripe_price_id && price.recurring) {
+        plan = { name: planName, unitAmount: price.unit_amount, currency: price.currency,
+          interval: price.recurring.interval, intervalCount: price.recurring.interval_count };
+      }
+    } catch {
+      // Entitlement comes from the account, not availability of Stripe price metadata.
+    }
+  }
+
   return res.status(200).json({
     account,
+    plan,
     founder: {
       maxPurchases: founderMaxPurchases,
       purchasedCount: founderPurchasedCount,

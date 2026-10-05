@@ -10,7 +10,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: companies, error } = await getSupabaseAdmin()
       .from("company_accounts")
       .select(
-        "id,company_name,owner_user_id,plan_status,stripe_price_id,stripe_subscription_id,subscription_renewed_at,trial_ends_at,created_at"
+        "id,company_name,owner_user_id,plan_status,stripe_price_id,stripe_customer_id,stripe_subscription_id,has_ever_paid_recurring,subscription_renewed_at,subscription_cancel_at,trial_started_at,trial_ends_at,created_at"
       )
       .order("created_at", { ascending: false });
 
@@ -50,6 +50,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const enriched = (companies ?? []).map((c) => ({
       ...c,
+      plan_name: c.stripe_price_id === "founder_lifetime" ? "Founder Lifetime" :
+        (["STARTER", "GROWTH", "PRO"] as const).find((name) =>
+          process.env[`VITE_STRIPE_PRICE_${name}`] && process.env[`VITE_STRIPE_PRICE_${name}`] === c.stripe_price_id
+        )?.toLowerCase() ?? (c.plan_status === "trialing" ? "Trial" : "Subscription"),
       member_count: memberCounts[c.id as string] ?? 0,
       open_tickets: ticketCounts[c.id as string] ?? 0,
     }));

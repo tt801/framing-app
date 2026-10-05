@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getAccessToken } from "@/lib/supabase";
 
 export type BillingSummary = {
+  plan?: { name: string; unitAmount: number | null; currency: string | null; interval: string | null; intervalCount: number | null };
   account: {
     id: string;
     company_name: string | null;

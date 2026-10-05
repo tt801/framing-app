@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   authoritative: [] as any[],
   failAccountUpdate: false,
   successfulClaims: 0,
+  completedRecurring: 0,
 }))
 
 const stripeMock = vi.hoisted(() => ({
@@ -48,6 +49,7 @@ const supabaseMock = vi.hoisted(() => {
     }
     if (name === 'complete_founder_checkout_v2') return state.failAccountUpdate ? { data: null, error: new Error('account update failed') } : { data: true, error: null }
     if (name === 'record_paid_recurring_invoice') return { data: true, error: null }
+    if (name === 'complete_recurring_checkout') { state.completedRecurring++; return { data: true, error: null } }
     throw new Error(`unexpected rpc ${name}`)
   })
   const from = vi.fn(() => {
@@ -86,12 +88,36 @@ beforeEach(() => {
   state.logs.clear(); state.accounts.clear(); state.subscriptions.clear()
   state.accounts.set('company-a', { id: 'company-a', stripe_customer_id: 'cus-a' })
   state.authoritative = [subscription('sub-1')]
-  state.failAccountUpdate = false; state.successfulClaims = 0
+  state.failAccountUpdate = false; state.successfulClaims = 0; state.completedRecurring = 0
   stripeMock.subscriptions.list.mockImplementation(async () => ({ data: state.authoritative, has_more: false }))
   stripeMock.customers.retrieve.mockResolvedValue({ id: 'cus-other', metadata: {} })
 })
 
 describe('Block 3A webhook reliability', () => {
+  it('completes only the verified recurring Checkout after reconciliation, even if invoice arrived first', async () => {
+    stripeMock.subscriptions.retrieve.mockResolvedValue(subscription('sub-1'))
+    const invoice = { id: 'in-1', customer: 'cus-a', status: 'paid', amount_paid: 3500, parent: { subscription_details: { subscription: 'sub-1' } } }
+    const first = response(); await handler(request(event('evt-invoice-first', 'invoice.payment_succeeded', 1000, invoice)), first)
+    const session = { id: 'cs-1', mode: 'subscription', status: 'complete', payment_status: 'paid', customer: 'cus-a', subscription: 'sub-1' }
+    const checkout = response(); await handler(request(event('evt-checkout', 'checkout.session.completed', 1001, session)), checkout)
+    expect(checkout.out.status).toBe(200)
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('complete_recurring_checkout', expect.objectContaining({
+      p_company_account_id: 'company-a', p_session_id: 'cs-1', p_customer_id: 'cus-a', p_subscription_id: 'sub-1', p_event_id: 'evt-checkout',
+    }))
+    const duplicate = response(); await handler(request(event('evt-checkout', 'checkout.session.completed', 1001, session)), duplicate)
+    expect(duplicate.out.body.duplicate).toBe(true)
+    expect(state.completedRecurring).toBe(1)
+  })
+  it('never completes an unpaid or mismatched recurring Checkout', async () => {
+    stripeMock.subscriptions.retrieve.mockResolvedValue(subscription('sub-1', 'other-company'))
+    const session = { id: 'cs-1', mode: 'subscription', status: 'complete', payment_status: 'paid', customer: 'cus-a', subscription: 'sub-1' }
+    const wrong = response(); await handler(request(event('evt-wrong', 'checkout.session.completed', 1001, session)), wrong)
+    expect(wrong.out.status).toBe(400)
+    stripeMock.subscriptions.retrieve.mockResolvedValue(subscription('sub-1'))
+    const unpaid = response(); await handler(request(event('evt-unpaid', 'checkout.session.completed', 1002, { ...session, payment_status: 'unpaid' })), unpaid)
+    expect(unpaid.out.status).not.toBe(200)
+    expect(state.completedRecurring).toBe(0)
+  })
   it('records paid recurring history only from a verified positive subscription invoice', async () => {
     const invoice = { id: 'in-a', customer: 'cus-a', status: 'paid', amount_paid: 500,
       parent: { subscription_details: { subscription: 'sub-1' } } }

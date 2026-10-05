@@ -151,11 +151,21 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session, 
     await resolveCompanyAccount(sessionCustomerId, undefined);
     return; // Unrelated Stripe checkout; a known one throws for retry.
   }
-  const subscription = await stripe.subscriptions.retrieve(typeof session.subscription === "string" ? session.subscription : session.subscription.id);
+  if (session.status !== "complete" || session.payment_status !== "paid") {
+    throw new Error("Recurring Checkout is not complete and paid");
+  }
+  const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription.id;
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   if (customerIdOf(subscription.customer) !== sessionCustomerId) throw new Error("Checkout and subscription customer mismatch");
   const account = await resolveCompanyAccount(sessionCustomerId, subscription.metadata?.company_account_id);
   if (!account) return;
   await reconcileCompanySubscription(account.id, account.stripe_customer_id, eventId, claimToken);
+  const { data: completed, error: completionError } = await supabase.rpc("complete_recurring_checkout", {
+    p_company_account_id: account.id, p_session_id: session.id,
+    p_customer_id: account.stripe_customer_id, p_subscription_id: subscriptionId,
+    p_event_id: eventId, p_claim_token: claimToken,
+  });
+  if (completionError || completed !== true) throw completionError || new Error("Recurring Checkout attempt could not be completed");
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription, eventId: string, claimToken: string) {

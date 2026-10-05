@@ -2,23 +2,9 @@ import { useEffect, useState } from "react";
 import { getPlatformCompanies, type PlatformCompany } from "@/lib/api";
 import { RefreshCw, TrendingUp, AlertCircle, Clock } from "lucide-react";
 
-const PRICE_NAMES: Record<string, { name: string; monthlyUsd: number }> = {
-  price_1TH4B24PYXZ7QbRFY7GS9ASi: { name: "Starter", monthlyUsd: 29 },
-  price_1TH4FR4PYXZ7QbRFFDEn6KND: { name: "Growth", monthlyUsd: 79 },
-  price_1TH4Fw4PYXZ7QbRFrPXkfoCT: { name: "Pro", monthlyUsd: 149 },
-  price_1TH4GP4PYXZ7QbRFT7X5wKbU: { name: "Founder", monthlyUsd: 0 },
-  founder_lifetime: { name: "Founder Lifetime", monthlyUsd: 0 },
-};
-
-function getPlanName(priceId: string | null) {
-  if (!priceId) return "None";
-  return PRICE_NAMES[priceId]?.name ?? "Custom";
-}
-
-function getMRR(companies: PlatformCompany[]) {
-  return companies
-    .filter((c) => c.plan_status === "active")
-    .reduce((sum, c) => sum + (PRICE_NAMES[c.stripe_price_id ?? ""]?.monthlyUsd ?? 0), 0);
+function getPlanName(company: PlatformCompany) {
+  if (company.stripe_price_id === "founder_lifetime") return "Founder Lifetime";
+  return company.plan_name ? company.plan_name[0].toUpperCase() + company.plan_name.slice(1) : "Subscription";
 }
 
 const PLAN_BADGE: Record<string, string> = {
@@ -48,7 +34,7 @@ export default function Subscriptions() {
   const trialing = companies.filter((c) => c.plan_status === "trialing");
   const pastDue = companies.filter((c) => c.plan_status === "past_due");
   const expired = companies.filter((c) => c.plan_status === "expired");
-  const mrr = getMRR(companies);
+
 
   const trialEndingSoon = trialing
     .filter((c) => c.trial_ends_at)
@@ -59,7 +45,7 @@ export default function Subscriptions() {
 
   const planBreakdown = Object.entries(
     active.reduce<Record<string, number>>((acc, c) => {
-      const name = getPlanName(c.stripe_price_id);
+      const name = getPlanName(c);
       acc[name] = (acc[name] ?? 0) + 1;
       return acc;
     }, {})
@@ -70,11 +56,7 @@ export default function Subscriptions() {
       {error && <div className="error-banner">{error}</div>}
 
       <div className="stat-grid sm">
-        <div className="stat-card accent-green">
-          <div className="stat-icon"><TrendingUp size={18} /></div>
-          <div className="stat-value">${mrr.toLocaleString()}</div>
-          <div className="stat-label">Est. MRR</div>
-        </div>
+
         <div className="stat-card accent-blue">
           <div className="stat-icon"><TrendingUp size={18} /></div>
           <div className="stat-value">{active.length}</div>
@@ -190,9 +172,9 @@ export default function Subscriptions() {
               {pastDue.map((c) => (
                 <tr key={c.id}>
                   <td className="cell-primary">{c.company_name ?? "Unnamed"}</td>
-                  <td className="text-muted">{getPlanName(c.stripe_price_id)}</td>
+                  <td className="text-muted">{getPlanName(c)}</td>
                   <td className="text-muted">
-                    {c.subscription_renewed_at
+                    {c.stripe_price_id !== "founder_lifetime" && c.stripe_subscription_id && c.plan_status === "active" && !c.subscription_cancel_at && c.subscription_renewed_at && new Date(c.subscription_renewed_at).getFullYear() < 2100
                       ? new Date(c.subscription_renewed_at).toLocaleDateString()
                       : "—"}
                   </td>
@@ -230,16 +212,16 @@ export default function Subscriptions() {
               companies.map((c) => (
                 <tr key={c.id}>
                   <td className="cell-primary">{c.company_name ?? "Unnamed"}</td>
-                  <td className="text-muted">{getPlanName(c.stripe_price_id)}</td>
+                  <td className="text-muted">{getPlanName(c)}</td>
                   <td>
                     <span className={`badge ${PLAN_BADGE[c.plan_status] ?? "badge-slate"}`}>
                       {c.plan_status}
                     </span>
                   </td>
                   <td className="text-muted">
-                    {c.subscription_renewed_at
+                    {c.stripe_price_id !== "founder_lifetime" && c.stripe_subscription_id && c.plan_status === "active" && !c.subscription_cancel_at && c.subscription_renewed_at && new Date(c.subscription_renewed_at).getFullYear() < 2100
                       ? new Date(c.subscription_renewed_at).toLocaleDateString()
-                      : c.trial_ends_at
+                      : c.plan_status === "trialing" && c.trial_ends_at
                       ? `Trial: ${new Date(c.trial_ends_at).toLocaleDateString()}`
                       : "—"}
                   </td>

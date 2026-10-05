@@ -25,6 +25,12 @@ export default function BillingPage() {
   };
 
   const isFounder = summary?.account.stripe_price_id === "founder_lifetime";
+  const isTrial = summary?.account.plan_status === "trialing" && !summary?.account.stripe_subscription_id;
+  const isRecurring = Boolean(summary?.account.stripe_subscription_id) && !isFounder;
+  const price = summary?.plan;
+  const priceLabel = isRecurring && price?.unitAmount != null && price.currency && price.interval
+    ? `${new Intl.NumberFormat(undefined, { style: "currency", currency: price.currency.toUpperCase() }).format(price.unitAmount / 100)} / ${price.intervalCount === 1 ? "" : `${price.intervalCount} `}${price.interval}`
+    : null;
   const showUpgradeOptions = !loading && !error && !!summary && !isFounder &&
     (summary.account.plan_status === "trialing" || summary.account.plan_status === "expired");
 
@@ -71,23 +77,28 @@ export default function BillingPage() {
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Current plan</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{isFounder ? "Founder Lifetime" : isTrial ? "Free trial" : price?.name || "Subscription"}</p>
+                  </div>
+                  {priceLabel ? <div><p className="text-xs uppercase tracking-wide text-slate-500">Price / billing frequency</p><p className="mt-1 text-sm font-semibold text-slate-900">{priceLabel}</p></div> : null}
+                  <div>
                     <p className="text-xs uppercase tracking-wide text-slate-500">Company</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900">
                       {summary.account.company_name || "My Framing Business"}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Renews / Access until</p>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">{isTrial ? "Trial ends" : isFounder ? "Access" : "Current period ends"}</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900">
-                      {isFounder ? "Lifetime access" : formatDate(summary.account.subscription_renewed_at || summary.account.trial_ends_at)}
+                      {isFounder ? "Lifetime access" : formatDate(isTrial ? summary.account.trial_ends_at : isRecurring ? summary.account.subscription_renewed_at : null)}
                     </p>
                   </div>
-                  <div>
+                  {isRecurring && <div>
                     <p className="text-xs uppercase tracking-wide text-slate-500">Cancellation date</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900">
                       {formatDate(summary.account.subscription_cancel_at)}
                     </p>
-                  </div>
+                  </div>}
                   <div>
                     <p className="text-xs uppercase tracking-wide text-slate-500">Founder slots left</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900">
@@ -97,14 +108,15 @@ export default function BillingPage() {
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-3">
-                  <button
+                  {isFounder ? <p className="text-sm font-semibold text-slate-700">No recurring subscription</p> : null}
+                  {isRecurring ? <button
                     type="button"
                     onClick={handleOpenPortal}
                     disabled={!summary.portalEligible || portalLoading}
                     className="rounded-full bg-slate-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {portalLoading ? "Opening portal..." : "Manage subscription"}
-                  </button>
+                  </button> : null}
                 </div>
               </div>
 
