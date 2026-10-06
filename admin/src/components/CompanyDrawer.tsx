@@ -10,13 +10,6 @@ import {
 } from "@/lib/api";
 import { Building2, X } from "lucide-react";
 
-const PRICE_LABELS: Record<string, string> = {
-  price_1TH4B24PYXZ7QbRFY7GS9ASi: "Starter",
-  price_1TH4FR4PYXZ7QbRFFDEn6KND: "Growth",
-  price_1TH4Fw4PYXZ7QbRFrPXkfoCT: "Pro",
-  price_1TH4GP4PYXZ7QbRFT7X5wKbU: "Founder",
-  founder_lifetime: "Founder (Lifetime)",
-};
 
 const PLAN_BADGE: Record<string, string> = {
   active: "badge-green",
@@ -48,7 +41,7 @@ function fmt(date: string | null) {
 
 function planLabel(priceId: string | null) {
   if (!priceId) return "—";
-  return PRICE_LABELS[priceId] ?? "Custom";
+  return priceId === "founder_lifetime" ? "Founder (Lifetime)" : "Custom";
 }
 
 interface Props {

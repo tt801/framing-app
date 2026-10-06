@@ -10,17 +10,10 @@ const PLAN_BADGE: Record<string, string> = {
   expired: "badge-slate",
 };
 
-const PRICE_LABELS: Record<string, string> = {
-  price_1TH4B24PYXZ7QbRFY7GS9ASi: "Starter",
-  price_1TH4FR4PYXZ7QbRFFDEn6KND: "Growth",
-  price_1TH4Fw4PYXZ7QbRFrPXkfoCT: "Pro",
-  price_1TH4GP4PYXZ7QbRFT7X5wKbU: "Founder",
-  founder_lifetime: "Founder (Lifetime)",
-};
-
-function planLabel(priceId: string | null) {
-  if (!priceId) return "—";
-  return PRICE_LABELS[priceId] ?? priceId.slice(0, 16) + "…";
+function planLabel(company: PlatformCompany) {
+  if (company.stripe_price_id === "founder_lifetime") return "Founder (Lifetime)";
+  if (company.plan_name) return company.plan_name[0].toUpperCase() + company.plan_name.slice(1);
+  return company.stripe_price_id ? company.stripe_price_id.slice(0, 16) + "…" : "—";
 }
 
 export default function Companies() {
@@ -119,7 +112,7 @@ export default function Companies() {
                       </span>
                     </div>
                   </td>
-                  <td className="text-muted">{planLabel(c.stripe_price_id)}</td>
+                  <td className="text-muted">{planLabel(c)}</td>
                   <td>
                     <span className={`badge ${PLAN_BADGE[c.plan_status] ?? "badge-slate"}`}>
                       {c.plan_status}

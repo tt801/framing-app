@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node", "vite/client"],
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] },
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["api/**/*.ts", "server/**/*.ts", "tests/**/*.ts"]
+}

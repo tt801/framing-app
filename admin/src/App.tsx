@@ -21,7 +21,8 @@ export default function App() {
   const [view, setView] = useState<View>("dashboard");
 
   useEffect(() => {
-    if (!supabase) {
+    const client = supabase;
+    if (!client) {
       setLoadingAuth(false);
       return;
     }
@@ -29,7 +30,7 @@ export default function App() {
     let mounted = true;
 
     const syncSession = async () => {
-      const { data } = await supabase.auth.getSession();
+      const { data } = await client.auth.getSession();
       if (!mounted) return;
       setIsSignedIn(Boolean(data.session));
       setLoadingAuth(false);
@@ -37,7 +38,7 @@ export default function App() {
 
     void syncSession();
 
-    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data } = client.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
       if (session) {
         setIsSignedIn(true);

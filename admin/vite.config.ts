@@ -2,7 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-const apiProxyTarget = process.env.ADMIN_API_PROXY_TARGET || "https://framersapp.com";
+// No proxy without an explicit target: never silently send local admin traffic to Production.
+const apiProxyTarget = process.env.ADMIN_API_PROXY_TARGET?.trim();
 
 export default defineConfig({
   plugins: [react()],
@@ -15,11 +16,8 @@ export default defineConfig({
     host: true,
     port: 5174,
     strictPort: true,
-    proxy: {
-      "/api": {
-        target: apiProxyTarget,
-        changeOrigin: true,
-      },
-    },
+    proxy: apiProxyTarget ? {
+      "/api": { target: apiProxyTarget, changeOrigin: true },
+    } : undefined,
   },
 });
