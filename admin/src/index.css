@@ -188,6 +188,18 @@ code { font-family: "JetBrains Mono", "Fira Mono", monospace; font-size: 0.85em;
 }
 
 .error-text { color: #dc2626; font-size: 13px; margin: 0; }
+.auth-link {
+  align-self: center;
+  border: 0;
+  background: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px;
+}
+.auth-link:hover { text-decoration: underline; }
+.auth-link:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Page wrapper ──────────────────────────────────────────── */
 

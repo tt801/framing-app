@@ -82,6 +82,18 @@ describe('standalone platform API', () => {
     expect(mocks.from).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['stats', stats], ['companies', companies], ['company-billing', companyBilling],
+    ['members', members], ['tickets', tickets], ['ticket-comments', ticketComments], ['cms', cms],
+  ])('does not allow a recovery-session token to bypass %s authorization', async (_name, handler) => {
+    mocks.getUser.mockResolvedValue({ data: { user: { email: 'customer@example.invalid' } }, error: null })
+    const { res, result } = response()
+    await handler(request('recovery-session', 'billing'), res)
+    expect(result.status).toBe(403)
+    expect(mocks.getUser).toHaveBeenCalledWith('recovery-session')
+    expect(mocks.from).not.toHaveBeenCalled()
+  })
+
   it('fails closed when the allow-list is absent, even for a valid account', async () => {
     vi.stubEnv('PLATFORM_ADMIN_EMAILS', '')
     mocks.getUser.mockResolvedValue({ data: { user: { email: 'owner@example.invalid' } }, error: null })
