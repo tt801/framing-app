@@ -41,6 +41,12 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers() })
 
 describe('billing page entitlement presentation', () => {
+  it('uses the application theme-mapped heading colour for both Billing headings', () => {
+    mocks.summary = summary('active', 'price-starter')
+    render(<BillingPage />)
+    expect(screen.getByRole('heading', { name: 'Manage your plan' }).classList.contains('text-slate-900')).toBe(true)
+    expect(screen.getByRole('heading', { name: 'Limited lifetime offer' }).classList.contains('text-slate-900')).toBe(true)
+  })
   it('shows recurring plan, billed amount, period and secure portal action', () => {
     mocks.summary = { ...summary('active', 'price-growth'), plan: { name: 'Growth', unitAmount: 3500, currency: 'gbp', interval: 'month', intervalCount: 1 } }
     render(<BillingPage />)

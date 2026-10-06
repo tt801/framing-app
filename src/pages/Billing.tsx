@@ -41,7 +41,7 @@ export default function BillingPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Billing</p>
-              <h1 className="mt-2 text-3xl font-black text-slate-950">Manage your plan</h1>
+              <h1 className="mt-2 text-3xl font-black text-slate-900">Manage your plan</h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-600">
                 Review your current access, manage your Stripe subscription, and track Founder availability.
               </p>
@@ -122,7 +122,7 @@ export default function BillingPage() {
 
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700">Founder tracker</p>
-                <h2 className="mt-2 text-xl font-black text-slate-950">Limited lifetime offer</h2>
+                <h2 className="mt-2 text-xl font-black text-slate-900">Limited lifetime offer</h2>
                 <p className="mt-2 text-sm text-slate-700">
                   {summary.founder.purchasedCount} sold, {summary.founder.remaining} remaining.
                   {summary.founder.soldOut ? " Founder is sold out." : " Once the cap is reached, new Founder checkouts are blocked automatically."}
