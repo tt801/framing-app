@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { table, credentialForm } = vi.hoisted(() => ({
@@ -18,6 +18,7 @@ vi.mock('@/lib/layout', () => ({ useLayout: () => ({ layoutMode: 'fixed', toggle
 vi.mock('@/lib/theme', () => ({ useTheme: () => ({ themeMode: 'light', toggleThemeMode: vi.fn() }) }))
 vi.mock('@/pages/APISettings', () => ({ default: () => { credentialForm(); return <div>credential form mounted</div> } }))
 vi.mock('@/pages/Dashboard', () => ({ default: () => <div>Dashboard placeholder</div> }))
+vi.mock('@/pages/Billing', () => ({ default: () => <div>Billing placeholder</div> }))
 vi.mock('@/components/TrialBanner', () => ({ default: () => null }))
 vi.mock('@/components/ToastContainer', () => ({ default: () => null }))
 vi.mock('@/components/CommandPalette', () => ({ default: () => null }))
@@ -38,5 +39,22 @@ describe('removed credential route', () => {
     expect(credentialForm).not.toHaveBeenCalled()
     expect(screen.queryByText('credential form mounted')).toBeNull()
     expect(table).not.toHaveBeenCalledWith('user_api_credentials')
+  })
+})
+
+describe('owner Billing navigation', () => {
+  it('renders Billing inside the normal application shell and navigates to Dashboard', async () => {
+    window.location.hash = '#/billing'
+    const { container } = render(<App />)
+    await waitFor(() => expect(within(container).getByText('Billing placeholder')).toBeTruthy())
+
+    const shell = container.querySelector('.app-shell')
+    expect(shell).not.toBeNull()
+    expect(shell?.contains(within(container).getByText('Billing placeholder'))).toBe(true)
+    const navigation = within(shell as HTMLElement).getByRole('navigation')
+    expect(within(navigation).getByRole('link', { name: 'Billing' }).getAttribute('aria-current')).toBe('page')
+    fireEvent.click(within(navigation).getByRole('link', { name: 'Dashboard' }))
+    await waitFor(() => expect(window.location.hash).toBe('#/dashboard'))
+    await waitFor(() => expect(within(container).getByText('Dashboard placeholder')).toBeTruthy())
   })
 })

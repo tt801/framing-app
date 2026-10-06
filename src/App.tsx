@@ -544,16 +544,6 @@ function App() {
     return <div className="flex min-h-dvh items-center justify-center"><LoadingSpinner size="lg" /></div>;
   }
 
-  if (isBilling) {
-    return (
-      <BillingAccessProvider value={billingAccess}>
-        <ErrorBoundary>
-          <BillingPage />
-        </ErrorBoundary>
-      </BillingAccessProvider>
-    );
-  }
-
   return (
     <BillingAccessProvider value={billingAccess}>
       <div
@@ -732,6 +722,8 @@ function App() {
               <StockPage />
             ) : isVisualizer ? (
               <VisualizerApp />
+            ) : isBilling ? (
+              <BillingPage />
             ) : (
               <DashboardPage />
             )}
