@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/lib/theme";
+import { loginDestination } from "@/lib/supportNavigation";
 
 type AuthMode = "signup" | "login";
 const isLaunchMode = import.meta.env.VITE_LAUNCH_MODE === "true";
@@ -239,7 +240,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
         throw signInError;
       }
 
-      window.location.hash = "#/dashboard";
+      window.location.hash = loginDestination(window.location.hash);
     } catch (submitError: unknown) {
       setError(
         submitError instanceof Error

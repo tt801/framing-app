@@ -120,6 +120,14 @@ export default function HelpAssistant({ currentArea }: HelpAssistantProps) {
                 Send
               </button>
             </form>
+            <div className="mt-4 border-t border-slate-200 pt-3 text-sm">
+              <a href="#/support" className="block font-semibold text-slate-900 hover:underline">
+                Still need help? Open a support ticket
+              </a>
+              <a href="#/support?view=tickets" className="mt-2 block font-semibold text-slate-700 hover:underline">
+                My support tickets
+              </a>
+            </div>
           </div>
         </div>
       ) : null}

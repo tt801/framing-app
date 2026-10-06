@@ -12,6 +12,7 @@ import UpgradeModal from "./components/UpgradeModal";
 import { useTrialStatus } from "@/lib/trial";
 import { getCurrentUser, supabase } from "@/lib/supabase";
 import { BillingAccessProvider } from "@/lib/billingAccess";
+import { signInForSupport } from "@/lib/supportNavigation";
 
 const VisualizerApp = React.lazy(() => import("./VisualizerApp"));
 const Admin = React.lazy(() => import("./pages/Admin"));
@@ -188,7 +189,7 @@ function App() {
     !isOnboarding;
 
   const isPublicRoute = isLanding || isLegal || isAuthRoute;
-  const isPublicOrSupport = isPublicRoute || isSupport || (!isLaunchMode && isOnboarding);
+  const isPublicOrOnboarding = isPublicRoute || (!isLaunchMode && isOnboarding);
 
   useEffect(() => {
     if (route.startsWith("/api-settings")) window.location.hash = "#/dashboard";
@@ -278,8 +279,8 @@ function App() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isPublicOrSupport && !isAuthenticated) {
-      window.location.hash = "#/login";
+    if (!isPublicOrOnboarding && !isAuthenticated) {
+      window.location.hash = isSupport ? signInForSupport() : "#/login";
       return;
     }
     // After login, check if the user needs onboarding (skip for invited members via role check later)
@@ -301,7 +302,7 @@ function App() {
       };
       void checkOnboarding();
     }
-  }, [authLoading, isAuthenticated, isPublicOrSupport, isOnboarding, isPublicRoute]);
+  }, [authLoading, isAuthenticated, isPublicOrOnboarding, isOnboarding, isPublicRoute, isSupport]);
 
   const { trial, isExpired, loading: trialLoading, error: trialError } = useTrialStatus(
     !isLanding && !isAuthRoute && !isLegal && !isSupport && isAuthenticated &&
@@ -341,7 +342,7 @@ function App() {
 
   if (
     (isLaunchMode && isLanding && (authLoading || (isAuthenticated && launchAuthorization !== "denied"))) ||
-    (!isPublicOrSupport && (authLoading || (isLaunchMode && isAuthenticated && launchAuthorization === "pending")))
+    (!isPublicOrOnboarding && (authLoading || (isLaunchMode && isAuthenticated && launchAuthorization === "pending")))
   ) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-slate-50">
@@ -350,7 +351,7 @@ function App() {
     );
   }
 
-  if (!isPublicOrSupport && !isAuthenticated) {
+  if (!isPublicOrOnboarding && !isAuthenticated) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-slate-50 px-4">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
@@ -359,7 +360,7 @@ function App() {
             This page requires an active account session.
           </p>
           <a
-            href="#/login"
+            href={isSupport ? signInForSupport() : "#/login"}
             className="mt-4 inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white"
           >
             Go to Login

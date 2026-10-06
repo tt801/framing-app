@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { readdirSync } from 'node:fs'
 
@@ -44,6 +44,8 @@ beforeEach(() => {
   mocks.from.mockReset()
   mocks.createClient.mockReset().mockReturnValue({ auth: { getUser: mocks.getUser }, from: mocks.from })
 })
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe('standalone platform API', () => {
   it('packages exactly the seven platform handlers under the standalone API root', () => {
@@ -127,7 +129,33 @@ describe('standalone platform API', () => {
     await companyBilling(request('owner-token', 'billing'), res)
     expect(result.status).toBe(200)
     expect(eq).toHaveBeenCalledWith('company_account_id', companyId)
-    expect(result.body).toEqual({ attempts: [{ id: 'attempt-1', status: 'completed' }] })
+    expect(result.body).toEqual({ attempts: [{ id: 'attempt-1', status: 'completed', checkout_type: 'subscription' }] })
+  })
+
+  it('classifies checkout history from the configured environment-matched Founder price', async () => {
+    vi.stubEnv('VITE_STRIPE_PRICE_FOUNDER', 'price_1FounderExample')
+    mocks.getUser.mockResolvedValue({ data: { user: { email: 'owner@example.invalid' } }, error: null })
+    const attempts = [
+      { id: 'founder', price_id: 'price_1FounderExample', status: 'completed', founder_reserved: false },
+      { id: 'recurring', price_id: 'price_1RecurringExample', status: 'completed', founder_reserved: false },
+    ]
+    mocks.from.mockReturnValue({ select: vi.fn(() => ({ eq: vi.fn(() => ({ order: vi.fn(() => ({ limit: vi.fn().mockResolvedValue({ data: attempts, error: null }) })) })) })) })
+    const { res, result } = response()
+    await companyBilling(request('owner-token', 'billing'), res)
+    expect(result.status).toBe(200)
+    expect(result.body).toMatchObject({ attempts: [
+      { id: 'founder', checkout_type: 'founder_lifetime' },
+      { id: 'recurring', checkout_type: 'subscription' },
+    ] })
+  })
+
+  it('does not label a checkout Founder when the Founder price is not configured', async () => {
+    vi.stubEnv('VITE_STRIPE_PRICE_FOUNDER', '')
+    mocks.getUser.mockResolvedValue({ data: { user: { email: 'owner@example.invalid' } }, error: null })
+    mocks.from.mockReturnValue({ select: vi.fn(() => ({ eq: vi.fn(() => ({ order: vi.fn(() => ({ limit: vi.fn().mockResolvedValue({ data: [{ id: 'attempt', price_id: 'price_1FounderExample', status: 'completed', founder_reserved: false }], error: null }) })) })) })) })
+    const { res, result } = response()
+    await companyBilling(request('owner-token', 'billing'), res)
+    expect(result.body).toMatchObject({ attempts: [{ checkout_type: 'subscription' }] })
   })
 
   it('does not accept a valid token from another Supabase project', async () => {

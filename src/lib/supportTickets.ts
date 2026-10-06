@@ -35,6 +35,11 @@ export type SupportTicketComment = {
   created_at: string;
 };
 
+export type CustomerSupportTicket = Pick<SupportTicket,
+  "id" | "ticket_number" | "subject" | "message" | "category" | "status" | "priority" | "created_at" | "updated_at">;
+export type CustomerSupportComment = Pick<SupportTicketComment,
+  "id" | "ticket_id" | "author_user_id" | "author_name" | "author_email" | "body" | "created_at">;
+
 async function fetchWithAuth<T>(url: string, init?: RequestInit): Promise<T> {
   const token = await getAccessToken();
   const response = await fetch(url, {
@@ -57,13 +62,28 @@ async function fetchWithAuth<T>(url: string, init?: RequestInit): Promise<T> {
 export async function createSupportTicket(input: {
   subject: string;
   message: string;
-  category?: string;
-  priority?: SupportTicketPriority;
-  requesterEmail?: string;
-  requesterName?: string;
-  source?: string;
+  category: string;
 }) {
-  return fetchWithAuth<{ ticket: SupportTicket }>("/api/support/tickets", {
+  return fetchWithAuth<{ ticket: CustomerSupportTicket }>("/api/support/tickets", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function listCustomerSupportTickets() {
+  return fetchWithAuth<{ tickets: CustomerSupportTicket[] }>("/api/support/tickets");
+}
+
+export async function getCustomerSupportTicket(ticketId: string) {
+  return fetchWithAuth<{ ticket: CustomerSupportTicket }>(`/api/support/tickets?ticketId=${encodeURIComponent(ticketId)}`);
+}
+
+export async function listCustomerTicketComments(ticketId: string) {
+  return fetchWithAuth<{ comments: CustomerSupportComment[] }>(`/api/support/ticket-comments?ticketId=${encodeURIComponent(ticketId)}`);
+}
+
+export async function createCustomerTicketComment(input: { ticketId: string; body: string }) {
+  return fetchWithAuth<{ comment: CustomerSupportComment }>("/api/support/ticket-comments", {
     method: "POST",
     body: JSON.stringify(input),
   });

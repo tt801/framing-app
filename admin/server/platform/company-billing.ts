@@ -17,7 +17,12 @@ export function createHandler({ getSupabaseAdmin, requirePlatformAdmin, platform
       .order("created_at", { ascending: false })
       .limit(20);
     if (error) throw error;
-    return res.status(200).json({ attempts: data ?? [] });
+    const founderPriceId = process.env.VITE_STRIPE_PRICE_FOUNDER;
+    const configuredFounderPrice = founderPriceId && /^price_[A-Za-z0-9]+$/.test(founderPriceId) ? founderPriceId : null;
+    return res.status(200).json({ attempts: (data ?? []).map((attempt: { price_id?: string | null }) => ({
+      ...attempt,
+      checkout_type: configuredFounderPrice && attempt.price_id === configuredFounderPrice ? "founder_lifetime" : "subscription",
+    })) });
   } catch (err) {
     const { status, message } = platformAdminError(err);
     return res.status(status).json({ error: message });

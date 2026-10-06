@@ -237,7 +237,7 @@ const landingContent = {
       Account: [
         { label: "Start Free Trial", href: "#/start-trial" },
         { label: "Log In",           href: "#/login" },
-        { label: "Contact Support",  href: "#/support?auto=1&source=landing&subject=Support%20request" },
+        { label: "Contact Support",  href: "#/support" },
       ],
       Legal: [
         { label: "Privacy Policy",   href: "#/legal/privacy" },

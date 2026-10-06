@@ -161,7 +161,7 @@ export default function CompanyDrawer({ company, onClose }: Props) {
             <p className="drawer-section-label">Checkout history (latest 20)</p>
             {billingError ? <p className="drawer-empty">Checkout history unavailable.</p> : attempts.length === 0 ? <p className="drawer-empty">No checkout attempts recorded.</p> : (
               <ul>{attempts.map((attempt) => <li key={attempt.id} className="drawer-info-item">
-                {attempt.price_id === "founder_lifetime" ? "Founder purchase" : "Subscription checkout"} — {attempt.status} · {fmt(attempt.completed_at ?? attempt.created_at)}
+                {attempt.checkout_type === "founder_lifetime" ? "Founder Lifetime checkout" : "Subscription checkout"} — {attempt.status} · {fmt(attempt.completed_at ?? attempt.created_at)}
               </li>)}</ul>
             )}
             <p className="drawer-empty">Checkout attempts are not Stripe invoices or payment receipts. Customer quote invoices are separate.</p>

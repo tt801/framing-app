@@ -62,7 +62,7 @@ export default function BillingSuccess() {
           <p className="mt-3 text-sm text-slate-600">This Checkout could not be confirmed for your company. Please contact support if you were charged.</p>
           <div className="mt-6 flex flex-wrap gap-3">
             <a href="#/app" className="flex-1 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-bold text-white">Return to App</a>
-            <a href="#/support?auto=1&source=billing&subject=Billing%20support%20request" className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-900">Contact Support</a>
+            <a href="#/support" className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-900">Contact Support</a>
           </div>
         </div>
       </div>

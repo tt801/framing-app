@@ -194,6 +194,7 @@ export async function getPlatformCompanies() {
 export type PlatformCheckoutAttempt = {
   id: string;
   price_id: string;
+  checkout_type: "founder_lifetime" | "subscription";
   status: string;
   founder_reserved: boolean;
   created_at: string;
