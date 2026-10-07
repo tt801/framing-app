@@ -49,6 +49,15 @@ const Wrapper = ({ children }: { children: React.ReactNode }) => <BillingAccessP
 beforeEach(() => { company = 'company-a'; settingsRows.clear(); catalogRows.clear(); pending.clear(); localStorage.clear() })
 
 describe('company-scoped catalog settings used by Visualizer pricing', () => {
+  it('normalizes legacy taxRate and retains canonical taxRatePct precedence', async () => {
+    settingsRows.set('company-a', { taxRate: 0.15 })
+    const legacy = renderHook(() => useCatalog(), { wrapper: Wrapper })
+    await waitFor(() => expect(legacy.result.current.catalog.settings.taxRatePct).toBe(15))
+    legacy.unmount()
+    settingsRows.set('company-a', { taxRate: 10, taxRatePct: 7.5 })
+    const current = renderHook(() => useCatalog(), { wrapper: Wrapper })
+    await waitFor(() => expect(current.result.current.catalog.settings.taxRatePct).toBe(7.5))
+  })
   it('retains catalog pricing defaults when the company profile has only identity fields', async () => {
     settingsRows.set('company-a', { companyName: 'A Frames' })
     const { result } = renderHook(() => useCatalog(), { wrapper: Wrapper })

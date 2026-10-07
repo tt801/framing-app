@@ -1,5 +1,6 @@
 // src/lib/pdf/quotePdf.ts
 import jsPDF from "jspdf";
+import type { CommercialSnapshot } from '../pricing';
 import autoTable from "jspdf-autotable";
 
 // ---- Types kept loose so we don't fight the rest of the app ----
@@ -20,6 +21,7 @@ export interface QuotePdfQuote {
   total: number;
   notes?: string;
   currency?: string;
+  pricingSnapshot?: CommercialSnapshot;
 }
 
 export interface QuotePdfCustomer {
@@ -54,13 +56,14 @@ export interface ExportQuotePdfOptions {
   quote: QuotePdfQuote;
   customer: QuotePdfCustomer;
   settings: QuotePdfSettings;
+  download?: boolean;
 }
 
 /**
  * Export a single quote as PDF.
  * Uses static imports for jsPDF + autotable (same pattern as typical invoice PDFs).
  */
-export async function exportQuotePDF(opts: ExportQuotePdfOptions): Promise<void> {
+export async function exportQuotePDF(opts: ExportQuotePdfOptions): Promise<jsPDF | void> {
   const { quote, customer, settings } = opts;
 
   try {
@@ -68,8 +71,9 @@ export async function exportQuotePDF(opts: ExportQuotePdfOptions): Promise<void>
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
 
-    const currencyCode = quote.currency || settings.currencyCode || "ZAR";
-    const currencySymbol = settings.currencySymbol || symbolFor(currencyCode);
+    const commercial = quote.pricingSnapshot?.version === 1 ? quote.pricingSnapshot : undefined;
+    const currencyCode = commercial?.currencyCode || quote.currency || settings.currencyCode || "ZAR";
+    const currencySymbol = commercial?.currencySymbol || settings.currencySymbol || symbolFor(currencyCode);
 
     const fmtMoney = (value: number) => {
       try {
@@ -192,6 +196,11 @@ export async function exportQuotePDF(opts: ExportQuotePdfOptions): Promise<void>
 
     doc.text(subtotalLine, rightBlockX, totalsY, { align: "right" });
     totalsY += 5;
+    if (commercial) {
+      doc.text(`${commercial.taxLabel || 'Tax'} (${(commercial.taxRate * 100).toFixed(2)}%): ${fmtMoney(commercial.tax)}`,
+        rightBlockX, totalsY, { align: "right" });
+      totalsY += 5;
+    }
 
     doc.setFont("helvetica", "bold");
     doc.text(totalLine, rightBlockX, totalsY, { align: "right" });
@@ -224,7 +233,8 @@ export async function exportQuotePDF(opts: ExportQuotePdfOptions): Promise<void>
     }
 
     const fileName = `Quote-${quote.number || quote.id || "quote"}.pdf`;
-    doc.save(fileName);
+    if (opts.download !== false) doc.save(fileName);
+    return doc;
   } catch (err) {
     console.error("[quotePdf] Failed to generate quote PDF", err);
     throw err; // let Quotes.tsx show the friendly alert

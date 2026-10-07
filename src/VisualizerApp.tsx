@@ -3,6 +3,7 @@ import React, { useMemo, useRef, useState, useEffect } from "react";
 
 // STORES / LIBS
 import { useCatalog } from "@/lib/store";
+import { priceVisualiser, effectiveTaxRatePct, toVisualiserQuote, toVisualiserJobCosts, toVisualiserInvoice } from "@/lib/pricing";
 import { useQuotes } from "@/lib/quotes";
 import { useCustomers } from "@/lib/customers";
 import { useInvoices } from "@/lib/invoices";
@@ -49,9 +50,6 @@ type MatOpening = {
 const CM_PER_IN = 2.54;
 const cmToIn = (cm: number) => cm / CM_PER_IN;
 const inToCm = (inch: number) => inch * CM_PER_IN;
-const cmToM = (n: number) => n / 100;
-const perimeterMeters = (w: number, h: number) => cmToM(2 * (w + h));
-const areaSqM = (w: number, h: number) => cmToM(w) * cmToM(h);
 const fmt2 = (n: number) => Number(n ?? 0).toFixed(2);
 const rid = () => Math.random().toString(36).slice(2, 9);
 
@@ -438,52 +436,30 @@ export default function VisualizerApp() {
     else setMat3BorderCm(safe);
   }
 
-  // ---------- Pricing ----------
-  const pricePerMeter = Number(frameProfile?.pricePerMeter ?? 0);
-  const glazingPerSqM = Number(glazing?.pricePerSqM ?? 0);
-  const mat1PerSqM = Number(mat1?.pricePerSqM ?? 0);
-  const mat2PerSqM = Number(mat2?.pricePerSqM ?? 0);
-  const mat3PerSqM = Number(mat3?.pricePerSqM ?? 0);
+  // ---------- Pricing: one immutable commercial result for all creation paths ----------
   const fallbackPrintSqM = Number(catalog?.settings?.printingPerSqM ?? 0);
-  const printingPerSqM = Number(
-    (selectedPM?.pricePerSqM ?? fallbackPrintSqM) ?? 0
-  );
-
-  const framePerimeterM = perimeterMeters(visibleWcm, visibleHcm);
-  const areaArt = areaSqM(artWcm, artHcm);
-  const glazedAreaSqM = areaSqM(visibleWcm, visibleHcm);
-
-  const matBoardArea = areaSqM(visibleWcm, visibleHcm);
-
-  const mat1Area = hasMat1 ? matBoardArea : 0;
-  const mat2Area = hasMat2 ? matBoardArea : 0;
-  const mat3Area = hasMat3 ? matBoardArea : 0;
-
-  const frameCost = pricePerMeter * framePerimeterM;
-  const glazingCost = glazingPerSqM * glazedAreaSqM;
-  const mat1Cost = mat1PerSqM * mat1Area;
-  const mat2Cost = mat2PerSqM * mat2Area;
-  const mat3Cost = mat3PerSqM * mat3Area;
-  const printingCost = includePrint ? printingPerSqM * areaArt : 0;
-  const backerCost = includeBacker ? foamBackerPerSqM * glazedAreaSqM : 0;
-
   const labourBase = Number(catalog?.settings?.labourBase ?? 0);
-  const marginMultiplier = Number(
-    catalog?.settings?.marginMultiplier ?? 1
-  );
-  const taxRate = Number((catalog?.settings as any)?.taxRatePct ?? 0) / 100;
-
-  const subtotalRaw =
-    frameCost +
-    glazingCost +
-    mat1Cost +
-    mat2Cost +
-    mat3Cost +
-    printingCost +
-    backerCost +
-    labourBase;
-  const subtotal = subtotalRaw * marginMultiplier;
-  const total = subtotal * (1 + taxRate);
+  const marginMultiplier = Number(catalog?.settings?.marginMultiplier ?? 1);
+  const pricingSnapshot = priceVisualiser({
+    artWcm, artHcm, borderCm: totalBorder, frame: frameProfile,
+    mats: [hasMat1 ? mat1 : null, hasMat2 ? mat2 : null, hasMat3 ? mat3 : null].filter(Boolean) as NonNullable<typeof mat1>[],
+    glazing,
+    print: includePrint ? (selectedPM ? { ...selectedPM, pricePerSqM: selectedPM.pricePerSqM ?? fallbackPrintSqM } : { name: "Printing", pricePerSqM: fallbackPrintSqM }) : null,
+    backer: includeBacker ? { name: "Foam board backer", pricePerSqM: foamBackerPerSqM } : null,
+    labourBase, marginMultiplier,
+    taxRatePct: effectiveTaxRatePct(catalog?.settings ?? {}),
+    taxLabel: catalog?.settings?.taxLabel,
+    currencyCode, currencySymbol,
+  });
+  const rawCost = (key: string) => pricingSnapshot.items.find(item => item.key === key)?.rawAmount ?? 0;
+  const frameCost = rawCost('frame');
+  const glazingCost = rawCost('glazing');
+  const mat1Cost = rawCost('mat1');
+  const mat2Cost = rawCost('mat2');
+  const mat3Cost = rawCost('mat3');
+  const printingCost = rawCost('print');
+  const backerCost = rawCost('backer');
+  const { subtotal, total } = pricingSnapshot;
 
   // ---------- Responsive preview ----------
   const [maxPx, setMaxPx] = useState(760);
@@ -978,85 +954,7 @@ export default function VisualizerApp() {
       ? (customers || []).find((c: any) => c.id === customerId)
       : undefined;
 
-    const items = [
-      {
-        name: `Frame (${frameProfile?.name ?? "frame"})`,
-        qty: 1,
-        unitPrice: Number(frameCost),
-        total: Number(frameCost),
-      },
-      {
-        name: `Glazing (${glazing?.name ?? "glazing"})`,
-        qty: 1,
-        unitPrice: Number(glazingCost),
-        total: Number(glazingCost),
-      },
-      ...(hasMat1
-        ? [
-            {
-              name: `Mat 1 (${mat1?.name ?? "mat"})`,
-              qty: 1,
-              unitPrice: Number(mat1Cost),
-              total: Number(mat1Cost),
-            },
-          ]
-        : []),
-      ...(hasMat2
-        ? [
-            {
-              name: `Mat 2 (${mat2?.name ?? "mat"})`,
-              qty: 1,
-              unitPrice: Number(mat2Cost),
-              total: Number(mat2Cost),
-            },
-          ]
-        : []),
-      ...(hasMat3
-        ? [
-            {
-              name: `Mat 3 (${mat3?.name ?? "mat"})`,
-              qty: 1,
-              unitPrice: Number(mat3Cost),
-              total: Number(mat3Cost),
-            },
-          ]
-        : []),
-      ...(includePrint
-        ? [
-            {
-              name: selectedPM
-                ? `Printing (${selectedPM.name})`
-                : "Printing",
-              qty: 1,
-              unitPrice: Number(printingCost),
-              total: Number(printingCost),
-            },
-          ]
-        : []),
-      ...(includeBacker
-        ? [
-            {
-              name: "Foam board backer",
-              qty: 1,
-              unitPrice: Number(backerCost),
-              total: Number(backerCost),
-            },
-          ]
-        : []),
-      {
-        name: "Labour & overhead",
-        qty: 1,
-        unitPrice: Number(labourBase),
-        total: Number(labourBase),
-      },
-    ];
-
-    const subtotalItems = items.reduce(
-      (s, i) => s + Number(i.total || 0),
-      0
-    );
-    const tax = subtotalItems * taxRate;
-    const totalAll = subtotalItems + tax;
+    const commercial = toVisualiserQuote(pricingSnapshot);
 
     const existingInStore = (qStore?.quotes ?? qStore?.items ?? []) as any[];
     const existingInLS = readQuotesFromAnyLS();
@@ -1101,15 +999,7 @@ export default function VisualizerApp() {
             customerObj.email)) ||
         undefined,
 
-      items,
-      subtotal: subtotalItems,
-      taxRate,
-      tax,
-      total: totalAll,
-
-      currency: catalog?.settings?.currencyCode ?? "ZAR",
-      currencyCode: catalog?.settings?.currencyCode ?? "ZAR",
-      currencySymbol: catalog?.settings?.currencySymbol ?? "R ",
+      ...commercial,
     };
 
     const wroteStore = await qStore?.add?.(payload);
@@ -1134,11 +1024,6 @@ export default function VisualizerApp() {
     const mat3Name = hasMat3 ? mat3?.name || selectedMat3 : "";
     const glazingName =
       glazing?.name || selectedGlazingId || "Glazing";
-    const printName = includePrint
-      ? selectedPM?.name
-        ? `Printing (${selectedPM.name})`
-        : "Printing"
-      : "";
 
     const customerObj = customerId
       ? (customers || []).find((c: any) => c.id === customerId)
@@ -1173,68 +1058,7 @@ export default function VisualizerApp() {
       frameFaceWidthCm: Number(faceWidthCm),
     };
 
-    const lineItems = [
-      {
-        k: "frame",
-        label: `Frame — ${frameName}`,
-        amount: Number(frameCost),
-      },
-      {
-        k: "glazing",
-        label: `Glazing — ${glazingName}`,
-        amount: Number(glazingCost),
-      },
-      ...(hasMat1
-        ? [
-            {
-              k: "mat1",
-              label: `Mat 1 — ${mat1Name}`,
-              amount: Number(mat1Cost),
-            },
-          ]
-        : []),
-      ...(hasMat2
-        ? [
-            {
-              k: "mat2",
-              label: `Mat 2 — ${mat2Name}`,
-              amount: Number(mat2Cost),
-            },
-          ]
-        : []),
-      ...(hasMat3
-        ? [
-            {
-              k: "mat3",
-              label: `Mat 3 — ${mat3Name}`,
-              amount: Number(mat3Cost),
-            },
-          ]
-        : []),
-      ...(includePrint
-        ? [
-            {
-              k: "print",
-              label: printName,
-              amount: Number(printingCost),
-            },
-          ]
-        : []),
-      ...(includeBacker
-        ? [
-            {
-              k: "backer",
-              label: "Foam board backer",
-              amount: Number(backerCost),
-            },
-          ]
-        : []),
-      {
-        k: "labour",
-        label: "Labour & overhead",
-        amount: Number(labourBase),
-      },
-    ];
+    const commercial = toVisualiserJobCosts(pricingSnapshot);
 
     const detailsSnapshot = {
       artworkUrl,
@@ -1284,20 +1108,11 @@ export default function VisualizerApp() {
         : { include: false },
       backer: { include: Boolean(includeBacker) },
       costs: {
-        frameCost: Number(frameCost),
-        glazingCost: Number(glazingCost),
-        mat1Cost: Number(mat1Cost),
-        mat2Cost: Number(mat2Cost),
-        mat3Cost: Number(mat3Cost),
-        printingCost: Number(printingCost),
-        backerCost: Number(backerCost),
-        labourBase: Number(labourBase),
-        marginMultiplier: Number(marginMultiplier),
-        subtotal: Number(subtotal),
-        taxRate: Number(taxRate),
-        total: Number(total),
-        lineItems,
+        ...commercial,
+        currency: { code: currencyCode, symbol: currencySymbol },
       },
+      internalCosts: { frameCost, glazingCost, mat1Cost, mat2Cost, mat3Cost, printingCost, backerCost, labourBase },
+      pricingSnapshot,
     };
 
     const flatForJobs = {
@@ -1354,14 +1169,8 @@ export default function VisualizerApp() {
         faceWcm: Number(faceWidthCm),
       },
       costs: {
-        subtotal: Number(subtotal),
-        total: Number(total),
-        taxRate: Number(taxRate),
-        currency: {
-          code: currencyCode,
-          symbol: currencySymbol,
-        },
-        lineItems,
+        ...commercial,
+        currency: { code: currencyCode, symbol: currencySymbol },
       },
     };
 
@@ -1374,9 +1183,10 @@ export default function VisualizerApp() {
       description: `Framing job — ${frameName}`,
       status: "new",
       priority: "normal",
-      subtotal: Number(subtotal),
-      total: Number(total),
-      taxRate: Number(taxRate),
+      subtotal: pricingSnapshot.subtotal,
+      total: pricingSnapshot.total,
+      taxRate: pricingSnapshot.taxRate,
+      pricingSnapshot,
       currency: { code: currencyCode, symbol: currencySymbol },
       customerId: customerId || undefined,
       customerSnapshot,
@@ -1407,106 +1217,13 @@ export default function VisualizerApp() {
 
     const todayISO = new Date().toISOString();
 
-    const items = [
-      {
-        id: rid(),
-        name: `Frame (${frameProfile?.name ?? "frame"})`,
-        description: `Frame (${frameProfile?.name ?? "frame"})`,
-        qty: 1,
-        unitPrice: frameCost,
-      },
-      {
-        id: rid(),
-        name: `Glazing (${glazing?.name ?? "glazing"})`,
-        description: `Glazing (${glazing?.name ?? "glazing"})`,
-        qty: 1,
-        unitPrice: glazingCost,
-      },
-      ...(hasMat1
-        ? [
-            {
-              id: rid(),
-              name: `Mat 1 (${mat1?.name ?? "mat"})`,
-              description: `Mat 1 (${mat1?.name ?? "mat"})`,
-              qty: 1,
-              unitPrice: mat1Cost,
-            },
-          ]
-        : []),
-      ...(hasMat2
-        ? [
-            {
-              id: rid(),
-              name: `Mat 2 (${mat2?.name ?? "mat"})`,
-              description: `Mat 2 (${mat2?.name ?? "mat"})`,
-              qty: 1,
-              unitPrice: mat2Cost,
-            },
-          ]
-        : []),
-      ...(hasMat3
-        ? [
-            {
-              id: rid(),
-              name: `Mat 3 (${mat3?.name ?? "mat"})`,
-              description: `Mat 3 (${mat3?.name ?? "mat"})`,
-              qty: 1,
-              unitPrice: mat3Cost,
-            },
-          ]
-        : []),
-      ...(includePrint
-        ? [
-            {
-              id: rid(),
-              name: selectedPM
-                ? `Printing (${selectedPM.name})`
-                : "Printing",
-              description: selectedPM
-                ? `Printing (${selectedPM.name})`
-                : "Printing",
-              qty: 1,
-              unitPrice: printingCost,
-            },
-          ]
-        : []),
-      ...(includeBacker
-        ? [
-            {
-              id: rid(),
-              name: "Foam board backer",
-              description: "Foam board backer",
-              qty: 1,
-              unitPrice: backerCost,
-            },
-          ]
-        : []),
-      {
-        id: rid(),
-        name: "Labour & overhead",
-        description: "Labour & overhead",
-        qty: 1,
-        unitPrice: labourBase,
-      },
-    ];
-
-    const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-    const roundedSubtotal = roundCurrency(Number(subtotal));
-    const roundedTax = roundCurrency(roundedSubtotal * Number(taxRate));
-    const roundedTotal = roundCurrency(roundedSubtotal + roundedTax);
+    const commercial = toVisualiserInvoice(pricingSnapshot);
     const invoiceObj = {
       customerId: customerId || undefined,
       dateISO: todayISO,
       dueDateISO: undefined,
-      items,
-      subtotal: roundedSubtotal,
-      taxRate: Number(taxRate),
-      tax: roundedTax,
-      total: roundedTotal,
-
+      ...commercial,
       currency: { code: currencyCode, symbol: currencySymbol },
-      currencyCode,
-      currencySymbol,
 
       notes: "",
       payments: [],
@@ -1514,10 +1231,10 @@ export default function VisualizerApp() {
 
       details: {
         costs: {
-          subtotal: roundedSubtotal,
-          taxRate: Number(taxRate),
-          tax: roundedTax,
-          total: roundedTotal,
+          subtotal: commercial.subtotal,
+          taxRate: commercial.taxRate,
+          tax: commercial.tax,
+          total: commercial.total,
           currency: { code: currencyCode, symbol: currencySymbol },
         },
       },
@@ -3066,7 +2783,7 @@ export default function VisualizerApp() {
                   </div>
                   <div className="flex justify-between text-slate-200">
                     <span>Tax</span>
-                    <span>{moneyIntl(subtotal * taxRate)}</span>
+                    <span>{moneyIntl(pricingSnapshot.tax)}</span>
                   </div>
                   <div className="font-semibold border-t border-slate-700 pt-1 flex justify-between text-lg">
                     <span>Total</span>

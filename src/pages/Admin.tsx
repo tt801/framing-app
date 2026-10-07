@@ -484,7 +484,7 @@ function SettingsPanel({
   const [draft, setDraft] = useState(() => ({
     currencyCode: initialCurrencyCode,
     currencySymbol: settings.currencySymbol || found?.symbol || "£",
-    taxRate: settings.taxRate ?? 0,
+    taxRate: settings.taxRatePct ?? settings.taxRate ?? 0,
     defaultPaymentTerms: settings.defaultPaymentTerms || "Due on receipt",
     invoicePrefix: settings.invoicePrefix || "INV-",
     nextInvoiceNumber: settings.nextInvoiceNumber || 1001,
@@ -498,7 +498,7 @@ function SettingsPanel({
   );
 
   const save = async () => {
-    const result = await onSave(draft);
+    const result = await onSave({ ...draft, taxRatePct: draft.taxRate });
     alert(result?.ok === false ? result.error : "Settings saved.");
   };
 

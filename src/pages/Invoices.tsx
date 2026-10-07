@@ -6,6 +6,8 @@ import { useCatalog } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import StatusBadge from "@/components/StatusBadge";
+import { createManualDraft, editManualDraft, invoiceBalance, type CommercialItem } from "@/lib/commercialDocuments";
+import { effectiveTaxRatePct } from "@/lib/pricing";
 
 // Optional PDF export
 let exportInvoicePDF: any;
@@ -214,9 +216,9 @@ export default function InvoicesPage() {
             : undefined) ||
           "$";
 
-        // Normalize taxRate: if > 1, assume it's a percentage (convert to decimal)
-        const rawTaxRate = settings?.taxRate ?? 0;
-        const normalizedTaxRate = rawTaxRate > 1 ? rawTaxRate / 100 : rawTaxRate;
+        const commercial = createManualDraft('invoice', {
+          currencyCode, currencySymbol, taxRatePct: effectiveTaxRatePct(settings), taxLabel: settings.taxLabel,
+        });
 
         const newInvoice = {
           id: Math.random().toString(36).slice(2, 9),
@@ -228,11 +230,8 @@ export default function InvoicesPage() {
           customerPhone: "",
           createdAt: new Date().toISOString(),
           dueDateISO: "",
-          subtotal: 0,
-          taxRate: normalizedTaxRate,
-          tax: 0,
-          total: 0,
-          items: [],
+          ...commercial,
+          items: commercial.items,
           notes: "",
           payments: [],
           currency: {
@@ -244,7 +243,7 @@ export default function InvoicesPage() {
           details: {
             costs: {
               subtotal: 0,
-              taxRate: normalizedTaxRate,
+              taxRate: commercial.taxRate,
               tax: 0,
               total: 0,
               currency: { code: currencyCode, symbol: currencySymbol },
@@ -480,15 +479,9 @@ export default function InvoicesPage() {
 
       const invoiceTotal = Number(row?.total ?? 0);
 
-      let invoicePaid = 0;
-      if (st === "Paid") {
-        invoicePaid = invoiceTotal;
-      } else if (Array.isArray(row?.payments)) {
-        invoicePaid = row.payments.reduce(
-          (s: number, p: any) => s + Number(p?.amount ?? 0),
-          0
-        );
-      }
+      const invoicePaid = Array.isArray(row?.payments) ? row.payments.reduce(
+        (sum: number, payment: any) => sum + Number(payment?.amount ?? 0), 0
+      ) : 0;
 
       const invoiceOutstanding = Math.max(0, invoiceTotal - invoicePaid);
 
@@ -526,6 +519,28 @@ export default function InvoicesPage() {
   const selStatus =
     (selected && (statusOverride[selected.id] ?? selected.status)) ||
     "Draft";
+  const [invoiceDraftItems, setInvoiceDraftItems] = useState<CommercialItem[]>([]);
+  React.useEffect(() => {
+    setInvoiceDraftItems(Array.isArray(selected?.items) ? selected.items.map((item: any) => ({
+      id: item.id, name: item.name ?? item.description ?? '', qty: Number(item.qty ?? 1), unitPrice: Number(item.unitPrice ?? 0),
+    })) : []);
+  }, [selected?.id, selected?.items]);
+  const invoiceDraftDirty = Boolean(selected && selStatus === 'Draft' &&
+    JSON.stringify(invoiceDraftItems.map(item => [item.name, item.qty, item.unitPrice])) !==
+    JSON.stringify((selected.items ?? []).map((item: any) => [item.name ?? item.description ?? '', Number(item.qty ?? 1), Number(item.unitPrice ?? 0)])));
+  const invoiceDraftPreview = selected && selStatus === 'Draft'
+    ? (() => { try { return editManualDraft(selected, invoiceDraftItems, 'invoice'); } catch { return null; } })()
+    : null;
+  const saveDraftInvoice = async () => {
+    if (!selected || selStatus !== 'Draft') return;
+    try {
+      const patch = editManualDraft(selected, invoiceDraftItems, 'invoice');
+      const result = await saveInvoice(selected.id, { ...patch, details: {
+        ...selected.details, costs: { ...selected.details?.costs, subtotal: patch.subtotal,
+          taxRate: patch.taxRate, tax: patch.tax, total: patch.total } } });
+      toast(result?.ok ? 'Draft invoice saved' : (result?.error || 'Could not save invoice'), result?.ok ? 'success' : 'error');
+    } catch (error) { toast(error instanceof Error ? error.message : 'Invalid invoice item', 'error'); }
+  };
 
   const companyName = settings.companyName || "Our workshop";
 
@@ -602,6 +617,7 @@ Thank you.
     status: "Draft" | "Sent" | "Paid" | "Overdue" | "Void"
   ) => {
     if (!selected) return;
+    if (invoiceDraftDirty) { toast('Save the Draft invoice before changing its status', 'error'); return; }
 
     const id = selected.id;
     const patch: any = { status };
@@ -611,12 +627,7 @@ Thank you.
       const existingPayments = Array.isArray(selected.payments)
         ? selected.payments
         : [];
-      const alreadyPaid = existingPayments.reduce(
-        (s: number, p: any) => s + Number(p?.amount ?? 0),
-        0
-      );
-      const total = Number(selected.total ?? 0);
-      const remaining = Math.max(0, total - alreadyPaid);
+      const remaining = Math.max(0, invoiceBalance(selected));
 
       patch.paidAt = now;
       if (remaining > 0) {
@@ -653,6 +664,7 @@ Thank you.
 
   const onExportPDF = async () => {
     if (!selected) return;
+    if (invoiceDraftDirty) { toast('Save the Draft invoice before exporting its PDF', 'error'); return; }
     if (!exportInvoicePDF) {
       console.warn(
         "exportInvoicePDF not found. Add '@/lib/pdf/invoicePdf'."
@@ -1191,80 +1203,35 @@ Thank you.
                 </div>
               </div>
 
-              {/* Items */}
+              {/* Manual selling prices; financial edits are restricted to Draft. */}
               <div className="rounded-2xl ring-1 ring-slate-200 p-4">
                 <div className="text-sm font-medium mb-2">Line Items</div>
-                <div className="space-y-2 mb-3">
-                  {Array.isArray(selected?.items) && selected.items.length > 0 ? (
-                    selected.items.map((it: any, idx: number) => (
-                      <div key={idx} className="grid grid-cols-4 gap-2 items-center">
-                        <input
-                          type="text"
-                          placeholder="Item name"
-                          value={it.name || ""}
-                          onChange={(e) => {
-                            const newItems = [...(selected?.items || [])];
-                            newItems[idx] = { ...newItems[idx], name: e.target.value };
-                            saveInvoice(selected.id, { items: newItems });
-                          }}
-                          className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-                        />
-                        <input
-                          type="number"
-                          placeholder="Qty"
-                          value={it.qty || 0}
-                          onChange={(e) => {
-                            const newItems = [...(selected?.items || [])];
-                            const qty = Number(e.target.value) || 0;
-                            const unitPrice = newItems[idx].unitPrice || 0;
-                            newItems[idx] = { ...newItems[idx], qty, total: qty * unitPrice };
-                            saveInvoice(selected.id, { items: newItems });
-                          }}
-                          className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-                        />
-                        <input
-                          type="number"
-                          placeholder="Unit price"
-                          value={it.unitPrice || 0}
-                          onChange={(e) => {
-                            const newItems = [...(selected?.items || [])];
-                            const unitPrice = Number(e.target.value) || 0;
-                            const qty = newItems[idx].qty || 0;
-                            newItems[idx] = { ...newItems[idx], unitPrice, total: qty * unitPrice };
-                            saveInvoice(selected.id, { items: newItems });
-                          }}
-                          className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-                        />
-                        <div className="text-right font-medium">
-                          {money((it.total || 0))}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newItems = (selected?.items || []).filter((_, i: number) => i !== idx);
-                              saveInvoice(selected.id, { items: newItems });
-                            }}
-                            className="block text-xs text-red-600 hover:text-red-800 mt-1"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-slate-500">No line items.</div>
-                  )}
+                <div className="grid grid-cols-12 gap-2 text-xs text-slate-500 mb-1">
+                  <span className="col-span-4">Description</span><span className="col-span-2">Quantity</span>
+                  <span className="col-span-2">Unit price</span><span className="col-span-2">Line total</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const newItems = Array.isArray(selected?.items) ? [...selected.items] : [];
-                    newItems.push({ name: "", qty: 1, unitPrice: 0, total: 0 });
-                    saveInvoice(selected.id, { items: newItems });
-                  }}
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-                >
-                  + Add line item
-                </button>
+                {selStatus === 'Draft' ? <>
+                  {invoiceDraftItems.map((item, index) => (
+                    <div key={item.id ?? index} className="grid grid-cols-12 gap-2 items-center mb-2">
+                      <input aria-label={`Invoice description ${index + 1}`} className="col-span-4 rounded-lg border p-2" value={item.name ?? ''}
+                        onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, name: e.target.value} : row))}/>
+                      <input aria-label={`Invoice quantity ${index + 1}`} type="number" min="0" step="any" className="col-span-2 rounded-lg border p-2" value={item.qty}
+                        onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, qty: Number(e.target.value)} : row))}/>
+                      <input aria-label={`Invoice unit price ${index + 1}`} type="number" min="0" step="any" className="col-span-2 rounded-lg border p-2" value={item.unitPrice}
+                        onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, unitPrice: Number(e.target.value)} : row))}/>
+                      <span className="col-span-2 text-right">{money(invoiceDraftPreview?.pricingSnapshot.items[index]?.lineTotal ?? 0)}</span>
+                      <button type="button" className="col-span-2 text-red-600 text-sm" onClick={() => setInvoiceDraftItems(prev => prev.filter((_, i) => i !== index))}>Remove</button>
+                    </div>
+                  ))}
+                  <button type="button" className="rounded-lg border px-3 py-1.5 text-sm mr-2" onClick={() => setInvoiceDraftItems(prev => [...prev, {id: Math.random().toString(36).slice(2, 9), name: '', qty: 1, unitPrice: 0}])}>+ Add line item</button>
+                  <button type="button" className="rounded-lg bg-slate-900 text-white px-3 py-1.5 text-sm" onClick={() => void saveDraftInvoice()}>Save Draft</button>
+                  {invoiceDraftDirty && !invoiceDraftPreview && <p className="text-sm text-red-600 mt-2">Check prices and recorded payments before saving.</p>}
+                </> : (selectedItems.length ? selectedItems.map((item, index) => (
+                  <div key={index} className="grid grid-cols-12 gap-2 text-sm py-1">
+                    <span className="col-span-4">{item.name}</span><span className="col-span-2">{item.qty}</span>
+                    <span className="col-span-2">{money(item.unitPrice)}</span><span className="col-span-2">{money(item.total)}</span>
+                  </div>
+                )) : <div className="text-sm text-slate-500">No line items.</div>)}
               </div>
 
               {/* Actions */}
@@ -1331,7 +1298,7 @@ Thank you.
                     <span className="text-slate-500">Subtotal</span>
                     <span>
                       {money(
-                        selected?.subtotal ??
+                        invoiceDraftPreview?.subtotal ?? selected?.subtotal ??
                           (selected?.total ?? 0) -
                             (selected?.tax ?? 0)
                       )}
@@ -1346,9 +1313,13 @@ Thank you.
                           ).toFixed(0)}%)`
                         : ""}
                     </span>
-                    <span>{money(selected?.tax)}</span>
+                    <span>{money(invoiceDraftPreview?.tax ?? selected?.tax)}</span>
                   </div>
 
+                  <div className="flex justify-between font-medium">
+                    <span>{invoiceDraftDirty ? 'Total (unsaved preview)' : 'Total'}</span>
+                    <span>{money(invoiceDraftPreview?.total ?? selected?.total)}</span>
+                  </div>
                   {/* Paid & balance derived from payments */}
                   <div className="flex justify-between">
                     <span className="text-slate-500">Paid</span>
@@ -1368,16 +1339,7 @@ Thank you.
                   <div className="flex justify-between font-semibold">
                     <span>Balance due</span>
                     <span>
-                      {money(
-                        (selected?.total ?? 0) -
-                          (Array.isArray(selected.payments)
-                            ? selected.payments.reduce(
-                                (s: number, p: any) =>
-                                  s + Number(p?.amount ?? 0),
-                                0
-                              )
-                            : 0)
-                      )}
+                      {money(invoiceBalance(selected))}
                     </span>
                   </div>
                 </div>

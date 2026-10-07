@@ -1,6 +1,7 @@
 // src/lib/pdf/invoicePdf.ts
 import jsPDF from 'jspdf'
 import { computeInvoiceTotals } from '../tax' // <-- uses taxRatePct, taxLabel, vatNumber from settings
+import type { CommercialSnapshot } from '../pricing'
 
 export type InvoiceItem = { id: string; description: string; qty: number; unitPrice: number }
 export type InvoicePayment = { dateISO?: string; amount: number }
@@ -91,6 +92,10 @@ export async function exportInvoicePDF(args: {
   download?: boolean
 }) {
   const { invoice, customer, settings, fileName, download = true } = args
+  const snapshot = invoice.pricingSnapshot as CommercialSnapshot | undefined
+  const currencyCode = snapshot?.version === 1 ? snapshot.currencyCode : (invoice.currencyCode ?? settings?.currencyCode)
+  const currencySym = snapshot?.version === 1 ? snapshot.currencySymbol : (invoice.currencySymbol ?? settings?.currencySymbol)
+  const taxLabel = ((snapshot?.version === 1 ? snapshot.taxLabel : settings?.taxLabel) || 'VAT').toUpperCase()
 
   const storedSubtotal = Number(invoice.subtotal)
   const storedTax = Number(invoice.tax)
@@ -144,7 +149,7 @@ export async function exportInvoicePDF(args: {
     ;[settings?.companyAddress1, settings?.companyAddress2].filter(Boolean).forEach(l => sellerLines.push(safe(l)))
   }
   if (settings?.companyNumber) sellerLines.push(`Company No: ${safe(settings.companyNumber)}`)
-  if (settings?.vatNumber)     sellerLines.push(`${(settings?.taxLabel || 'VAT').toUpperCase()} No: ${safe(settings.vatNumber)}`)
+  if (settings?.vatNumber)     sellerLines.push(`${taxLabel} No: ${safe(settings.vatNumber)}`)
   if (settings?.companyEmail)  sellerLines.push(`Email: ${safe(settings.companyEmail)}`)
   if (settings?.companyPhone)  sellerLines.push(`Phone: ${safe(settings.companyPhone)}`)
 
@@ -190,8 +195,8 @@ export async function exportInvoicePDF(args: {
         return [
           safe(it.description),
           String(Number(isFinite(Number(it.qty)) ? it.qty : 0)),
-          moneyFmt(Number(it.unitPrice || 0), settings?.currencyCode, settings?.currencySymbol),
-          moneyFmt(amt, settings?.currencyCode, settings?.currencySymbol),
+          moneyFmt(Number(it.unitPrice || 0), currencyCode, currencySym),
+          moneyFmt(amt, currencyCode, currencySym),
         ]
       }),
       styles: { font: 'helvetica', fontSize: 10, cellPadding: 2 },
@@ -213,8 +218,8 @@ export async function exportInvoicePDF(args: {
       const amt = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0)
       doc.text(safe(it.description), colX[0], y)
       doc.text(String(Number(it.qty) || 0), colX[1], y, { align: 'right' })
-      doc.text(moneyFmt(Number(it.unitPrice || 0), settings?.currencyCode, settings?.currencySymbol), colX[2], y, { align: 'right' })
-      doc.text(moneyFmt(amt, settings?.currencyCode, settings?.currencySymbol), colX[3], y, { align: 'right' })
+      doc.text(moneyFmt(Number(it.unitPrice || 0), currencyCode, currencySym), colX[2], y, { align: 'right' })
+      doc.text(moneyFmt(amt, currencyCode, currencySym), colX[3], y, { align: 'right' })
       y += 6
     })
     doc.setDrawColor(220); doc.line(margin, y, pageW - margin, y); y += 4
@@ -225,10 +230,6 @@ export async function exportInvoicePDF(args: {
   let tY = Math.max(y, hasAT ? (doc as any).lastAutoTable?.finalY + 4 || y : y)
   doc.setDrawColor(200); doc.setFillColor(250,250,250); doc.roundedRect(totalsX, tY, 70, 26, 2, 2, 'S')
   tY += 7
-
-  const taxLabel = (settings?.taxLabel || 'VAT').toUpperCase()
-  const currencyCode = settings?.currencyCode
-  const currencySym  = settings?.currencySymbol
 
   const totalsRows: Array<[string, string, boolean?]> = [
     ['Subtotal', moneyFmt(totals.subTotal, currencyCode, currencySym)],

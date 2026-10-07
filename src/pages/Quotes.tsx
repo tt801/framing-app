@@ -9,6 +9,8 @@ import { useCatalog } from "@/lib/store";
 import { exportQuotePDF } from "@/lib/pdf/quotePdf";
 import { useInvoices } from "@/lib/invoices";
 import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
+import { createManualDraft, editManualDraft, invoiceFromQuote, type CommercialItem } from "@/lib/commercialDocuments";
+import { effectiveTaxRatePct } from "@/lib/pricing";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import StatusBadge from "@/components/StatusBadge";
@@ -333,8 +335,8 @@ export default function QuotesPage() {
   const { add: toast } = useToast();
   const { add: addToHistory } = useHistory();
 
-  const settings = s?.settings || {};
-  const settingsCurrencyCode: string | undefined =
+  const settings = s?.catalog?.settings || s?.settings || {};
+  const settingsCurrencyCode: string =
     settings.currencyCode ||
     (typeof settings.currency === "string" ? settings.currency : undefined) ||
     "ZAR";
@@ -375,16 +377,14 @@ export default function QuotesPage() {
     setSortBy("date");
 
     const quotePayload = {
+      ...createManualDraft('quote', { currencyCode: settingsCurrencyCode, currencySymbol: settingsCurrencySymbol,
+        taxRatePct: effectiveTaxRatePct(settings), taxLabel: settings.taxLabel }),
       customerId: "",
-      items: [],
       notes: "",
       status: "Draft",
       customerName: "",
       customerEmail: "",
       customerPhone: "",
-      subtotal: 0,
-      total: 0,
-      currency: settingsCurrencyCode,
       details: {
         status: "Draft",
         items: [],
@@ -401,7 +401,7 @@ export default function QuotesPage() {
 
     setSelectedId(String(result.quote.id));
     toast("New quote created. Fill in customer details and line items.", "success");
-  }, [qStore, settingsCurrencyCode, toast]);
+  }, [qStore, settingsCurrencyCode, settingsCurrencySymbol, settings.taxRatePct, settings.taxRate, settings.taxLabel, toast]);
 
   const handleImportLegacyLocalQuotes = React.useCallback(async () => {
     const count = qStore?.getLegacyLocalQuoteCount?.() ?? 0;
@@ -582,6 +582,30 @@ export default function QuotesPage() {
   }, [filtered, statusOverride]);
 
   const selectedItems = useMemo(() => (selected ? extractItems(selected) : []), [selected]);
+  const [draftItems, setDraftItems] = useState<CommercialItem[]>([]);
+  React.useEffect(() => {
+    setDraftItems(selected ? extractItems(selected).map((it, index) => ({ id: `line-${index}`, name: it.name, qty: it.qty, unitPrice: it.unitPrice })) : []);
+  }, [selected?.id, selected?.items]);
+  const quoteDraftDirty = Boolean(selected && normaliseStatus(selected) === 'Draft' &&
+    JSON.stringify(draftItems.map(({name, qty, unitPrice}) => ({name, qty, unitPrice}))) !==
+    JSON.stringify(selectedItems.map(({name, qty, unitPrice}) => ({name, qty, unitPrice}))));
+  const draftPreview = selected && normaliseStatus(selected) === 'Draft'
+    ? (() => { try { return editManualDraft(selected, draftItems, 'quote'); } catch { return null; } })()
+    : null;
+  const saveDraftQuote = async () => {
+    if (!selected || (statusOverride[selected.id] ?? normaliseStatus(selected)) !== 'Draft') return;
+    try {
+      const patch = editManualDraft(selected, draftItems, 'quote');
+      const result = await updateQuoteInStore(qStore, selected.id, patch);
+      toast(result?.ok ? 'Draft quote saved' : (result?.error || 'Could not save quote'), result?.ok ? 'success' : 'error');
+    } catch (error) { toast(error instanceof Error ? error.message : 'Invalid quote item', 'error'); }
+  };
+  const linkDraftCustomer = async (customerId: string) => {
+    if (!selected || (statusOverride[selected.id] ?? normaliseStatus(selected)) !== 'Draft') return;
+    const customer = customersList.find((row: any) => row.id === customerId);
+    const result = await updateQuoteInStore(qStore, selected.id, { customerId, customerSnapshot: customer || undefined });
+    if (!result?.ok) toast(result?.error || 'Could not link customer', 'error');
+  };
 
   // Currency for overview widgets: prefer any quote currency, fall back to settings
   const overviewCurrencyCode: string =
@@ -595,6 +619,11 @@ export default function QuotesPage() {
 
   const markStatus = async (status: QuoteStatus) => {
     if (!selected) return;
+    if (quoteDraftDirty) { toast('Save the Draft quote before changing its status', 'error'); return; }
+    if (status === 'Draft' && normaliseStatus(selected) !== 'Draft') {
+      toast('Issued quotes cannot be reopened for financial editing; create a new quote instead', 'error');
+      return;
+    }
     const id = safeRowId(selected);
 
     const patch: any = { status };
@@ -613,6 +642,7 @@ export default function QuotesPage() {
 
   const onExportPDF = async () => {
     if (!selected) return;
+    if (quoteDraftDirty) { toast('Save the Draft quote before exporting its PDF', 'error'); return; }
 
     const items = extractItems(selected);
     const customer =
@@ -640,6 +670,7 @@ export default function QuotesPage() {
             selected.details?.notes ??
             "",
           currency: selected.currency || overviewCurrencyCode,
+          pricingSnapshot: (selected as any).pricingSnapshot,
         },
         customer,
         settings: {
@@ -686,67 +717,19 @@ export default function QuotesPage() {
   const handleCreateInvoiceFromQuote = async () => {
     if (!selected) return;
 
-    const items =
-      selectedItems.map((it) => ({
-        id: rid(),
-        name: it.name,
-        description: it.name,
-        qty: it.qty,
-        unitPrice: it.unitPrice,
-      })) || [];
-
-    const subtotal =
-      selected.subtotal ??
-      items.reduce((sum: number, it: any) => sum + it.qty * it.unitPrice, 0);
-
-    const taxRatePercent =
-      typeof selected.taxRate === "number"
-        ? selected.taxRate
-        : typeof settings.taxRate === "number"
-        ? settings.taxRate
-        : 0;
-    
-    const taxRate = taxRatePercent > 1 ? taxRatePercent / 100 : taxRatePercent;
-    const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-    const roundedSubtotal = roundCurrency(subtotal);
-    const tax = roundCurrency(roundedSubtotal * taxRate);
-    const total = selected.total == null ? roundCurrency(roundedSubtotal + tax) : selected.total;
-
+    if (quoteDraftDirty) { toast('Save the Draft quote before creating an invoice', 'error'); return; }
     const todayISO = new Date().toISOString();
-
-    const currencyCode =
-      (selected.currency as string | undefined) || overviewCurrencyCode;
-    const currencySymbolLocal = overviewCurrencySymbol;
-
+    const agreement = invoiceFromQuote({ ...selected, items: selectedItems });
+    const currencyCode = agreement.currencyCode;
+    const currencySymbolLocal = agreement.currencySymbol || symbolFor(currencyCode);
     const invoiceObj = {
-      customerId: selected.customerId || selected.customer?.id || undefined,
-      quoteId: selected.id,
+      ...agreement,
+      status: 'Draft',
       dateISO: todayISO,
-      dueDateISO: undefined,
-      items,
-      subtotal: roundedSubtotal,
-      taxRate,
-      tax,
-      total,
-      currency: { code: currencyCode, symbol: currencySymbolLocal },
-      currencyCode,
-      currencySymbol: currencySymbolLocal,
-      notes:
-        selected.notes ??
-        selected.internalNotes ??
-        selected.details?.notes ??
-        "",
-      payments: [],
       createdAt: todayISO,
-      details: {
-        costs: {
-          subtotal,
-          taxRate,
-          tax,
-          total,
-          currency: { code: currencyCode, symbol: currencySymbolLocal },
-        },
-      },
+      notes: selected.notes ?? selected.internalNotes ?? selected.details?.notes ?? '',
+      details: { costs: { subtotal: agreement.subtotal, taxRate: agreement.taxRate,
+        tax: agreement.tax, total: agreement.total, currency: agreement.currency } },
     };
 
     try {
@@ -1249,50 +1232,50 @@ export default function QuotesPage() {
                 </div>
               </div>
 
-              {/* Items */}
+              {/* Customer-facing selling lines; only Draft can be revised. */}
               <div className="rounded-2xl ring-1 ring-slate-200 p-4">
                 <div className="text-sm font-medium mb-2">Items</div>
-                {selectedItems.length > 0 ? (
-                  <div className="overflow-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-slate-500">
-                          <th className="py-1 pr-2">Item</th>
-                          <th className="py-1 pr-2">Qty</th>
-                          <th className="py-1 pr-2">Unit</th>
-                          <th className="py-1 pr-2 text-right">Line</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedItems.map((it, idx) => (
-                          <tr
-                            key={idx}
-                            className="border-t border-slate-100"
-                          >
-                            <td className="py-1 pr-2">{it.name}</td>
-                            <td className="py-1 pr-2 tabular-nums">{it.qty}</td>
-                            <td className="py-1 pr-2 tabular-nums">
-                              {fmt(
-                                it.unitPrice,
-                                selected.currency || overviewCurrencyCode,
-                                overviewCurrencySymbol
-                              )}
-                            </td>
-                            <td className="py-1 pr-2 text-right tabular-nums">
-                              {fmt(
-                                it.total,
-                                selected.currency || overviewCurrencyCode,
-                                overviewCurrencySymbol
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-sm text-slate-500">No line items found.</div>
-                )}
+                {selStatus === 'Draft' ? (
+                  <>
+                    <label className="block text-sm mb-3">Customer
+                      <select aria-label="Quote customer" className="block w-full rounded-lg border p-2 mt-1"
+                        value={selected.customerId || ''} onChange={e => void linkDraftCustomer(e.target.value)}>
+                        <option value="">Select customer</option>
+                        {customersList.map((customer: any) => <option key={customer.id} value={customer.id}>
+                          {[customer.firstName, customer.lastName].filter(Boolean).join(' ') || customer.company || customer.email || customer.id}
+                        </option>)}
+                      </select>
+                    </label>
+                    <div className="grid grid-cols-12 gap-2 text-xs text-slate-500 mb-1">
+                      <span className="col-span-4">Description</span><span className="col-span-2">Quantity</span>
+                      <span className="col-span-2">Unit price</span><span className="col-span-2">Line total</span>
+                    </div>
+                    {draftItems.map((item, index) => (
+                      <div key={item.id ?? index} className="grid grid-cols-12 gap-2 items-center mb-2">
+                        <input aria-label={`Quote description ${index + 1}`} className="col-span-4 rounded-lg border p-2" value={item.name ?? ''}
+                          onChange={e => setDraftItems(prev => prev.map((row, i) => i === index ? {...row, name: e.target.value} : row))}/>
+                        <input aria-label={`Quote quantity ${index + 1}`} type="number" min="0" step="any" className="col-span-2 rounded-lg border p-2" value={item.qty}
+                          onChange={e => setDraftItems(prev => prev.map((row, i) => i === index ? {...row, qty: Number(e.target.value)} : row))}/>
+                        <input aria-label={`Quote unit price ${index + 1}`} type="number" min="0" step="any" className="col-span-2 rounded-lg border p-2" value={item.unitPrice}
+                          onChange={e => setDraftItems(prev => prev.map((row, i) => i === index ? {...row, unitPrice: Number(e.target.value)} : row))}/>
+                        <span className="col-span-2 text-right">{fmt(draftPreview?.items[index]?.total ?? 0, selected.currency || overviewCurrencyCode)}</span>
+                        <button type="button" className="col-span-2 text-red-600 text-sm" onClick={() => setDraftItems(prev => prev.filter((_, i) => i !== index))}>Remove</button>
+                      </div>
+                    ))}
+                    <button type="button" className="rounded-lg border px-3 py-1.5 text-sm mr-2" onClick={() => setDraftItems(prev => [...prev, {id: rid(), name: '', qty: 1, unitPrice: 0}])}>+ Add line item</button>
+                    <button type="button" className="rounded-lg bg-slate-900 text-white px-3 py-1.5 text-sm" onClick={() => void saveDraftQuote()}>Save Draft</button>
+                    <div className="text-sm mt-3 space-y-1" aria-label="Draft quote totals">
+                      <div>Subtotal: {fmt(draftPreview?.subtotal ?? selected.subtotal, selected.currency || overviewCurrencyCode)}</div>
+                      <div>{selected.pricingSnapshot?.taxLabel || 'Tax'}: {fmt(draftPreview?.tax ?? selected.tax, selected.currency || overviewCurrencyCode)}</div>
+                      <div className="font-semibold">Total: {fmt(draftPreview?.total ?? selected.total, selected.currency || overviewCurrencyCode)}</div>
+                    </div>
+                  </>
+                ) : selectedItems.length > 0 ? (
+                  <table className="w-full text-sm"><thead><tr className="text-left"><th>Description</th><th>Quantity</th><th>Unit price</th><th>Line total</th></tr></thead><tbody>
+                    {selectedItems.map((item, index) => <tr key={index}><td>{item.name}</td><td>{item.qty}</td>
+                      <td>{fmt(item.unitPrice, selected.currency || overviewCurrencyCode)}</td><td>{fmt(item.total, selected.currency || overviewCurrencyCode)}</td></tr>)}
+                  </tbody></table>
+                ) : <div className="text-sm text-slate-500">No line items found.</div>}
               </div>
 
               {/* Notify */}
