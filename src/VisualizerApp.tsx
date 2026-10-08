@@ -3,6 +3,7 @@ import React, { useMemo, useRef, useState, useEffect } from "react";
 
 // STORES / LIBS
 import { useCatalog } from "@/lib/store";
+import { useEffectiveCompanyCatalogue } from "@/lib/effectiveSupplierAccess";
 import { priceVisualiser, effectiveTaxRatePct, toVisualiserQuote, toVisualiserJobCosts, toVisualiserInvoice } from "@/lib/pricing";
 import { useQuotes } from "@/lib/quotes";
 import { useCustomers } from "@/lib/customers";
@@ -215,6 +216,7 @@ function makeJobChecklist() {
 export default function VisualizerApp() {
   const { catalog } = useCatalog();
   const billing = useBillingAccess();
+  const effectiveCatalogue = useEffectiveCompanyCatalogue(billing.companyAccountId, catalog);
   const qStore = useQuotes() as any;
   const jobsStore = useJobs() as any;
   const invoicesStore = useInvoices() as any;
@@ -343,6 +345,15 @@ export default function VisualizerApp() {
   const mat2 = catalog?.mats?.find?.((m: any) => m.id === selectedMat2);
   const mat3 = catalog?.mats?.find?.((m: any) => m.id === selectedMat3);
   const selectedPM = PRINT_MATS.find((p: any) => p.id === printMaterialId);
+  const supplierSelectionIssue = effectiveCatalogue.selectionIssue([
+    selectedFrame, selectedMat1, selectedMat2, selectedMat3, selectedGlazingId,
+    ...(includePrint ? [printMaterialId] : []),
+  ]);
+  const guardSupplierSelection = () => {
+    if (!supplierSelectionIssue) return true;
+    alert(`${supplierSelectionIssue} Choose a manual product before creating a priced document.`);
+    return false;
+  };
 
   useEffect(() => {
     if (!selectedGlazingId && glazingList.length > 0) {
@@ -366,7 +377,7 @@ export default function VisualizerApp() {
     const frames = (catalog?.frames || []) as any[];
     if (!frames.length) return;
     const exists = frames.some((f) => f.id === selectedFrame);
-    if (!selectedFrame || !exists) {
+    if (!selectedFrame || (!exists && !selectedFrame.startsWith('supplier:'))) {
       setSelectedFrame(frames[0].id);
     }
   }, [catalog?.frames, selectedFrame]);
@@ -949,6 +960,7 @@ export default function VisualizerApp() {
   }
 
   async function addQuoteNow() {
+    if (!guardSupplierSelection()) return;
     const customerId = await ensureCustomerId();
     const customerObj = customerId
       ? (customers || []).find((c: any) => c.id === customerId)
@@ -1016,6 +1028,7 @@ export default function VisualizerApp() {
   }
 
   async function addJobNow() {
+    if (!guardSupplierSelection()) return;
     const customerId = await ensureCustomerId();
 
     const frameName = frameProfile?.name || selectedFrame || "Frame";
@@ -1210,6 +1223,7 @@ export default function VisualizerApp() {
   }
 
   async function invoiceNow() {
+    if (!guardSupplierSelection()) return;
     const customerId = await ensureCustomerId();
     const customerObj = customerId
       ? (customers || []).find((c: any) => c.id === customerId)
@@ -1286,6 +1300,7 @@ export default function VisualizerApp() {
   }
 
   async function handleCreateQuoteInvoiceJob() {
+    if (!guardSupplierSelection()) return;
     try {
       await addQuoteNow();
       await addJobNow();
@@ -1727,6 +1742,20 @@ export default function VisualizerApp() {
             </div>
           </Panel>
 
+          {supplierSelectionIssue && (
+            <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+              {supplierSelectionIssue} This saved selection cannot be used in a priced document; select a manual product.
+            </div>
+          )}
+          {effectiveCatalogue.supplierProducts.length > 0 && (
+            <div className="rounded-lg border bg-white p-3 text-sm">
+              <h3 className="font-semibold">Supplier catalogue (discovery only)</h3>
+              <ul>{effectiveCatalogue.supplierProducts.map(product => (
+                <li key={product.id}>{product.supplierName}: {product.name} — {product.lifecycle}, {product.availability}
+                  {product.visibleForNewSelection ? '' : ' (not available for new designs)'} — not priceable</li>
+              ))}</ul>
+            </div>
+          )}
           {/* Frame Profile */}
           <Panel title="Frame Profile">
             <div className="grid gap-2">
@@ -1738,6 +1767,8 @@ export default function VisualizerApp() {
                 value={selectedFrame}
                 onChange={(e) => setSelectedFrame(e.target.value)}
               >
+                {selectedFrame.startsWith('supplier:') && !catalog?.frames?.some(f => f.id === selectedFrame) &&
+                  <option value={selectedFrame}>Supplier reference (not priceable)</option>}
                 {(catalog?.frames || []).map((f: any) => (
                   <option key={f.id} value={f.id}>
                     {f.name}

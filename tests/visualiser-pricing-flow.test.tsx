@@ -1,6 +1,7 @@
 import React from 'react'
-import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 import VisualizerApp from '@/VisualizerApp'
 import type { CommercialSnapshot } from '@/lib/pricing'
 
@@ -28,11 +29,32 @@ vi.mock('@/lib/layout', () => ({ useLayout: () => ({ layoutMode: 'fixed' }) }))
 vi.mock('@/lib/billingAccess', () => ({ useBillingAccess: () => ({ readOnly: false }) }))
 vi.mock('@/lib/pdf/invoicePdf', () => ({ exportInvoicePDF: async (args: PdfArgs) => { captured.pdfs.push(args); return {} } }))
 vi.mock('@/components/RoomMockup', () => ({ default: () => null }))
-vi.mock('@/components/PresetControls', () => ({ default: () => null }))
+vi.mock('@/components/PresetControls', () => ({ default: ({ onApply }: { onApply: (preset: unknown) => void }) =>
+  <button onClick={() => onApply({ state: { frame: { id: 'supplier:00000000-0000-0000-0000-000000000003' } } })}>Load supplier preset</button> }))
+vi.mock('@/lib/effectiveSupplierAccess', () => ({ useEffectiveCompanyCatalogue: () => ({
+  supplierProducts: [], selectionIssue: (ids: string[]) => ids.find(id => id.startsWith('supplier:')) ? 'Supplier product unavailable' : null,
+}) }))
 
 const money = (n: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'GBP' }).format(n)
 
 describe('Visualiser persistence uses its displayed commercial result', () => {
+  it('does not price or persist a saved supplier reference as a fallback manual product', async () => {
+    captured.quotes.length = 0; captured.jobs.length = 0; captured.invoices.length = 0
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {})
+    render(<VisualizerApp />)
+    fireEvent.click(screen.getByRole('button', { name: 'Load supplier preset' }))
+    expect(alert.mock.calls).toEqual([])
+    expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe('supplier:00000000-0000-0000-0000-000000000003')
+    expect(screen.getByText(/Supplier product unavailable/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Quotes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Jobs' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Invoices' }))
+    await waitFor(() => expect(alert).toHaveBeenCalled())
+    expect(captured.quotes).toHaveLength(0)
+    expect(captured.jobs).toHaveLength(0)
+    expect(captured.invoices).toHaveLength(0)
+    alert.mockRestore()
+  })
   it('writes identical pricing snapshots for Quote, Job and direct Invoice, and hands selling lines to PDF', async () => {
     captured.quotes.length = 0; captured.jobs.length = 0; captured.invoices.length = 0; captured.pdfs.length = 0
     vi.spyOn(window, 'alert').mockImplementation(() => {})
