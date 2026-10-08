@@ -7,6 +7,7 @@ const TITLES: Record<View, string> = {
   tickets: "Support Tickets",
   subscriptions: "Subscriptions",
   cms: "Content Management",
+  suppliers: "Supplier Catalogue",
 };
 
 export default function TopBar({ view }: { view: View }) {

@@ -245,6 +245,15 @@ code { font-family: "JetBrains Mono", "Fira Mono", monospace; font-size: 0.85em;
 
 .card-title-row .card-title { margin: 0; }
 
+/* Private supplier catalogue editor */
+.supplier-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.supplier-list .sidebar-item { width: auto; color: #0f172a; border: 1px solid #cbd5e1; }
+.supplier-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.supplier-form > h2, .supplier-form > h3, .supplier-form > p, .supplier-form > div { grid-column: 1 / -1; margin: 0; }
+.supplier-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.supplier-field > input, .supplier-field > select { width: 100%; }
+.supplier-page > section.card { overflow-x: auto; }
+
 /* ── Stat grid ─────────────────────────────────────────────── */
 
 .stat-grid {

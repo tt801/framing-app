@@ -5,6 +5,7 @@ import {
   TicketCheck,
   CreditCard,
   Megaphone,
+  Package,
   LogOut,
 } from "lucide-react";
 import type { View } from "@/App";
@@ -35,6 +36,10 @@ const NAV = [
   {
     section: "Content",
     items: [{ id: "cms" as View, label: "CMS", Icon: Megaphone }],
+  },
+  {
+    section: "Catalogue",
+    items: [{ id: "suppliers" as View, label: "Suppliers", Icon: Package }],
   },
 ];
 

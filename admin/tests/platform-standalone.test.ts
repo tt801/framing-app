@@ -18,6 +18,8 @@ import members from '../api/platform/members.js'
 import tickets from '../api/platform/tickets.js'
 import ticketComments from '../api/platform/ticket-comments.js'
 import cms from '../api/platform/cms.js'
+import suppliers from '../api/platform/suppliers.js'
+import supplierProducts from '../api/platform/supplier-products.js'
 import { requirePlatformAdmin } from '../server/platform/platformAdmin.js'
 
 const companyId = '11111111-1111-4111-8111-111111111111'
@@ -48,13 +50,13 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('standalone platform API', () => {
-  it('packages exactly the seven platform handlers under the standalone API root', () => {
-    expect([stats, companies, companyBilling, members, tickets, ticketComments, cms].every(
+  it('packages exactly the nine platform handlers under the standalone API root', () => {
+    expect([stats, companies, companyBilling, members, tickets, ticketComments, cms, suppliers, supplierProducts].every(
       handler => typeof handler === 'function'
     )).toBe(true)
     expect(readdirSync(new URL('../api/platform/', import.meta.url)).sort()).toEqual([
       'cms.ts', 'companies.ts', 'company-billing.ts', 'members.ts',
-      'stats.ts', 'ticket-comments.ts', 'tickets.ts',
+      'stats.ts', 'ticket-comments.ts', 'tickets.ts', 'suppliers.ts', 'supplier-products.ts',
     ].sort())
   })
 
@@ -68,6 +70,7 @@ describe('standalone platform API', () => {
   it.each([
     ['stats', stats], ['company-billing', companyBilling], ['members', members],
     ['tickets', tickets], ['ticket-comments', ticketComments], ['cms', cms],
+    ['suppliers', suppliers], ['supplier-products', supplierProducts],
   ])('rejects an unauthenticated %s request before database access', async (_name, handler) => {
     const { res, result } = response()
     await handler(request(undefined, 'billing'), res)
@@ -87,6 +90,7 @@ describe('standalone platform API', () => {
   it.each([
     ['stats', stats], ['companies', companies], ['company-billing', companyBilling],
     ['members', members], ['tickets', tickets], ['ticket-comments', ticketComments], ['cms', cms],
+    ['suppliers', suppliers], ['supplier-products', supplierProducts],
   ])('does not allow a recovery-session token to bypass %s authorization', async (_name, handler) => {
     mocks.getUser.mockResolvedValue({ data: { user: { email: 'customer@example.invalid' } }, error: null })
     const { res, result } = response()

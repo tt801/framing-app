@@ -48,6 +48,16 @@ export async function requirePlatformAdmin(req: VercelRequest) {
   return data.user;
 }
 
+// New supplier/wholesale routes cannot inherit the legacy default-email fallback.
+// Keep the existing policy unchanged for unrelated Admin routes.
+export async function requireConfiguredPlatformAdmin(req: VercelRequest) {
+  const configured = (process.env.PLATFORM_ADMIN_EMAILS || '').split(',').map(x => x.trim());
+  if (!configured.length || configured.some(x => !/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(x))) {
+    throw new Error('PLATFORM_ADMIN_EMAILS must explicitly configure platform admin access');
+  }
+  return requirePlatformAdmin(req);
+}
+
 export function platformAdminError(err: unknown): { status: number; message: string } {
   const message = err instanceof Error ? err.message : 'Server error';
   const isAuth =

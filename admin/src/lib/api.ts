@@ -252,3 +252,34 @@ export async function deleteAnnouncement(id: string) {
     method: "DELETE",
   });
 }
+
+// Private Platform Admin supplier catalogue. Never use these handlers in the customer app.
+export type PlatformSupplier = {
+  id: string; name: string; slug: string; status: string; countries: string[];
+  asset_rights_status: string; created_at: string; updated_at: string;
+};
+export type PlatformSupplierProduct = {
+  id: string; supplier_id: string; catalog_scope: string; source_product_key: string | null;
+  supplier_sku: string | null; variant_key: string; category: string; supplier_description: string;
+  display_description: string | null; subcategory: string | null; collection_name: string | null;
+  colour: string | null; finish: string | null; material: string | null; purchase_unit: string | null;
+  width_mm: number | null; depth_mm: number | null; rebate_width_mm: number | null; rebate_depth_mm: number | null;
+  sheet_width_mm: number | null; sheet_height_mm: number | null; mat_core: string | null;
+  mat_thickness_mm: number | null; mat_quality: string | null; glazing_material: string | null;
+  glazing_thickness_mm: number | null; glazing_uv_percent: number | null; glazing_reflection: string | null;
+  lifecycle: string; availability: string; replacement_product_id: string | null;
+  wholesale_cost: number | null; cost_currency: string | null; cost_unit: string | null;
+  cost_tax_basis: string | null; cost_effective_at: string | null;
+  source_image_url: string | null; source_attribution: string | null;
+  image_rights_status: string; image_permitted_uses: Record<string, unknown>;
+  asset_status: string; cached_asset_key: string | null; thumbnail_key: string | null; texture_key: string | null;
+  updated_at: string;
+};
+export const listSuppliers = () => apiFetch<{ suppliers: PlatformSupplier[] }>("/api/platform/suppliers");
+export const listSupplierProducts = (supplierId: string) => apiFetch<{ products: PlatformSupplierProduct[] }>(
+  `/api/platform/supplier-products?supplierId=${encodeURIComponent(supplierId)}`
+);
+export const createSupplier = (fields: Record<string, unknown>) => apiFetch<{ supplier: PlatformSupplier }>("/api/platform/suppliers", { method: "POST", body: JSON.stringify({ fields }) });
+export const updateSupplier = (id: string, fields: Record<string, unknown>) => apiFetch<{ supplier: PlatformSupplier }>("/api/platform/suppliers", { method: "PATCH", body: JSON.stringify({ id, fields }) });
+export const createSupplierProduct = (supplierId: string, fields: Record<string, unknown>) => apiFetch<{ product: PlatformSupplierProduct }>("/api/platform/supplier-products", { method: "POST", body: JSON.stringify({ supplierId, fields }) });
+export const updateSupplierProduct = (supplierId: string, id: string, expectedUpdatedAt: string, fields: Record<string, unknown>) => apiFetch<{ product: PlatformSupplierProduct }>("/api/platform/supplier-products", { method: "PATCH", body: JSON.stringify({ supplierId, id, expectedUpdatedAt, fields }) });

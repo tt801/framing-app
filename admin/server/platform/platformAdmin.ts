@@ -33,6 +33,15 @@ export async function requirePlatformAdmin(req: VercelRequest) {
   return data.user
 }
 
+// Strict configuration for the new wholesale-bearing supplier endpoints only.
+export async function requireConfiguredPlatformAdmin(req: VercelRequest) {
+  const configured = (process.env.PLATFORM_ADMIN_EMAILS || '').split(',').map(email => email.trim())
+  if (!configured.length || configured.some(email => !/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(email))) {
+    throw new Error('PLATFORM_ADMIN_EMAILS must explicitly configure platform admin access')
+  }
+  return requirePlatformAdmin(req)
+}
+
 export function platformAdminError(err: unknown): { status: number; message: string } {
   const message = err instanceof Error ? err.message : 'Server error'
   const isAuth = message.includes('platform admin') || message.includes('PLATFORM_ADMIN_EMAILS') ||
