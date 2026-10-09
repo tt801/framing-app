@@ -60,6 +60,14 @@ describe('Block 2D cost audit in disposable PostgreSQL', () => {
     expect(new Date((await events())[0].old_effective_at).toISOString()).toBe('2026-10-08T00:00:00.000Z')
     expect(new Date((await events())[0].source_effective_at).toISOString()).toBe('2026-11-01T00:00:00.000Z')
   })
+  it('audits a genuine effective-date-only change through the RPC', async () => {
+    await update(await version(), { cost_effective_at: '2026-10-10T09:15:00.000Z' })
+    const history = await events()
+    expect(history).toHaveLength(1)
+    expect(history[0]).toMatchObject({ old_cost: '10', new_cost: '10', old_currency: 'GBP', new_currency: 'GBP' })
+    expect(new Date(history[0].old_effective_at).toISOString()).toBe('2026-10-08T00:00:00.000Z')
+    expect(new Date(history[0].source_effective_at).toISOString()).toBe('2026-10-10T09:15:00.000Z')
+  })
   it('rolls back product metadata and cost when event insertion fails', async () => {
     const before = await version()
     await db.exec(`ALTER TABLE public.supplier_product_cost_events ADD CONSTRAINT test_fail_event CHECK (reason <> 'platform admin cost update')`)

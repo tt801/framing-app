@@ -45,7 +45,7 @@ export function validateSupplier(value: unknown, create: boolean): Record<string
   for (const [key, value] of Object.entries(fields)) {
     if (key === 'name') out[key] = text(value, key, true)
     else if (key === 'slug') {
-      if (typeof value !== 'string' || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(value)) throw new Error('Invalid slug')
+      if (typeof value !== 'string' || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(value)) throw new Error('Invalid supplier slug. Lowercase letters and numbers only; use single hyphens between words (e.g. larson-juhl).')
       out[key] = value
     } else if (key === 'status') out[key] = enumValue(value, key, ['draft', 'active', 'paused', 'retired'])
     else if (key === 'asset_rights_status') out[key] = enumValue(value, key, ['unknown', 'permitted', 'restricted', 'prohibited'])
