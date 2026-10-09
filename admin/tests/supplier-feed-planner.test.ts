@@ -11,6 +11,22 @@ const plan = (rows: ReturnType<typeof row>[], products: CanonicalProduct[] = [],
 const actions = (result: ReturnType<typeof plan>) => result.entries.map(e => e.action)
 
 describe('pure supplier-feed reconciliation', () => {
+  it('records canonical revision for apply planning and reviews missing revision instead of guessing from updated_at', () => {
+    const applyContext = { ...context, mode: 'apply_requested' as const }
+    const changed = { ...candidate, cost: { ...candidate.cost!, amount: '6.00' } }
+    const withRevision = plan([row(changed)], [{ ...existing, productRevision: '2' }], { context: applyContext }).entries[0]
+    expect(withRevision.action).toBe('update')
+    expect(withRevision.expectedProductRevision).toBe('2')
+    expect(withRevision.expectedUpdatedAt).toBe(existing.updatedAt)
+    expect(plan([row(changed)], [existing], { context: applyContext }).entries[0])
+      .toMatchObject({ action: 'review', warnings: [expect.objectContaining({ code: 'missing_product_revision' })] })
+  })
+  it('changes action fingerprint when revision changes even if updated_at is identical', () => {
+    const contextForApply = { ...context, mode: 'apply_requested' as const }
+    const a = plan([row(candidate)], [{ ...existing, productRevision: '2' }], { context: contextForApply })
+    const b = plan([row(candidate)], [{ ...existing, productRevision: '3' }], { context: contextForApply })
+    expect(a.entries[0].actionId).not.toBe(b.entries[0].actionId)
+  })
   it('plans a new stable key as one create without pricing fields', () => {
     const result = plan([row(candidate)])
     expect(actions(result)).toEqual(['create'])

@@ -116,9 +116,16 @@ export function planFeed({ context, rows, existingProducts, aliases, massChangeP
         }
       }
     }
-    entries.push({ ...base, action, actionId: actionId([context.supplierId, context.runId, context.sourceId, context.scopeId, row.item, position, action, candidate, match?.updatedAt]),
+    if (context.mode === 'apply_requested' && match && ['update','unchanged'].includes(action) &&
+      (!match.productRevision || !/^[1-9][0-9]*$/.test(match.productRevision))) {
+      action = 'review'
+      base.ordinaryChanges = []; base.lifecycleChanges = []; base.assetChanges = []; base.costChange = false
+      warnings.push(issue('missing_product_revision', 'Apply planning requires canonical product_revision evidence', row.item.key))
+    }
+    entries.push({ ...base, action, actionId: actionId([context.supplierId, context.runId, context.sourceId, context.scopeId, row.item, position, action, candidate, match?.updatedAt, match?.productRevision]),
       ...(candidate && !errors.length ? { candidate } : {}),
-      ...(match ? { productId: match.id, expectedUpdatedAt: match.updatedAt } : {}) })
+      ...(match ? { productId: match.id, expectedUpdatedAt: match.updatedAt,
+        ...(match.productRevision ? { expectedProductRevision: match.productRevision } : {}) } : {}) })
   }
   // A DB-unique SKU tuple shared by different source keys cannot produce independent writes.
   // SKU is collision evidence, never a fallback match.
@@ -148,14 +155,23 @@ export function planFeed({ context, rows, existingProducts, aliases, massChangeP
   const validSourceCount = entries.filter(e => e.candidate && !e.errors.length).length
   const emptySnapshotBlocked = context.coverage === 'snapshot' && context.authoritative &&
     validSourceCount === 0 && allowEmptySnapshotMissingInference !== true
+  const seen = new Set(entries.map(e => e.productId).filter((id): id is string => !!id))
+  const missingRevisionProducts = context.mode === 'apply_requested' && context.coverage === 'snapshot'
+    ? products.filter(p => owned(p, context) && !seen.has(p.id) &&
+      (!p.productRevision || !/^[1-9][0-9]*$/.test(p.productRevision))) : []
   const missingInferenceEligible = context.coverage === 'snapshot' && context.authoritative && context.acquisitionComplete &&
     context.parsingComplete && context.validationSafeForMissing && context.missingInferenceEnabled && !emptySnapshotBlocked &&
-    entries.every(e => e.action !== 'reject' && e.action !== 'review')
+    missingRevisionProducts.length === 0 && entries.every(e => e.action !== 'reject' && e.action !== 'review')
+  for (const product of missingRevisionProducts) entries.push({ action: 'review',
+    actionId: actionId([context.supplierId,context.runId,context.sourceId,context.scopeId,'missing_revision',product.id]),
+    productId: product.id, expectedUpdatedAt: product.updatedAt, sourceProductKey: product.sourceProductKey ?? undefined,
+    ordinaryChanges: [], lifecycleChanges: [], costChange: false, assetChanges: [], errors: [],
+    warnings: [issue('missing_product_revision', 'Apply planning requires canonical product_revision evidence')] })
   if (missingInferenceEligible) {
-    const seen = new Set(entries.map(e => e.productId).filter((id): id is string => !!id))
     for (const product of products.filter(p => owned(p, context) && !seen.has(p.id)).sort((a, b) => a.id.localeCompare(b.id)))
-      entries.push({ action: 'potential_missing', actionId: actionId([context.supplierId,context.runId,context.sourceId,context.scopeId,'missing',product.id]),
-        productId: product.id, expectedUpdatedAt: product.updatedAt, sourceProductKey: product.sourceProductKey ?? undefined,
+      entries.push({ action: 'potential_missing', actionId: actionId([context.supplierId,context.runId,context.sourceId,context.scopeId,'missing',product.id,product.productRevision]),
+        productId: product.id, expectedUpdatedAt: product.updatedAt, expectedProductRevision: product.productRevision,
+        sourceProductKey: product.sourceProductKey ?? undefined,
         ordinaryChanges: [], lifecycleChanges: [], costChange: false, assetChanges: [], errors: [], warnings: [] })
   }
   const counts = { create: 0, update: 0, unchanged: 0, reject: 0, review: 0, potential_missing: 0, cost_changes: 0 }

@@ -69,14 +69,15 @@ export type CanonicalProduct = {
   id: string; supplierId: string; sourceProductKey: string | null
   /** Ownership is explicit; null denotes manual/unassigned. */
   ownerScopeId: string | null; ownerSourceId: string | null
-  updatedAt: string; fields: ProductFields; cost?: PrivateCost; asset?: SourceAsset
+  /** Decimal bigint text; optional only for pre-2E planning fixtures. Apply requires this evidence. */
+  updatedAt: string; productRevision?: string; fields: ProductFields; cost?: PrivateCost; asset?: SourceAsset
 }
 export type SourceKeyAlias = { supplierId: string; productId: string; aliasKind: 'source_key' | 'sku'; aliasValue: string }
 export type ReconciliationAction = 'create' | 'update' | 'unchanged' | 'reject' | 'review' | 'potential_missing'
 export type PlanEntry = {
   action: ReconciliationAction; actionId: string; item?: SourceItem; sourceProductKey?: string
   candidate?: Candidate
-  productId?: string; expectedUpdatedAt?: string
+  productId?: string; expectedUpdatedAt?: string; expectedProductRevision?: string
   ordinaryChanges: string[]; lifecycleChanges: string[]; costChange: boolean; assetChanges: string[]
   errors: FeedIssue[]; warnings: FeedIssue[]
 }
