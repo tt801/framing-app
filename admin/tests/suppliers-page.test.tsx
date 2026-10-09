@@ -19,6 +19,34 @@ async function openProduct() {
 }
 
 describe('Platform Admin supplier page', () => {
+  it('saves a real 5.25 to 5.75 cost edit once and reloads the new value in UTC+02', async () => {
+    const previousTZ = process.env.TZ
+    process.env.TZ = 'Etc/GMT-2'
+    try {
+      const initial = { ...product, wholesale_cost: 5.25, cost_effective_at: '2026-10-09T06:41:00+00:00' }
+      const updated = { ...initial, wholesale_cost: 5.75, updated_at: '2026-10-09T09:10:00Z' }
+      api.listSuppliers.mockResolvedValue({ suppliers: [supplier] })
+      api.listSupplierProducts.mockResolvedValueOnce({ products: [initial] }).mockResolvedValueOnce({ products: [updated] })
+      api.updateSupplierProduct.mockResolvedValue({ product: updated })
+      render(<Suppliers />)
+      fireEvent.click(await screen.findByRole('button', { name: /Acme/ }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit metadata' }))
+      const cost = screen.getByLabelText('Wholesale cost') as HTMLInputElement
+      expect(cost.value).toBe('5.25')
+      expect((screen.getByLabelText('Cost effective date') as HTMLInputElement).value).toBe('2026-10-09T08:41')
+      fireEvent.change(cost, { target: { value: '5.75' } })
+      expect(cost.value).toBe('5.75')
+      fireEvent.click(screen.getByRole('button', { name: 'Save product' }))
+      await waitFor(() => expect(api.updateSupplierProduct).toHaveBeenCalledTimes(1))
+      expect(api.updateSupplierProduct).toHaveBeenCalledWith('s1', 'p1', initial.updated_at, {
+        wholesale_cost: 5.75, cost_currency: 'GBP', cost_unit: 'metre', cost_tax_basis: 'exclusive',
+        cost_effective_at: '2026-10-09T06:41:00+00:00',
+      })
+      await waitFor(() => expect(document.body.textContent).toContain('5.75 GBP / metre'))
+      expect(screen.queryByRole('button', { name: 'Save product' })).toBeNull()
+      expect(api.listSupplierProducts).toHaveBeenCalledTimes(2)
+    } finally { process.env.TZ = previousTZ }
+  })
   it('shows local effective time and preserves its instant on wholesale-only update in UTC+02', async () => {
     const previousTZ = process.env.TZ
     process.env.TZ = 'Etc/GMT-2'
@@ -57,11 +85,13 @@ describe('Platform Admin supplier page', () => {
     expect(fields.cost_effective_at).toBe('2026-10-09T08:41:00Z')
     expect(fields.wholesale_cost).toBe(5.25)
   })
-  it('does not PATCH an unedited product', async () => {
+  it('does not PATCH or dismiss an unedited product as though it saved', async () => {
     await openProduct()
     fireEvent.click(screen.getByRole('button', { name: 'Save product' }))
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save product' })).toBeNull())
     expect(api.updateSupplierProduct).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Save product' })).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toMatch(/No changes to save/)
+    expect(api.listSupplierProducts).toHaveBeenCalledTimes(1)
   })
   it('lists suppliers and opens their private products without activating asset images', async () => {
     api.listSuppliers.mockResolvedValue({ suppliers: [{ id: 's1', name: 'Acme', slug: 'acme', status: 'active', countries: ['GB'], asset_rights_status: 'unknown' }] })

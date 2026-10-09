@@ -131,8 +131,26 @@ export default function Suppliers() {
     try {
       if (productEdit === 'new') await createSupplierProduct(selected.id, productFields(productForm, true));
       else {
-        const fields = changedProductFields(productForm, productEdit);
-        if (Object.keys(fields).length) await updateSupplierProduct(selected.id, productEdit.id, productEdit.updated_at, fields);
+        // TEMPORARY Block 2D diagnostic: snapshot form/baseline before comparison.
+        const baseline = productEdit;
+        const form = productForm;
+        const fields = changedProductFields(form, baseline);
+        console.info('[Block2D product save diagnostic]', {
+          productId: baseline.id,
+          baselineWholesaleCost: baseline.wholesale_cost, baselineWholesaleCostType: typeof baseline.wholesale_cost,
+          formWholesaleCost: form.wholesale_cost, formWholesaleCostType: typeof form.wholesale_cost,
+          baselineCostCurrency: baseline.cost_currency, formCostCurrency: form.cost_currency,
+          baselineCostUnit: baseline.cost_unit, formCostUnit: form.cost_unit,
+          baselineCostTaxBasis: baseline.cost_tax_basis, formCostTaxBasis: form.cost_tax_basis,
+          baselineCostEffectiveAt: baseline.cost_effective_at,
+          formDateTimeLocal: form.cost_effective_at,
+          changedFields: fields,
+        });
+        if (!Object.keys(fields).length) {
+          setError('No changes to save. Edit a product field or choose Cancel.');
+          return;
+        }
+        await updateSupplierProduct(selected.id, productEdit.id, productEdit.updated_at, fields);
       }
       setProductEdit(null);
       setProducts((await listSupplierProducts(selected.id)).products);
