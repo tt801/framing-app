@@ -19,10 +19,11 @@ beforeEach(async () => {
     CREATE FUNCTION public.is_company_account_writable(uuid) RETURNS boolean LANGUAGE sql AS $$SELECT true$$;`)
   await db.exec(migration('20261007_block2b_supplier_foundation.sql'))
   await db.exec(migration('20261008_block2d_supplier_cost_audit.sql'))
+  await db.exec(migration('20261009_block2e_supplier_feed_framework.sql'))
+  await db.exec(migration('20261012_block2d_initial_cost_event_on_insert.sql'))
   await db.exec(`INSERT INTO public.suppliers(id,name,slug) VALUES ('${supplier}','Fixture','fixture');
     INSERT INTO public.supplier_products(id,supplier_id,category,supplier_description,wholesale_cost,cost_currency,cost_unit,cost_tax_basis,cost_effective_at)
     VALUES ('${product}','${supplier}','frame','Fixture',10,'GBP','metre','exclusive','2026-10-08T00:00:00Z');`)
-  await db.exec(migration('20261009_block2e_supplier_feed_framework.sql'))
 })
 afterEach(async () => { await db.close() })
 
@@ -111,22 +112,33 @@ describe('Block 2E disposable installed migration', () => {
         [supplier, product, prior.updated_at, JSON.stringify({ wholesale_cost: 11 }), actor])
     } finally { await db.exec('RESET ROLE') }
     expect((await current()).product_revision).toBe(2)
-    expect((await q(`SELECT feed_run_id,feed_row_id FROM public.supplier_product_cost_events WHERE supplier_product_id='${product}'`)))
-      .toEqual([{ feed_run_id: null, feed_row_id: null }])
+    const manualHistory = await q(`SELECT feed_run_id,feed_row_id FROM public.supplier_product_cost_events WHERE supplier_product_id='${product}' ORDER BY observed_at, id`)
+    expect(manualHistory).toHaveLength(2)
+    expect(manualHistory.every((entry) => entry.feed_run_id === null && entry.feed_row_id === null)).toBe(true)
     await expect(q(`UPDATE public.supplier_products SET product_revision=100 WHERE id='${product}'`)).rejects.toThrow('database-owned')
     await expect(q(`UPDATE public.supplier_products SET product_revision=1 WHERE id='${product}'`)).rejects.toThrow('database-owned')
     await q(`UPDATE public.supplier_products SET product_revision=product_revision WHERE id='${product}'`)
     expect((await current()).product_revision).toBe(3)
   })
 
-  it('feed create begins at revision 1, has ownership and no initial cost event; replay is idempotent', async () => {
+  it('feed create begins at revision 1, creates one baseline cost event, and replay is idempotent', async () => {
     const { id, row, fp, outcome } = await createOwned()
     expect(outcome).toMatchObject({ state: 'applied', productRevision: 1 })
     const saved = (await q('SELECT * FROM public.supplier_products WHERE id=$1', [outcome.productId]))[0]
     expect(saved).toMatchObject({ product_revision: 1, owner_feed_source_id: source, owner_scope_key: 'catalog-a', ownership_run_id: id })
-    expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE supplier_product_id=$1', [outcome.productId]))[0].n).toBe(0)
+    const baselineEvents = await q('SELECT feed_run_id,feed_row_id,old_cost,new_cost,source_effective_at,reason FROM public.supplier_product_cost_events WHERE supplier_product_id=$1 ORDER BY observed_at,id', [outcome.productId])
+    expect(baselineEvents).toHaveLength(1)
+    expect(baselineEvents[0]).toMatchObject({
+      feed_run_id: id,
+      feed_row_id: row,
+      old_cost: null,
+      new_cost: '10',
+      source_effective_at: new Date('2026-10-08T00:00:00Z'),
+      reason: 'supplier feed canonical cost create',
+    })
     expect(await apply(id, row, fp)).toMatchObject({ state: 'applied', productRevision: 1 })
     expect((await q('SELECT product_revision FROM public.supplier_products WHERE id=$1', [outcome.productId]))[0].product_revision).toBe(1)
+    expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE supplier_product_id=$1', [outcome.productId]))[0].n).toBe(1)
   })
 
   it('matching feed revision updates cost once, returns revision 2 and checkpoints run/row audit provenance', async () => {
@@ -134,12 +146,12 @@ describe('Block 2E disposable installed migration', () => {
     const { id, row, fp } = await stageUpdate('owned-key', '12')
     const result = await apply(id, row, fp)
     expect(result).toMatchObject({ state: 'applied', productRevision: 2, productId: created.outcome.productId })
-    expect((await q('SELECT feed_run_id,feed_row_id FROM public.supplier_product_cost_events WHERE supplier_product_id=$1',
-      [created.outcome.productId]))).toEqual([{ feed_run_id: id, feed_row_id: row }])
+    expect((await q('SELECT feed_run_id,feed_row_id FROM public.supplier_product_cost_events WHERE supplier_product_id=$1 AND feed_run_id=$2',
+      [created.outcome.productId, id]))).toEqual([{ feed_run_id: id, feed_row_id: row }])
     expect(await apply(id, row, fp)).toMatchObject({ state: 'applied', productRevision: 2 })
     expect((await q('SELECT product_revision FROM public.supplier_products WHERE id=$1', [created.outcome.productId]))[0].product_revision).toBe(2)
     expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE supplier_product_id=$1',
-      [created.outcome.productId]))[0].n).toBe(1)
+      [created.outcome.productId]))[0].n).toBe(2)
   })
 
   it('stale revision 2 after same-transaction revision 3 conflicts with NO canonical write or cost event', async () => {
@@ -361,7 +373,7 @@ describe('Block 2E disposable installed migration', () => {
     expect((await q('SELECT product_revision,supplier_description,wholesale_cost FROM public.supplier_products WHERE id=$1',
       [created.outcome.productId]))[0]).toEqual(before)
     expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE supplier_product_id=$1',
-      [created.outcome.productId]))[0].n).toBe(0)
+      [created.outcome.productId]))[0].n).toBe(1)
     expect((await q('SELECT status FROM public.supplier_feed_runs WHERE id=$1', [attempt.id]))[0].status).toBe('partially_applied')
     await db.exec('DROP TRIGGER test_reject_cost_event ON public.supplier_product_cost_events')
     expect(await apply(attempt.id, attempt.row, attempt.fp)).toMatchObject({ state: 'applied', productRevision: 2 })
@@ -405,6 +417,18 @@ describe('Block 2E disposable installed migration', () => {
     expect((await q('SELECT status FROM public.supplier_feed_runs WHERE id=$1', [id]))[0].status).toBe('staged')
   })
 
+  it('feed apply context does not leak into a subsequent non-feed cost update', async () => {
+    await createOwned()
+    const prior = await current()
+    await db.exec('SET ROLE service_role')
+    try {
+      await q('SELECT public.block2d_update_supplier_product($1::uuid,$2::uuid,$3::timestamptz,$4::jsonb,$5::uuid)',
+        [supplier, product, prior.updated_at, JSON.stringify({ wholesale_cost: 11 }), actor])
+    } finally { await db.exec('RESET ROLE') }
+    const latest = (await q('SELECT feed_run_id,feed_row_id,reason FROM public.supplier_product_cost_events WHERE supplier_product_id=$1 ORDER BY observed_at DESC,id DESC LIMIT 1', [product]))[0]
+    expect(latest).toMatchObject({ feed_run_id: null, feed_row_id: null, reason: 'platform admin cost update' })
+  })
+
   it('rejects spoofed feed provenance on the existing Block 2D Admin RPC', async () => {
     const prior = await current()
     await db.exec('BEGIN')
@@ -416,6 +440,6 @@ describe('Block 2E disposable installed migration', () => {
         [supplier,product,prior.updated_at,JSON.stringify({ wholesale_cost: 99 }),actor])).rejects.toThrow('invalid feed cost provenance')
     } finally { await db.exec('ROLLBACK') }
     expect(await current()).toMatchObject({ product_revision: 1, wholesale_cost: '10' })
-    expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE supplier_product_id=$1', [product]))[0].n).toBe(0)
+    expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE supplier_product_id=$1', [product]))[0].n).toBe(1)
   })
 })
