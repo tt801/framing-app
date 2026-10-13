@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listSupplierFeeds, getSupplierFeed, getSupplierFeedRun } from '@/lib/api';
 import type { FeedCheck, FeedRun, FeedSummary, PlanCounts } from '@/lib/supplierFeedTypes';
+import { RunActions } from './SupplierFeedRunActions';
 
 function useRead<T>(load: () => Promise<T>) {
   const [state, setState] = useState<{ data: T | null; loading: boolean; error: string }>({ data: null, loading: true, error: '' });
@@ -11,7 +12,7 @@ function useRead<T>(load: () => Promise<T>) {
       .catch(error => { if (!cancelled) setState({ data: null, loading: false, error: error instanceof Error ? error.message : 'Unable to load supplier feed operations' }); });
     return () => { cancelled = true; };
   }, [load]);
-  return state;
+  return { ...state, replace: (data: T) => setState({ data, loading: false, error: '' }) };
 }
 const date = (value: string | null) => value ? `${new Date(value).toLocaleString()} (local)` : 'Not recorded';
 function Health({ feed }: { feed: FeedSummary }) {
@@ -54,14 +55,16 @@ function CheckProvenance({ check }: { check: FeedCheck }) {
     <dt>Linked run</dt><dd><code>{check.feed_run_id ?? 'Not recorded'}</code></dd><dt>Plan fingerprint</dt><dd><code>{check.plan_fingerprint ?? 'Not recorded'}</code></dd>
   </dl></details>;
 }
-function RunDetailView({ feedId, runId }: { feedId: string; runId: string }) {
+function RunDetailView({ feedId, runId, supplierFeed, changed }: { feedId: string; runId: string; supplierFeed: string; changed: () => void }) {
   const [offset, setOffset] = useState(0);
-  const load = useCallback(() => getSupplierFeedRun(feedId, runId, offset), [feedId, runId, offset]);
-  const { data, loading, error } = useRead(load);
+  const [revision, setRevision] = useState(0);
+  const load = useCallback(() => getSupplierFeedRun(feedId, runId, offset), [feedId, runId, offset, revision]);
+  const { data, loading, error, replace } = useRead(load);
   if (loading) return <p role="status">Loading run...</p>;
   if (error) return <p role="alert" className="error-text">{error}</p>;
   if (!data) return null;
   return <section className="card"><h2>Run Detail</h2><RunProvenance run={data.run} /><Counts run={data.run} />
+    <RunActions key={`${revision}:${offset}`} detail={data} supplierFeed={supplierFeed} onChange={next => { setOffset(0); replace(next); changed(); }} refresh={() => { setRevision(v => v + 1); changed(); }} />
     <h3>Row-level review</h3><p className="text-muted">Up to 50 persisted rows per page; up to 20 issues / changed fields per row. Long text is capped at 512 characters.</p>
     {!data.rows.length ? <p>No staged rows on this page.</p> : <table className="drawer-table"><thead><tr><th>Row / key</th><th>Action</th><th>Product / target</th><th>Review information</th></tr></thead><tbody>{data.rows.map(row => <tr key={row.id}>
       <td>{row.row_number ?? '—'}<div><code>{row.source_product_key ?? row.source_record_key ?? row.id}</code></div><div>{row.source_path}</div><div>{row.row_kind}</div></td>
@@ -76,7 +79,8 @@ function RunDetailView({ feedId, runId }: { feedId: string; runId: string }) {
 function FeedDetailView({ feedId, back }: { feedId: string; back: () => void }) {
   const [runId, setRunId] = useState<string | null>(null);
   const load = useCallback(() => getSupplierFeed(feedId), [feedId]);
-  const { data, loading, error } = useRead(load);
+  const { data, loading, error, replace } = useRead(load);
+  const refreshSummary = () => { void getSupplierFeed(feedId).then(replace).catch(() => { /* Run detail remains authoritative; summary can be reloaded via navigation. */ }); };
   return <><button className="btn-ghost" onClick={back}>Back to feeds</button>
     {loading ? <p role="status">Loading feed...</p> : error ? <p role="alert" className="error-text">{error}</p> : data && <>
       <section className="card"><h2>{data.feed.supplier.name} / {data.feed.source_key}</h2><Health feed={data.feed} /><dl className="feed-info">
@@ -96,7 +100,7 @@ function FeedDetailView({ feedId, back }: { feedId: string; back: () => void }) 
         <td>{run.status}<div>{run.mode ?? 'Not recorded'}</div></td><td>{countLabels.map(([key, label]) => <div key={key}>{label}: {run.counts[key] ?? 'Not recorded'}</div>)}</td>
         <td>Approved: {date(run.approved_at)}<div>Completed: {date(run.completed_at)}</div><div>Applied: {date(run.appliedAt)}</div></td>
       </tr>)}</tbody></table>}{data.runsLimited && <p className="text-muted">Showing the latest 20 operational runs; older history is omitted.</p>}</section>
-      {runId && <RunDetailView key={runId} feedId={feedId} runId={runId} />}
+      {runId && <RunDetailView key={runId} feedId={feedId} runId={runId} supplierFeed={`${data.feed.supplier.name} / ${data.feed.source_key}`} changed={refreshSummary} />}
     </>}
   </>;
 }
@@ -105,7 +109,7 @@ export default function SupplierFeeds() {
   const [offset, setOffset] = useState(0);
   const load = useCallback(() => listSupplierFeeds(offset), [offset]);
   const { data, loading, error } = useRead(load);
-  return <div className="supplier-page feed-page"><p className="text-muted">Read-only supplier feed operations. No checks, planning or canonical changes are triggered here.</p>
+  return <div className="supplier-page feed-page"><p className="text-muted">Review persisted supplier feed plans. Approval and application require separate confirmations. No checks, fetching or planning are triggered here.</p>
     {feedId ? <FeedDetailView key={feedId} feedId={feedId} back={() => setFeedId(null)} /> : <section className="card"><h2>Supplier Feeds</h2>
       {loading ? <p role="status">Loading feeds...</p> : error ? <p role="alert" className="error-text">{error}</p> : data && <>
         {!data.feeds.length ? <p>No configured supplier feeds.</p> : <table className="drawer-table"><thead><tr><th>Supplier</th><th>Feed</th><th>Health</th><th>Last checked</th><th>Latest release</th><th>Latest run</th><th>Products</th></tr></thead><tbody>{data.feeds.map(feed => <tr key={feed.id}>

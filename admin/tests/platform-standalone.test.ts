@@ -21,6 +21,7 @@ import cms from '../api/platform/cms.js'
 import suppliers from '../api/platform/suppliers.js'
 import supplierProducts from '../api/platform/supplier-products.js'
 import supplierFeeds from '../api/platform/supplier-feeds.js'
+import supplierFeedActions from '../api/platform/supplier-feed-actions.js'
 import { requirePlatformAdmin } from '../server/platform/platformAdmin.js'
 
 const companyId = '11111111-1111-4111-8111-111111111111'
@@ -52,13 +53,13 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('standalone platform API', () => {
-  it('packages exactly the ten platform handlers under the standalone API root', () => {
-    expect([stats, companies, companyBilling, members, tickets, ticketComments, cms, suppliers, supplierProducts, supplierFeeds].every(
+  it('packages exactly the eleven platform handlers under the standalone API root', () => {
+    expect([stats, companies, companyBilling, members, tickets, ticketComments, cms, suppliers, supplierProducts, supplierFeeds, supplierFeedActions].every(
       handler => typeof handler === 'function'
     )).toBe(true)
     expect(readdirSync(new URL('../api/platform/', import.meta.url)).sort()).toEqual([
       'cms.ts', 'companies.ts', 'company-billing.ts', 'members.ts',
-      'stats.ts', 'ticket-comments.ts', 'tickets.ts', 'suppliers.ts', 'supplier-products.ts', 'supplier-feeds.ts',
+      'stats.ts', 'ticket-comments.ts', 'tickets.ts', 'suppliers.ts', 'supplier-products.ts', 'supplier-feeds.ts', 'supplier-feed-actions.ts',
     ].sort())
   })
 

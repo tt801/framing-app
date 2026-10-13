@@ -1,5 +1,5 @@
 import { getAccessToken } from "@/lib/supabase";
-import type { FeedList, FeedDetail, RunDetail } from "./supplierFeedTypes";
+import type { FeedList, FeedDetail, RunDetail, RunActionResult } from "./supplierFeedTypes";
 
 const API_BASE = (import.meta.env.VITE_PLATFORM_API_BASE || "").replace(/\/$/, "");
 
@@ -279,6 +279,7 @@ export type PlatformSupplierProduct = {
 export const listSupplierFeeds = (offset = 0) => apiFetch<FeedList>(`/api/platform/supplier-feeds?offset=${offset}`, { method: "GET" });
 export const getSupplierFeed = (feedId: string) => apiFetch<FeedDetail>(`/api/platform/supplier-feeds?feedId=${encodeURIComponent(feedId)}`, { method: "GET" });
 export const getSupplierFeedRun = (feedId: string, runId: string, offset = 0) => apiFetch<RunDetail>(`/api/platform/supplier-feeds?feedId=${encodeURIComponent(feedId)}&runId=${encodeURIComponent(runId)}&offset=${offset}`, { method: "GET" });
+export const mutateSupplierFeedRun = (runId: string, action: 'approve' | 'apply') => apiFetch<RunActionResult>('/api/platform/supplier-feed-actions', { method: 'POST', body: JSON.stringify({ runId, action }) });
 export const listSuppliers = () => apiFetch<{ suppliers: PlatformSupplier[] }>("/api/platform/suppliers");
 export const listSupplierProducts = (supplierId: string) => apiFetch<{ products: PlatformSupplierProduct[] }>(
   `/api/platform/supplier-products?supplierId=${encodeURIComponent(supplierId)}`

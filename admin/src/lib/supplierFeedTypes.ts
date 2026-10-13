@@ -34,4 +34,12 @@ export type ReviewRow = {
   description: string | null; ordinaryChanges: string[]; lifecycleChanges: string[]; assetChanges: string[];
   costChange: boolean | null; errors: string[]; warnings: string[];
 };
-export type RunDetail = { run: FeedRun; rows: ReviewRow[]; hasMore: boolean; offset: number };
+export type ApplyProgress = { total: number; pending: number; applied: number; skipped: number; failed: number; conflict: number; version2: number };
+export type RunControl = {
+  state: 'Review required' | 'Ready for approval' | 'Approved — ready to apply' | 'Applying' | 'Partially applied' | 'Applied' | 'Failed / attention required' | 'Not eligible';
+  canApprove: boolean; canApply: boolean; canContinue: boolean; synthetic: boolean;
+  reasonCodes: string[]; description: string; anomalies: string[]; progress: ApplyProgress;
+  approvedBy: string | null; approvedAt: string | null; applyDisposition: string | null;
+};
+export type RunDetail = { run: FeedRun; rows: ReviewRow[]; hasMore: boolean; offset: number; control: RunControl };
+export type RunActionResult = { detail: RunDetail; processed: number; outcome: 'approved' | 'applied' | 'bounded' | 'attention' };
