@@ -71,6 +71,10 @@ function RunDetailView({ feedId, runId, supplierFeed, changed }: { feedId: strin
       <td>{row.proposed_action ?? 'Not recorded'}<div>{row.validation_status}</div><div>{row.apply_state}</div></td>
       <td>{row.description ?? 'Not recorded'}<div><code>{row.matched_product_id}</code></div></td>
       <td><div>Fields: {row.ordinaryChanges.join(', ') || 'None recorded'}</div><div>Lifecycle: {row.lifecycleChanges.join(', ') || 'None recorded'}</div><div>Assets: {row.assetChanges.join(', ') || 'None recorded'}</div><div>Cost change: {row.costChange === null ? 'Not recorded' : row.costChange ? 'Yes' : 'No'}</div>
+        {(row.changedFields ?? []).map((change, i) => <div key={`change${i}`}>
+          <strong>{change.previousPersisted ? change.label : `Proposed ${change.label}`}</strong>
+          {change.previousPersisted ? <div>{change.oldValue} → {change.newValue}</div> : <><div>{change.newValue}</div><div className="text-muted">Previous value: {change.oldValue}</div></>}
+        </div>)}
         {row.errors.map((issue, i) => <div className="error-text" key={`e${i}`}>{issue}</div>)}{row.warnings.map((issue, i) => <div key={`w${i}`}>{issue}</div>)}{row.failure_code && <div className="error-text">{row.failure_code}</div>}</td>
     </tr>)}</tbody></table>}
     <div className="feed-paging"><button className="btn-ghost" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous rows</button><button className="btn-ghost" disabled={!data.hasMore} onClick={() => setOffset(offset + 50)}>Next rows</button></div>

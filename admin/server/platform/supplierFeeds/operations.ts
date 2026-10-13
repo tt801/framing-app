@@ -1,5 +1,6 @@
 import type { FeedCheck, FeedRun, FeedSummary, PlanCounts, FeedList, FeedDetail, RunDetail, ReviewRow } from '../../../src/lib/supplierFeedTypes.js'
 import { readRunControl } from './control.js'
+import { readReviewEvidence } from './reviewEvidence.js'
 
 type Row = Record<string, any>
 const text = (value: unknown, max = 512): string | null => typeof value === 'string' ? value.slice(0, max) : null
@@ -149,6 +150,7 @@ export function mapReviewRow(row: Row): ReviewRow {
     description: text(row.proposed_product?.fields?.supplierDescription), ordinaryChanges: strings(row.proposed_diff?.ordinaryChanges),
     lifecycleChanges: strings(row.proposed_diff?.lifecycleChanges), assetChanges: strings(row.proposed_diff?.assetChanges),
     costChange: typeof row.proposed_diff?.costChange === 'boolean' ? row.proposed_diff.costChange : null,
+    changedFields: readReviewEvidence(row),
     errors: issues(row.validation_errors), warnings: issues(row.validation_warnings),
   }
 }

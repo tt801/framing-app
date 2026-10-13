@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
+import { planFeed } from '../server/platform/supplierFeeds/planner.js'
+import { planEntryToStagedRow } from '../server/platform/supplierFeeds/block2eOrchestrator.js'
+import { validateCandidate } from '../server/platform/supplierFeeds/validation.js'
+import type { Candidate, CanonicalProduct } from '../server/platform/supplierFeeds/contracts.js'
 
 const migration = (name: string) => readFileSync(new URL(`../../migrations/${name}`, import.meta.url), 'utf8')
 const supplier = '11111111-1111-4111-8111-111111111111'
@@ -139,6 +143,83 @@ describe('Block 2E disposable installed migration', () => {
     expect(await apply(id, row, fp)).toMatchObject({ state: 'applied', productRevision: 1 })
     expect((await q('SELECT product_revision FROM public.supplier_products WHERE id=$1', [outcome.productId]))[0].product_revision).toBe(1)
     expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE supplier_product_id=$1', [outcome.productId]))[0].n).toBe(1)
+  })
+
+  async function stageEvidenceUpdate(key: string) {
+    const created = await createOwned()
+    const target = (await q('SELECT * FROM public.supplier_products WHERE id=$1', [created.outcome.productId]))[0]
+    const id = await run(key)
+    const input = { ...candidate(id, 'owned-key', 'Owned', '10.01'), item: { key: 'owned-key', rowNumber: 1 } } as Candidate
+    input.cost!.effectiveAt = '2026-10-09T00:00:00.000Z'
+    const existing: CanonicalProduct = { id: target.id, supplierId: supplier, sourceProductKey: 'owned-key',
+      ownerSourceId: source, ownerScopeId: 'catalog-a', productRevision: String(target.product_revision), updatedAt: target.updated_at.toISOString(),
+      fields: input.fields, cost: { amount: String(target.wholesale_cost), currency: target.cost_currency, unit: target.cost_unit,
+        taxBasis: target.cost_tax_basis, effectiveAt: target.cost_effective_at.toISOString() } }
+    const result = planFeed({ context: { supplierId: supplier, sourceId: source, scopeId: 'catalog-a', runId: id,
+      adapter: { id: 'fixture-adapter', version: '1' }, mode: 'apply_requested', coverage: 'delta', authoritative: false,
+      acquisitionComplete: true, parsingComplete: true, validationSafeForMissing: true, missingInferenceEnabled: true },
+      rows: [{ item: input.item, result: validateCandidate(input) }], existingProducts: [existing], aliases: [], massChangePolicy: {} })
+    expect(result.counts).toMatchObject({ update: 1, cost_changes: 1, review: 0 })
+    const payload = planEntryToStagedRow(result.entries[0])
+    return { id, row: await stage(id, payload), payload, existing }
+  }
+
+  it('future evidence survives actual stage/freeze and protects approval, apply and resume', async () => {
+    const update = await stageEvidenceUpdate('frozen-evidence')
+    const before = (await q('SELECT proposed_diff FROM public.supplier_feed_rows WHERE id=$1', [update.row]))[0].proposed_diff
+    expect(before.reviewEvidence).toEqual((update.payload.proposed_diff as Record<string, unknown>).reviewEvidence)
+    expect(before.reviewEvidence.fields[0]).toMatchObject({ field: 'cost', oldValue: { state: 'recorded', value: { amount: '10', currency: 'GBP', unit: 'metre', taxBasis: 'exclusive', effectiveAt: '2026-10-08T00:00:00.000Z' } }, newValue: { state: 'recorded', value: { amount: '10.01', effectiveAt: '2026-10-09T00:00:00.000Z' } } })
+    const fp = await freeze(update.id)
+    const stored = (await q('SELECT proposed_diff FROM public.supplier_feed_rows WHERE id=$1', [update.row]))[0].proposed_diff
+    expect(stored).toEqual(before)
+    expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE supplier_product_id=$1', [update.existing.id]))[0].n).toBe(1)
+    const tampered = JSON.parse(JSON.stringify(stored))
+    tampered.reviewEvidence.fields[0].oldValue.value.amount = '9'
+    await expect(q('UPDATE public.supplier_feed_rows SET proposed_diff=$1::jsonb WHERE id=$2', [JSON.stringify(tampered), update.row])).rejects.toThrow('staged plan row is immutable')
+    // Reproduce the installed freeze payload, changing ONLY review evidence:
+    // its integrity is independent of the planner's action fingerprint.
+    const payload = (await q(`SELECT jsonb_build_object(
+      'run',r.id,'supplier',r.supplier_id,'source',r.feed_source_id,'scope',r.scope_key,
+      'adapter',r.adapter_id,'version',r.adapter_version,'planner',r.planner_version,'mode',r.mode,
+      'coverage',r.coverage,'authoritative',r.authoritative_snapshot,'checksum',r.source_checksum,
+      'emptyAcknowledged',r.allow_empty_snapshot_missing_inference,'counts',r.plan_counts,
+      'policy',r.policy_snapshot,'flags',r.anomaly_flags,
+      'rows',(SELECT jsonb_agg(jsonb_build_object('row',x.id,'kind',x.row_kind,'sourceRow',x.row_number,
+        'sourceRecord',x.source_record_key,'sourcePath',x.source_path,'action',x.proposed_action,
+        'fingerprint',x.action_fingerprint,'item',x.item_fingerprint,'key',x.source_product_key,
+        'keyOrigin',x.source_product_key_origin,'candidate',x.proposed_product,'validationStatus',x.validation_status,
+        'diff',x.proposed_diff,'target',x.matched_product_id,'revision',x.expected_product_revision,
+        'updatedAt',x.expected_product_updated_at,'errors',x.validation_errors,'warnings',x.validation_warnings)
+        ORDER BY x.action_fingerprint) FROM public.supplier_feed_rows x WHERE x.feed_run_id=r.id)) AS payload
+      FROM public.supplier_feed_runs r WHERE r.id=$1`, [update.id]))[0].payload
+    const hash = async (value: unknown) => (await q("SELECT encode(sha256(convert_to($1::jsonb::text,'UTF8')),'hex') AS fp", [JSON.stringify(value)]))[0].fp
+    expect(await hash(payload)).toBe(fp)
+    payload.rows[0].diff = tampered
+    const forged = await hash(payload)
+    expect(forged).not.toBe(fp)
+    await expect(approve(update.id, forged)).rejects.toThrow('approval/acknowledgement mismatch')
+    await approve(update.id, fp)
+    await expect(apply(update.id, update.row, forged)).rejects.toThrow('run/approval fingerprint mismatch')
+    expect(await apply(update.id, update.row, fp)).toMatchObject({ state: 'applied', productRevision: 2 })
+    expect(await apply(update.id, update.row, fp)).toMatchObject({ state: 'applied', productRevision: 2 })
+    expect((await q('SELECT wholesale_cost,product_revision FROM public.supplier_products WHERE id=$1', [update.existing.id]))[0]).toMatchObject({ wholesale_cost: '10.01', product_revision: 2 })
+    expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE feed_run_id=$1', [update.id]))[0].n).toBe(1)
+    expect((await q('SELECT proposed_diff FROM public.supplier_feed_rows WHERE id=$1', [update.row]))[0].proposed_diff).toEqual(stored)
+  })
+
+  it('new evidence does not weaken stale revision protection at freeze or apply', async () => {
+    const update = await stageEvidenceUpdate('evidence-stale')
+    const fp = await freeze(update.id)
+    await approve(update.id, fp)
+    await q('UPDATE public.supplier_products SET supplier_description=$1 WHERE id=$2', ['Manual change', update.existing.id])
+    expect(await apply(update.id, update.row, fp)).toMatchObject({ state: 'conflict', reason: 'replan_required' })
+    expect((await q('SELECT wholesale_cost FROM public.supplier_products WHERE id=$1', [update.existing.id]))[0].wholesale_cost).toBe('10')
+    expect((await q('SELECT count(*)::int AS n FROM public.supplier_product_cost_events WHERE feed_run_id=$1', [update.id]))[0].n).toBe(0)
+    const staleRun = await run('evidence-stale-before-freeze')
+    const staleCandidate = { ...(update.payload.proposed_product as Candidate), runId: staleRun }
+    const staleRow = await stage(staleRun, { ...update.payload, proposed_product: staleCandidate })
+    await expect(freeze(staleRun)).rejects.toThrow('target version, ownership or identity mismatch')
+    expect((await q('SELECT proposed_diff FROM public.supplier_feed_rows WHERE id=$1', [staleRow]))[0].proposed_diff).toEqual(update.payload.proposed_diff)
   })
 
   it('matching feed revision updates cost once, returns revision 2 and checkpoints run/row audit provenance', async () => {

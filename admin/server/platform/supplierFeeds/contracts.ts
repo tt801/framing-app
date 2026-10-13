@@ -74,11 +74,15 @@ export type CanonicalProduct = {
 }
 export type SourceKeyAlias = { supplierId: string; productId: string; aliasKind: 'source_key' | 'sku'; aliasValue: string }
 export type ReconciliationAction = 'create' | 'update' | 'unchanged' | 'reject' | 'review' | 'potential_missing'
+export type EvidenceJson = null | string | number | boolean | EvidenceJson[] | { [key: string]: EvidenceJson }
+export type EvidenceValue = { state: 'recorded'; value: EvidenceJson } | { state: 'missing' } | { state: 'withheld' }
+export type ReviewEvidence = { version: 1; fields: { field: string; oldValue: EvidenceValue; newValue: EvidenceValue }[] }
 export type PlanEntry = {
   action: ReconciliationAction; actionId: string; item?: SourceItem; sourceProductKey?: string
   candidate?: Candidate
   productId?: string; expectedUpdatedAt?: string; expectedProductRevision?: string
   ordinaryChanges: string[]; lifecycleChanges: string[]; costChange: boolean; assetChanges: string[]
+  reviewEvidence?: ReviewEvidence
   errors: FeedIssue[]; warnings: FeedIssue[]
 }
 export type MassChangeLimit = { count?: number; proportion?: number }

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { captureReviewEvidence } from './reviewEvidence.js'
 import type { Candidate, CanonicalProduct, FeedContext, FeedIssue, FeedPlan, MassChangePolicy, PlanEntry, ProductFields, ReconciliationAction, SourceItem, SourceKeyAlias, ValidationResult } from './contracts.js'
 
 export type PlanningRow = { item: SourceItem; result: ValidationResult }
@@ -175,6 +176,12 @@ export function planFeed({ context, rows, existingProducts, aliases, massChangeP
         ordinaryChanges: [], lifecycleChanges: [], costChange: false, assetChanges: [], errors: [], warnings: [] })
   }
   const counts = { create: 0, update: 0, unchanged: 0, reject: 0, review: 0, potential_missing: 0, cost_changes: 0 }
+  // Only final UPDATE actions carry before/after evidence. Collision/review rows
+  // must not inherit a discarded update's approval evidence.
+  for (const entry of entries) if (entry.action === 'update' && entry.candidate && entry.productId) {
+    entry.reviewEvidence = captureReviewEvidence(entry, byId.get(entry.productId)!)
+    entry.actionId = actionId([entry.actionId, entry.reviewEvidence])
+  }
   for (const entry of entries) { counts[entry.action]++; if (entry.action === 'update' && entry.costChange) counts.cost_changes++ }
   const warnings = entries.flatMap(e => e.warnings)
   if (emptySnapshotBlocked) warnings.push(issue('empty_snapshot_missing_inference_blocked', 'Zero validated source products; explicit independent permission is required before planning missing items'))

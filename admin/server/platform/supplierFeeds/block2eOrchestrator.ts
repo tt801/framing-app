@@ -548,7 +548,7 @@ async function stagePlanRows(
   }
 }
 
-function planEntryToStagedRow(entry: PlanEntry): Record<string, unknown> {
+export function planEntryToStagedRow(entry: PlanEntry): Record<string, unknown> {
   const rowKind = entry.action === 'potential_missing' ? 'potential_missing' : 'source_item'
   const row: Record<string, unknown> = {
     row_kind: rowKind,
@@ -561,6 +561,7 @@ function planEntryToStagedRow(entry: PlanEntry): Record<string, unknown> {
       lifecycleChanges: entry.lifecycleChanges,
       assetChanges: entry.assetChanges,
       costChange: entry.costChange,
+      ...(entry.reviewEvidence ? { reviewEvidence: entry.reviewEvidence } : {}),
     },
     action_fingerprint: entry.actionId,
   }

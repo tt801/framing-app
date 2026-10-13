@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import SupplierFeeds from '../src/pages/SupplierFeeds.js'
-import { aggregateFeed, mapRun, mapCheck } from '../server/platform/supplierFeeds/operations.js'
+import { aggregateFeed, mapRun, mapCheck, mapReviewRow } from '../server/platform/supplierFeeds/operations.js'
 
 vi.mock('@/lib/supabase', () => ({ getAccessToken: async () => 'operator-test-token' }))
 const feedId = '11111111-1111-4111-8111-111111111111'
@@ -30,6 +30,31 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('Supplier Feeds read-only operations UI', () => {
+  it.each([true, false])('renders persisted cost evidence (new format=%s) without inventing legacy old values', async recorded => {
+    const oldCost = { amount: '10', currency: 'GBP', unit: 'metre', taxBasis: 'exclusive', effectiveAt: '2026-10-13T14:00:00Z' }
+    const newCost = { ...oldCost, amount: '10.01', effectiveAt: '2026-10-13T15:00:00Z' }
+    const review = mapReviewRow({ id: 'cost-row', proposed_action: 'update', apply_state: 'pending', validation_status: 'valid',
+      proposed_product: { fields: { supplierDescription: 'UAT frame' }, cost: newCost }, proposed_diff: { costChange: true,
+        ...(recorded ? { reviewEvidence: { version: 1, fields: [
+          { field: 'cost', oldValue: { state: 'recorded', value: oldCost }, newValue: { state: 'recorded', value: newCost } },
+          { field: 'fields.supplierDescription', oldValue: { state: 'recorded', value: 'Old frame' }, newValue: { state: 'recorded', value: 'New frame' } },
+        ] } } : {}) }, currentCanonical: { wholesale_cost: 999 } })
+    mockFetch({ [`/api/platform/supplier-feeds?feedId=${feedId}&runId=${runId}&offset=0`]: { run: mapRun({ ...rawRun, status: 'awaiting_approval', plan_counts: { ...rawRun.plan_counts, create: 0, update: 1, cost_changes: 1 } }), rows: [review], offset: 0, hasMore: false } })
+    render(<SupplierFeeds />)
+    fireEvent.click(await screen.findByRole('button', { name: 'wessex-mouldings-xls' }))
+    fireEvent.click(await screen.findByRole('button', { name: `View run ${runId}` }))
+    if (recorded) {
+      expect(await screen.findByText('10.00 GBP/metre → 10.01 GBP/metre')).toBeTruthy()
+      expect(screen.getByText('2026-10-13T14:00:00Z → 2026-10-13T15:00:00Z')).toBeTruthy()
+      expect(screen.getByText('Old frame → New frame')).toBeTruthy()
+    } else {
+      expect(await screen.findByText('Proposed Supplier cost')).toBeTruthy()
+      expect(screen.getByText('10.01 GBP/metre')).toBeTruthy()
+      expect(screen.getAllByText('Previous value: Not persisted in this frozen plan').length).toBeGreaterThan(0)
+      expect(screen.queryByText(/10\.00 GBP\/metre/)).toBeNull()
+    }
+    expect(screen.queryByText(/999/)).toBeNull()
+  })
   it('navigates feed → history → real run → persisted plan using authorized GETs only', async () => {
     const fetch = mockFetch()
     render(<SupplierFeeds />)

@@ -33,7 +33,9 @@ export type ReviewRow = {
   matched_product_id: string | null; apply_state: string | null; failure_code: string | null;
   description: string | null; ordinaryChanges: string[]; lifecycleChanges: string[]; assetChanges: string[];
   costChange: boolean | null; errors: string[]; warnings: string[];
+  changedFields: ReviewFieldChange[];
 };
+export type ReviewFieldChange = { field: string; label: string; oldValue: string; newValue: string; previousPersisted: boolean };
 export type ApplyProgress = { total: number; pending: number; applied: number; skipped: number; failed: number; conflict: number; version2: number };
 export type RunControl = {
   state: 'Review required' | 'Ready for approval' | 'Approved — ready to apply' | 'Applying' | 'Partially applied' | 'Applied' | 'Failed / attention required' | 'Not eligible';
