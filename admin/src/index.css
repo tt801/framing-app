@@ -254,6 +254,18 @@ code { font-family: "JetBrains Mono", "Fira Mono", monospace; font-size: 0.85em;
 .supplier-field > input, .supplier-field > select { width: 100%; }
 .supplier-page > section.card { overflow-x: auto; }
 
+/* Read-only supplier feed operations; reuse existing cards, tables and badges. */
+.feed-page { display: flex; flex-direction: column; gap: 16px; }
+.feed-page code, .feed-page dd, .feed-page td { overflow-wrap: anywhere; }
+.feed-page .drawer-table td { vertical-align: top; }
+.feed-info { display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr); gap: 8px 16px; }
+.feed-info dt { color: #64748b; }
+.feed-info dd { margin: 0; }
+.feed-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.feed-paging { display: flex; gap: 8px; margin-top: 16px; }
+.feed-page details summary { cursor: pointer; }
+@media (max-width: 700px) { .feed-info { grid-template-columns: 1fr; } }
+
 /* ── Stat grid ─────────────────────────────────────────────── */
 
 .stat-grid {

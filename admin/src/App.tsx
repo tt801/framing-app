@@ -9,8 +9,9 @@ import Tickets from "@/pages/Tickets";
 import Subscriptions from "@/pages/Subscriptions";
 import CMS from "@/pages/CMS";
 import Suppliers from "@/pages/Suppliers";
+import SupplierFeeds from "@/pages/SupplierFeeds";
 
-export type View = "dashboard" | "companies" | "users" | "tickets" | "subscriptions" | "cms" | "suppliers";
+export type View = "dashboard" | "companies" | "users" | "tickets" | "subscriptions" | "cms" | "suppliers" | "supplier-feeds";
 type AuthView = "login" | "request-reset" | "set-password" | "reset-complete";
 
 export default function App() {
@@ -312,6 +313,7 @@ export default function App() {
           {view === "subscriptions" && <Subscriptions />}
           {view === "cms" && <CMS />}
           {view === "suppliers" && <Suppliers />}
+          {view === "supplier-feeds" && <SupplierFeeds />}
         </main>
       </div>
     </div>

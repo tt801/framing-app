@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/supabase";
+import type { FeedList, FeedDetail, RunDetail } from "./supplierFeedTypes";
 
 const API_BASE = (import.meta.env.VITE_PLATFORM_API_BASE || "").replace(/\/$/, "");
 
@@ -275,6 +276,9 @@ export type PlatformSupplierProduct = {
   asset_status: string; cached_asset_key: string | null; thumbnail_key: string | null; texture_key: string | null;
   updated_at: string;
 };
+export const listSupplierFeeds = (offset = 0) => apiFetch<FeedList>(`/api/platform/supplier-feeds?offset=${offset}`, { method: "GET" });
+export const getSupplierFeed = (feedId: string) => apiFetch<FeedDetail>(`/api/platform/supplier-feeds?feedId=${encodeURIComponent(feedId)}`, { method: "GET" });
+export const getSupplierFeedRun = (feedId: string, runId: string, offset = 0) => apiFetch<RunDetail>(`/api/platform/supplier-feeds?feedId=${encodeURIComponent(feedId)}&runId=${encodeURIComponent(runId)}&offset=${offset}`, { method: "GET" });
 export const listSuppliers = () => apiFetch<{ suppliers: PlatformSupplier[] }>("/api/platform/suppliers");
 export const listSupplierProducts = (supplierId: string) => apiFetch<{ products: PlatformSupplierProduct[] }>(
   `/api/platform/supplier-products?supplierId=${encodeURIComponent(supplierId)}`

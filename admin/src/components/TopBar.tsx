@@ -8,6 +8,7 @@ const TITLES: Record<View, string> = {
   subscriptions: "Subscriptions",
   cms: "Content Management",
   suppliers: "Supplier Catalogue",
+  "supplier-feeds": "Supplier Feeds",
 };
 
 export default function TopBar({ view }: { view: View }) {

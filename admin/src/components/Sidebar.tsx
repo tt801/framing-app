@@ -39,7 +39,10 @@ const NAV = [
   },
   {
     section: "Catalogue",
-    items: [{ id: "suppliers" as View, label: "Suppliers", Icon: Package }],
+    items: [
+      { id: "suppliers" as View, label: "Suppliers", Icon: Package },
+      { id: "supplier-feeds" as View, label: "Supplier Feeds", Icon: Package },
+    ],
   },
 ];
 
