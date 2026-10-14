@@ -110,15 +110,23 @@ describe('shared planning-only execution service', () => {
     const out = await executeSupplierFeedCheck({ getSupabaseAdmin: () => f.db, env, now: () => time, orchestrate: async store => { time = executionLimits.workMs; await store.listCanonicalProducts('supplier'); return result(f) } }, 'scheduled')
     expect(out).toMatchObject({ outcome: 'failed', elapsedMs: executionLimits.workMs })
   })
-  it.each(['block2e_approve_run', 'block2e_apply_row', 'block2e_finish_empty_run', 'block2d_update_supplier_product'])('cannot reach mutation RPC %s', name => {
+  it.each(['block2e_approve_run', 'block2e_apply_row', 'block2e_finish_empty_run', 'block2d_update_supplier_product',
+    'block2e_register_source', 'block2e_claim_feed_execution', 'block2e_finish_feed_execution', 'arbitrary_rpc'])('cannot reach mutation RPC %s', name => {
     const f = database(), facade = planningFacade(f.db, Date.now() + 1000)
     expect(() => facade.rpc(name, {})).toThrow('capability_denied')
     expect(f.db.rpc).not.toHaveBeenCalled()
   })
   it.each(['insert', 'update', 'upsert', 'delete'])('cannot reach canonical DML %s', method => {
     const f = database(), facade = planningFacade(f.db, Date.now() + 1000)
-    expect(() => facade.from('supplier_products')[method]({})).toThrow('capability_denied')
+    for (const table of ['supplier_products', 'supplier_product_aliases', 'supplier_feed_rows', 'supplier_feed_runs', 'supplier_feed_sources', 'supplier_feed_source_checks'])
+      expect(() => facade.from(table)[method]({})).toThrow('capability_denied')
     expect(() => facade.from('supplier_product_cost_events')).toThrow('capability_denied')
+    expect(() => facade.from('supplier_feed_execution_attempts')).toThrow('capability_denied')
+  })
+  it('forwards only the approved batch planning RPC without acquiring supervisor capability', async () => {
+    const rpc = vi.fn(async () => ({ data: [], error: null })), facade = planningFacade({ from: vi.fn(), rpc }, Date.now() + 1000)
+    await facade.rpc('block2e_stage_rows', { p_run_id: 'fixture', p_rows: [] })
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('block2e_stage_rows', { p_run_id: 'fixture', p_rows: [] })
   })
   it.each([{ ...env, SUPPLIER_FEED_AUTOMATION_ENABLED: 'false' }, { ...env, SUPPLIER_FEED_EXPECTED_PROJECT_REF: 'other' }, { ...env, SUPABASE_URL: 'https://other.supabase.co' }])('rejects disabled/mismatched project before client access', async bad => {
     const getSupabaseAdmin = vi.fn()

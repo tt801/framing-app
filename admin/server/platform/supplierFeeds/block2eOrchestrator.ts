@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { completeRead } from './completeRead.js'
+import { batchStagingLimits, packStagingRows, postgresJsonBytes, StagingUnconfirmedError, validateBatchSize, verifyBatchEvidence, verifyBatchIds, verifyStagedCounts } from './batchStaging.js'
 import { isSynthetic } from './operations.js'
 import { planFeed } from './planner.js'
 import { normalizeWessexArtifact } from './wessexNormalization.js'
@@ -12,6 +13,7 @@ import {
 import type {
   CanonicalProduct,
   FeedIssue,
+  FeedPlan,
   MassChangePolicy,
   PlanEntry,
   ProductFields,
@@ -74,6 +76,8 @@ export type Block2eStore = {
   }): Promise<string>
   beginStaging(runId: string): Promise<void>
   stageRow(runId: string, row: Record<string, unknown>): Promise<string>
+  stageRows(runId: string, rows: Record<string, unknown>[]): Promise<string[]>
+  verifyStagedPlan(runId: string, counts: FeedPlan['counts']): Promise<void>
   freezePlan(runId: string, policy: MassChangePolicy): Promise<string>
   readRun(runId: string): Promise<RunSnapshot>
   listCanonicalProducts(supplierId: string): Promise<CanonicalProduct[]>
@@ -160,7 +164,7 @@ export type WessexOrchestrationResult =
     }
 
 const PLANNER_VERSION = 'block2e-planner-v1'
-const DEFAULT_STAGING_BATCH_SIZE = 20
+
 const ACCEPTED_CHANGED_RUN_STATES = new Set([
   'planned',
   'awaiting_approval',
@@ -175,6 +179,8 @@ export async function orchestrateWessexCheckAndPlan(
   options: WessexOrchestrationOptions,
 ): Promise<WessexOrchestrationResult> {
   const source = options.source
+  const stagingBatchSize = options.stagingBatchSize ?? batchStagingLimits.defaultRows
+  validateBatchSize(stagingBatchSize)
   await store.ensureFeedSource(source)
 
   const previousSha256 = await store.getLatestSuccessfulChecksum(source.feedSourceId)
@@ -458,7 +464,8 @@ export async function orchestrateWessexCheckAndPlan(
     })
 
     await store.beginStaging(runId)
-    await stagePlanRows(store, runId, plan.entries, options.stagingBatchSize ?? DEFAULT_STAGING_BATCH_SIZE)
+    await stagePlanRows(store, runId, plan.entries, stagingBatchSize)
+    await store.verifyStagedPlan(runId, plan.counts)
     let fingerprint: string
     try {
       fingerprint = await store.freezePlan(runId, options.massChangePolicy ?? {})
@@ -509,6 +516,7 @@ export async function orchestrateWessexCheckAndPlan(
       reusedExistingRun: false,
     }
   } catch (error) {
+    if (error instanceof StagingUnconfirmedError) throw error
     const { code, summary } = classifyPlanningError(error)
     const checkId = await store.recordSourceCheck({
       feedSourceId: source.feedSourceId,
@@ -551,11 +559,13 @@ async function stagePlanRows(
   entries: PlanEntry[],
   batchSize: number,
 ): Promise<void> {
-  const effectiveBatchSize = Math.max(1, Number.isFinite(batchSize) ? Math.floor(batchSize) : 1)
-  for (let i = 0; i < entries.length; i += effectiveBatchSize) {
-    const chunk = entries.slice(i, i + effectiveBatchSize)
-    for (const entry of chunk) {
-      await store.stageRow(runId, planEntryToStagedRow(entry))
+  const batches = packStagingRows(entries.map(planEntryToStagedRow), batchSize)
+  for (const batch of batches) {
+    try {
+      const ids = await store.stageRows(runId, batch)
+      verifyBatchIds(ids, batch.length)
+    } catch {
+      throw new StagingUnconfirmedError()
     }
   }
 }
@@ -822,6 +832,35 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
       const { data, error } = await db().rpc('block2e_stage_row', { p_run_id: runId, p_row: row })
       if (error || typeof data !== 'string') throw error ?? new Error('block2e_stage_row did not return row ID')
       return data
+    },
+
+    async stageRows(runId, rows) {
+      validateBatchSize(rows.length)
+      if (postgresJsonBytes(rows) > batchStagingLimits.maxBytes) throw new Error('Staging batch exceeds payload limit')
+      try {
+        const { data, error } = await db().rpc('block2e_stage_rows', { p_run_id: runId, p_rows: rows })
+        if (error) throw new StagingUnconfirmedError()
+        verifyBatchIds(data, rows.length)
+        const checkpoint = await db().from('supplier_feed_rows').select('*', { count: 'exact' })
+          .eq('feed_run_id', runId).in('id', data).limit(rows.length + 1)
+        if (checkpoint.error || checkpoint.count !== rows.length || !Array.isArray(checkpoint.data)) throw new StagingUnconfirmedError()
+        verifyBatchEvidence(runId, rows, data, checkpoint.data)
+        return data
+      } catch {
+        throw new StagingUnconfirmedError()
+      }
+    },
+
+    async verifyStagedPlan(runId, counts) {
+      try {
+        const rows = await completeRead(() => db().from('supplier_feed_rows')
+          .select('id,feed_run_id,row_persistence_version,apply_state,proposed_action,action_fingerprint,proposed_diff', { count: 'exact' })
+          .eq('feed_run_id', runId))
+        if (rows.some(row => row.feed_run_id !== runId)) throw new StagingUnconfirmedError()
+        verifyStagedCounts(rows, counts)
+      } catch {
+        throw new StagingUnconfirmedError()
+      }
     },
 
     async freezePlan(runId, policy) {

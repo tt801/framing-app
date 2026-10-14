@@ -17,7 +17,7 @@ export function checkExecutionEnvironment(env: Environment) {
   if (env.SUPPLIER_FEED_EXPECTED_PROJECT_REF !== sandbox || env.SUPABASE_URL !== `https://${sandbox}.supabase.co`)
     throw new ExecutionError(503, 'project_mismatch')
 }
-const planningRPCs = new Set(['block2e_create_run', 'block2e_begin_staging', 'block2e_stage_row', 'block2e_freeze_plan', 'block2e_record_source_check'])
+const planningRPCs = new Set(['block2e_create_run', 'block2e_begin_staging', 'block2e_stage_row', 'block2e_stage_rows', 'block2e_freeze_plan', 'block2e_record_source_check'])
 const readTables = new Set(['supplier_feed_sources', 'supplier_feed_source_checks', 'supplier_feed_runs', 'supplier_feed_rows', 'supplier_products', 'supplier_product_aliases'])
 const readMethods = new Set(['select', 'eq', 'in', 'not', 'order', 'range', 'limit', 'single', 'maybeSingle', 'abortSignal'])
 // Runtime capability boundary, not just a TypeScript interface. No arbitrary RPC

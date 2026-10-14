@@ -15,6 +15,8 @@ import {
 } from '../server/platform/supplierFeeds/wessexFetchCheck.js'
 import { normalizeWessexArtifact } from '../server/platform/supplierFeeds/wessexNormalization.js'
 import { parseWessexMouldings } from '../server/platform/supplierFeeds/wessexMouldings.js'
+import { createSupabaseBlock2eStore } from '../server/platform/supplierFeeds/block2eOrchestrator.js'
+import { localClient } from './helpers/block2eBatchFixture'
 
 const migration = (name: string) => readFileSync(new URL(`../../migrations/${name}`, import.meta.url), 'utf8')
 
@@ -42,6 +44,7 @@ beforeEach(async () => {
   await db.exec(migration('20261009_block2e_supplier_feed_framework.sql'))
   await db.exec(migration('20261012_block2d_initial_cost_event_on_insert.sql'))
   await db.exec(migration('20261013_block2f_supplier_feed_source_checks.sql'))
+  await db.exec(migration('20261014_phase5e_batch_staging.sql'))
 
   await rows(`INSERT INTO public.suppliers(id,name,slug) VALUES ($1,'Wessex','wessex')`, [supplierId])
   await rows(`INSERT INTO public.supplier_feed_sources(id,supplier_id,source_key,scope_key,allows_authoritative_snapshots)
@@ -189,6 +192,16 @@ function makeStore(options: {
       }
       const staged = await rows(`SELECT public.block2e_stage_row($1::uuid,$2::jsonb) AS id`, [runId, JSON.stringify(row)])
       return String(staged[0].id)
+    },
+
+    async stageRows(runId, batch) {
+      stageCalls += 1
+      if (options.failStageAtCall && stageCalls === options.failStageAtCall) throw new Error(options.failStageMessage ?? 'forced staging failure')
+      return createSupabaseBlock2eStore(() => localClient(db)).stageRows(runId, batch)
+    },
+
+    async verifyStagedPlan(runId, counts) {
+      await createSupabaseBlock2eStore(() => localClient(db)).verifyStagedPlan(runId, counts)
     },
 
     async freezePlan(runId, policy) {
@@ -499,7 +512,7 @@ describe('Block 2F Phase 5B orchestration', () => {
       .rejects.toThrow('append-only')
   })
 
-  it('bounds stored error summary and records planning_error on staging interruption', async () => {
+  it('sanitizes staging uncertainty and stops without further persistence', async () => {
     const longMessage = 'x'.repeat(1800)
     const fixture = fetchResultFixture({
       rows: [
@@ -510,21 +523,18 @@ describe('Block 2F Phase 5B orchestration', () => {
       previousSha256: null,
     })
 
-    const result = await orchestrateWessexCheckAndPlan(makeStore({
+    await expect(orchestrateWessexCheckAndPlan(makeStore({
       failStageAtCall: 2,
       failStageMessage: longMessage,
     }), {
       source: { supplierId, feedSourceId, scopeKey },
       acquisitionComplete: true,
       completeReleaseConfirmed: true,
+      stagingBatchSize: 1,
       fetchCheck: async () => fixture,
-    })
-
-    expect(result.outcome).toBe('planning_error')
-
-    const latest = (await rows(`SELECT status,error_summary,length(error_summary) AS len FROM public.supplier_feed_source_checks ORDER BY created_at DESC LIMIT 1`))[0]
-    expect(latest.status).toBe('planning_error')
-    expect(latest.len).toBeLessThanOrEqual(512)
+    })).rejects.toThrow('Staging checkpoint unconfirmed; recovery required. No automatic replay.')
+    expect(await rows('SELECT id FROM supplier_feed_source_checks')).toHaveLength(0)
+    expect(await rows('SELECT id FROM supplier_feed_rows')).toHaveLength(1)
   })
 
   it('reuses existing planned release run for identical source+sha and avoids duplicate run creation', async () => {
@@ -593,13 +603,13 @@ describe('Block 2F Phase 5B orchestration', () => {
       previousSha256: null,
     })
 
-    const first = await orchestrateWessexCheckAndPlan(makeStore({ failStageAtCall: 2 }), {
+    await expect(orchestrateWessexCheckAndPlan(makeStore({ failStageAtCall: 2 }), {
       source: { supplierId, feedSourceId, scopeKey },
       acquisitionComplete: true,
       completeReleaseConfirmed: true,
+      stagingBatchSize: 1,
       fetchCheck: async () => fixture,
-    })
-    expect(first.outcome).toBe('planning_error')
+    })).rejects.toThrow(/recovery required/)
 
     const retry = await orchestrateWessexCheckAndPlan(makeStore(), {
       source: { supplierId, feedSourceId, scopeKey },

@@ -18,7 +18,7 @@ beforeEach(async () => {
     CREATE TABLE company_accounts(id uuid PRIMARY KEY, owner_user_id uuid);
     CREATE TABLE company_members(company_account_id uuid,user_id uuid,status text,role text);
     CREATE FUNCTION is_company_account_writable(uuid) RETURNS boolean LANGUAGE sql AS $$SELECT true$$;`)
-  for (const file of ['20261007_block2b_supplier_foundation.sql', '20261008_block2d_supplier_cost_audit.sql', '20261009_block2e_supplier_feed_framework.sql', '20261012_block2d_initial_cost_event_on_insert.sql', '20261013_block2f_supplier_feed_source_checks.sql', '20261014_phase5e_supplier_feed_execution_attempts.sql']) await db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'))
+  for (const file of ['20261007_block2b_supplier_foundation.sql', '20261008_block2d_supplier_cost_audit.sql', '20261009_block2e_supplier_feed_framework.sql', '20261012_block2d_initial_cost_event_on_insert.sql', '20261013_block2f_supplier_feed_source_checks.sql', '20261014_phase5e_supplier_feed_execution_attempts.sql', '20261014_phase5e_batch_staging.sql']) await db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'))
   await sql(`insert into suppliers(id,name,slug) values ($1,'Wessex','wessex')`, [wessexSource.supplierId])
   await sql(`insert into supplier_feed_sources(id,supplier_id,source_key,scope_key,allows_authoritative_snapshots) values ($1,$2,'wessex-mouldings-xls','mouldings',true)`, [wessexSource.feedSourceId, wessexSource.supplierId])
   // Non-empty, unrelated local fixture makes the no-canonical-mutation assertion meaningful.
@@ -62,7 +62,7 @@ function client(options: { failStage?: boolean; lostFreeze?: boolean; lostCheck?
     calls.push(name)
     return { abortSignal() { return this }, then: async (resolve: any) => {
       try {
-        if (name === 'block2e_stage_row' && options.failStage && ++stages === 2) throw new Error('stage failed')
+        if (name === 'block2e_stage_rows' && options.failStage && ++stages === 2) throw new Error('stage failed')
         const params = Object.entries(args)
         const data = (await sql(`select public.${name}(${params.map(([k], i) => `${k} => $${i + 1}`).join(',')}) as result`, params.map(([, v]) => typeof v === 'object' && v !== null ? JSON.stringify(v) : v)))[0].result
         if (!lost && ((name === 'block2e_freeze_plan' && options.lostFreeze) || (name === 'block2e_record_source_check' && options.lostCheck))) { lost = true; return resolve({ data: null, error: new Error('response lost after commit') }) }
@@ -83,12 +83,13 @@ describe('Phase 5E real shared service + orchestrator + disposable SQL', () => {
   })
   it('retains partial staging and refuses automatic append or replacement on retry', async () => {
     const broken = client({ failStage: true })
-    expect((await executeSupplierFeedCheck({ getSupabaseAdmin: () => broken, env }, 'scheduled')).outcome).toBe('failed')
+    expect((await executeSupplierFeedCheck({ getSupabaseAdmin: () => broken, env, orchestrate: (store, options) => orchestrateWessexCheckAndPlan(store, { ...options, stagingBatchSize: 1 }) }, 'scheduled')).outcome).toBe('failed')
     const retry = client()
     expect((await executeSupplierFeedCheck({ getSupabaseAdmin: () => retry, env }, 'manual')).outcome).toBe('failed')
     expect(await sql('select id from supplier_feed_runs')).toHaveLength(1)
     expect(await sql('select id from supplier_feed_rows')).toHaveLength(1)
     expect(retry.calls).not.toContain('block2e_stage_row')
+    expect(retry.calls).not.toContain('block2e_stage_rows')
   })
   it('reconciles freeze commit despite uncertain RPC response', async () => {
     const c = client({ lostFreeze: true })
