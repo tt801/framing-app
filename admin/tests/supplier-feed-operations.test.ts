@@ -6,6 +6,33 @@ const check = { id: 'check', checked_at: '2026-10-13T10:00:00Z', created_at: '20
 const run = { id: 'real', status: 'applied', created_at: '2026-10-12T10:00:00Z', completed_at: '2026-10-12T11:00:00Z', mode: 'apply_requested', source_checksum: 'a'.repeat(64), plan_fingerprint: 'b'.repeat(64), plan_counts: { create: 1194, update: 0, unchanged: 0, review: 0, reject: 0, potential_missing: 0, cost_changes: 0 }, adapter_id: 'wessex-wpp4-mouldings', artifact_ref: '/scratch/Wessex.xls' }
 
 describe('supplier feed operations aggregation', () => {
+  it.each([
+    ['running', '2100-01-01', 'running'], ['running', '2020-01-01', 'interrupted'],
+    ['planned', '2100-01-01', 'completed'], ['failed', '2100-01-01', 'failed'], ['interrupted', '2020-01-01', 'interrupted'],
+  ])('exposes operational %s attempts as %s', (outcome, expires_at, state) => {
+    const current = { ...check, status: 'unchanged', checked_at: new Date().toISOString() }
+    const summary = aggregateFeed(source, [current], [], 0, false, { checks: [current], runs: [], attempt: { id: 'attempt', trigger_type: 'manual', outcome, expires_at } })
+    expect(summary.latestAttempt?.state).toBe(state)
+    expect(summary.overdue).toBe(false)
+    expect(summary.lastSuccessfulCheckAt).toBe(current.checked_at)
+  })
+  it('retains older pending human approval after a later unchanged check', () => {
+    const pending = { ...run, id: 'pending', status: 'awaiting_approval' }
+    const unchanged = { ...check, status: 'unchanged' }
+    const summary = aggregateFeed(source, [unchanged], [], 0, false, { checks: [unchanged], runs: [], pending: [pending] })
+    expect(summary.pendingApprovalRunId).toBe('pending')
+    expect(summary.health).toBe('Changed — review required')
+  })
+  it('does not require new review for changed evidence whose linked run is applied', () => {
+    const result = aggregateFeed(source, [{ ...check, status: 'changed', feed_run_id: run.id }], [run], 1194)
+    expect(result.health).toBe('Healthy')
+    expect(result.lastSuccessfulCheckAt).toBe(check.checked_at)
+  })
+  it('retains pending approval independently of the latest unchanged artifact', () => {
+    const result = aggregateFeed(source, [check], [run, { ...run, id: 'pending', status: 'awaiting_approval', source_checksum: 'e'.repeat(64) }], 1194)
+    expect(result.pendingApprovalRunId).toBe('pending')
+    expect(result.health).toBe('Changed — review required')
+  })
   it('combines persisted feed, check, release, real run and exact owned count', () => {
     const result = aggregateFeed(source, [check], [run], 1194)
     expect(result).toMatchObject({ id: source.id, supplier: { name: 'Wessex', status: 'draft' }, scope_key: 'mouldings', canonicalProductCount: 1194, health: 'Healthy', latestCheck: { status: 'unchanged' }, latestRelease: { sha256: check.sha256, classification: 'unchanged', publishedUpdateDate: '08/10/2026' }, latestRun: { id: 'real', status: 'applied', counts: { create: 1194 } } })

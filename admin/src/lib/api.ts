@@ -278,6 +278,7 @@ export type PlatformSupplierProduct = {
 };
 export const listSupplierFeeds = (offset = 0) => apiFetch<FeedList>(`/api/platform/supplier-feeds?offset=${offset}`, { method: "GET" });
 export const getSupplierFeed = (feedId: string) => apiFetch<FeedDetail>(`/api/platform/supplier-feeds?feedId=${encodeURIComponent(feedId)}`, { method: "GET" });
+export const checkSupplierFeed = (feedId: string) => apiFetch<{ outcome: 'already_running' | 'unchanged' | 'planned' | 'failed'; elapsedMs: number }>('/api/platform/supplier-feed-checks', { method: 'POST', body: JSON.stringify({ feedId }) });
 export const getSupplierFeedRun = (feedId: string, runId: string, offset = 0) => apiFetch<RunDetail>(`/api/platform/supplier-feeds?feedId=${encodeURIComponent(feedId)}&runId=${encodeURIComponent(runId)}&offset=${offset}`, { method: "GET" });
 export const mutateSupplierFeedRun = (runId: string, action: 'approve' | 'apply') => apiFetch<RunActionResult>('/api/platform/supplier-feed-actions', { method: 'POST', body: JSON.stringify({ runId, action }) });
 export const listSuppliers = () => apiFetch<{ suppliers: PlatformSupplier[] }>("/api/platform/suppliers");

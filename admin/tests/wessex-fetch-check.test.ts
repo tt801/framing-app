@@ -72,6 +72,33 @@ function mockFetch(args: {
 }
 
 describe('Wessex fetch/check evidence layer (Phase 5A)', () => {
+  it('bounds streaming bodies before parsing', async () => {
+    mockFetch({ pageBody: 'x'.repeat(1_000_001) })
+    await expect(runWessexFetchCheck(options)).rejects.toThrow('body exceeds')
+  })
+  it('times out while consuming a body, not only waiting for headers', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({ start() { /* no bytes and no close */ } }))))
+    await expect(runWessexFetchCheck({ ...options, timeoutMs: 10 })).rejects.toThrow('request timed out')
+  })
+  it.each(['https://evil.test/file?token=private', 'http://www.wessexpictures.com/res/WessexMouldings.xls', 'https://www.wessexpictures.com/other', 'https://user:private@www.wessexpictures.com/res/WessexMouldings.xls'])('rejects unapproved redirect without leaking its value: %s', async location => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 302, headers: { location } })))
+    await expect(runWessexFetchCheck(options)).rejects.toThrow('redirect rejected')
+    await expect(runWessexFetchCheck(options)).rejects.not.toThrow('private')
+  })
+  it('bounds redirects even to approved exact resource URLs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(null, { status: 302, headers: { location: url } })))
+    await expect(runWessexFetchCheck(options)).rejects.toThrow('redirect limit')
+  })
+  it('accepts a bounded redirect only to the same approved resource', async () => {
+    const { fetch: normal } = mockFetch({})
+    const seen = new Set<string>()
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (!seen.has(url)) { seen.add(url); return new Response(null, { status: 302, headers: { location: new URL(url).pathname } }) }
+      expect(init.redirect).toBe('manual')
+      return normal(url)
+    }))
+    expect((await runWessexFetchCheck(options)).classification).toBe('changed')
+  })
   it('extracts the published date from the official updates marker', () => {
     expect(extractPublishedUpdateDate(BASE_PAGE)).toMatchObject({
       raw: '08/10/26',

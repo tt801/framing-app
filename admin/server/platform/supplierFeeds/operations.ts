@@ -22,6 +22,7 @@ export function isSynthetic(row: Row): boolean {
       typeof value === 'string' && /(^|[-_: ])synthetic([-_: ]|$)/i.test(value))
     || (typeof row.published_update_date_raw === 'string' && /^SYNTHETIC .*VERIFICATION/i.test(row.published_update_date_raw))
     || Boolean(row.linked_run && isSynthetic(row.linked_run))
+    || Boolean(Array.isArray(row.checks) && row.checks.some(isSynthetic))
 }
 
 export function mapRun(row: Row): FeedRun {
@@ -47,7 +48,7 @@ export function mapCheck(row: Row): FeedCheck {
     error_summary: text(row.error_summary), synthetic: isSynthetic(row),
   }
 }
-export function aggregateFeed(source: Row, checks: Row[], runs: Row[], canonicalProductCount: number, historyLimited = false, releaseEvidence?: { checks: Row[]; runs: Row[] }): FeedSummary {
+export function aggregateFeed(source: Row, checks: Row[], runs: Row[], canonicalProductCount: number, historyLimited = false, releaseEvidence?: { checks: Row[]; runs: Row[]; attempt?: Row; pending?: Row[] }): FeedSummary {
   checks = checks.filter(row => !isSynthetic(row))
   runs = runs.filter(row => !isSynthetic(row))
   const latestCheck = checks[0] ? mapCheck(checks[0]) : null
@@ -60,15 +61,24 @@ export function aggregateFeed(source: Row, checks: Row[], runs: Row[], canonical
   } : imported ? {
     sha256: imported.source_checksum, classification: null, publishedUpdateDate: null, origin: 'applied_import' as const,
   } : null
-  const relevantRun = latestCheck && runs.find(row => row.source_checksum === latestCheck.sha256
-    || Date.parse(row.created_at) >= Date.parse(latestCheck.checked_at))
+  const knownRuns = [...runs, ...(releaseEvidence?.runs ?? [])].filter(row => !isSynthetic(row))
+  const relevantRun = latestCheck && (knownRuns.find(row => row.id === latestCheck.feed_run_id)
+    ?? knownRuns.find(row => row.source_checksum === latestCheck.sha256)
+    ?? knownRuns.find(row => Date.parse(row.created_at) >= Date.parse(latestCheck.checked_at)))
   const pendingRelease = relevantRun && relevantRun.status !== 'applied'
+  const pendingApproval = [...(releaseEvidence?.pending ?? []), ...runs].find(row => !isSynthetic(row) && row.status === 'awaiting_approval')
   const health = !latestCheck ? (historyLimited ? 'Unknown — history limit' : 'Never checked')
     : latestCheck.status === 'planning_error' ? 'Planning failed'
       : !['changed', 'unchanged'].includes(latestCheck.status) ? 'Check failed'
         : relevantRun?.status === 'failed' ? 'Planning failed'
-          : latestCheck.status === 'changed' || pendingRelease ? 'Changed — review required' : historyLimited ? 'Unknown — history limit' : 'Healthy'
+          : pendingApproval || pendingRelease || (latestCheck.status === 'changed' && relevantRun?.status !== 'applied') ? 'Changed — review required' : historyLimited ? 'Unknown — history limit' : 'Healthy'
+  const attempt = releaseEvidence?.attempt
+  const interrupted = attempt?.outcome === 'running' && Date.parse(attempt.expires_at) <= Date.now()
+  const lastSuccessfulCheckAt = successful?.checked_at ?? null
   return {
+    lastSuccessfulCheckAt, pendingApprovalRunId: pendingApproval?.id ?? null,
+    overdue: !lastSuccessfulCheckAt || Date.now() - Date.parse(lastSuccessfulCheckAt) > 30 * 60 * 60 * 1000,
+    latestAttempt: attempt ? { id: attempt.id, triggerType: attempt.trigger_type, state: interrupted || attempt.outcome === 'interrupted' ? 'interrupted' : attempt.outcome === 'running' ? 'running' : attempt.outcome === 'failed' ? 'failed' : 'completed', startedAt: attempt.started_at, completedAt: attempt.completed_at, stage: attempt.stage } : null,
     id: source.id, supplier_id: source.supplier_id, source_key: source.source_key, scope_key: source.scope_key,
     allows_authoritative_snapshots: source.allows_authoritative_snapshots,
     supplier: { id: source.supplier.id, name: source.supplier.name, status: source.supplier.status },
@@ -80,7 +90,7 @@ type Database = { from: (table: string) => any }
 export const operationLimits = { feeds: 25, scan: 200, checks: 50, runs: 20, rows: 50 } as const
 const sourceColumns = 'id,supplier_id,source_key,scope_key,allows_authoritative_snapshots,supplier:suppliers(id,name,status)'
 export const runColumns = 'id,feed_source_id,supplier_id,scope_key,persistence_version,logical_run_key,created_at,status,mode,approved_by,approved_at,approved_plan_fingerprint,acknowledged_anomalies,completed_at,plan_fingerprint,plan_counts,policy_snapshot,anomaly_flags,apply_disposition,acquisition_complete,parsing_complete,staging_purged_at,source_checksum,artifact_ref,adapter_id,adapter_version,planner_version,row_count,failure_code'
-const checkColumns = 'id,checked_at,created_at,status,release_classification,source_url,published_update_source_url,published_update_date,published_update_date_raw,published_update_match,artifact_retrieved_at,evidence_retrieved_at,etag,last_modified,content_byte_length,sha256,release_logical_key,feed_run_id,plan_fingerprint,error_code,error_summary,linked_run:supplier_feed_runs!feed_run_id(adapter_id,artifact_ref,logical_run_key)'
+const checkColumns = 'id,checked_at,created_at,status,release_classification,source_url,published_update_source_url,published_update_date,published_update_date_raw,published_update_match,artifact_retrieved_at,evidence_retrieved_at,etag,last_modified,content_byte_length,sha256,release_logical_key,feed_run_id,plan_fingerprint,error_code,error_summary,linked_run:supplier_feed_runs!feed_run_id(adapter_id,adapter_version,planner_version,artifact_ref,logical_run_key)'
 const rowColumns = 'id,row_number,source_product_key,source_record_key,source_path,row_kind,proposed_action,validation_status,matched_product_id,apply_state,failure_code,proposed_product,proposed_diff,validation_errors,validation_warnings'
 
 export class OperationsNotFound extends Error {}
@@ -99,7 +109,7 @@ async function evidence(db: Database, source: Row) {
     .order('checked_at', { ascending: false }).order('created_at', { ascending: false }).order('id', { ascending: false })
   const runsQuery = () => db.from('supplier_feed_runs').select(runColumns).eq('feed_source_id', source.id).eq('supplier_id', source.supplier_id).eq('persistence_version', 2)
     .order('created_at', { ascending: false }).order('id', { ascending: false })
-  const [checks, runs, successfulChecks, appliedRuns, products] = await Promise.all([
+  const [checks, runs, successfulChecks, appliedRuns, products, attempts, pending] = await Promise.all([
     data(checksQuery().limit(operationLimits.scan + 1)),
     data(runsQuery().limit(operationLimits.scan + 1)),
     // Independent bounded success lookups retain the last good release even
@@ -107,13 +117,15 @@ async function evidence(db: Database, source: Row) {
     data(checksQuery().in('status', ['changed', 'unchanged']).limit(operationLimits.scan + 1)),
     data(runsQuery().eq('status', 'applied').limit(operationLimits.scan + 1)),
     db.from('supplier_products').select('id', { count: 'exact', head: true }).eq('owner_feed_source_id', source.id).eq('supplier_id', source.supplier_id),
+    data(db.from('supplier_feed_execution_attempts').select('id,trigger_type,started_at,expires_at,completed_at,outcome,stage').eq('feed_source_id', source.id).order('started_at', { ascending: false }).order('id', { ascending: false }).limit(1)),
+    data(runsQuery().eq('status', 'awaiting_approval').limit(operationLimits.scan + 1)),
   ])
   if (products.error) throw products.error
   if (count(products.count) === null) throw new Error('Owned product count unavailable')
   return { checks: checks.slice(0, operationLimits.scan), runs: runs.slice(0, operationLimits.scan), canonicalProductCount: products.count as number,
-    releaseEvidence: { checks: successfulChecks.slice(0, operationLimits.scan), runs: appliedRuns.slice(0, operationLimits.scan) },
+    releaseEvidence: { checks: successfulChecks.slice(0, operationLimits.scan), runs: appliedRuns.slice(0, operationLimits.scan), attempt: attempts[0], pending: pending.slice(0, operationLimits.scan) },
     checksLimited: checks.length > operationLimits.scan || successfulChecks.length > operationLimits.scan,
-    runsLimited: runs.length > operationLimits.scan || appliedRuns.length > operationLimits.scan }
+    runsLimited: runs.length > operationLimits.scan || appliedRuns.length > operationLimits.scan || pending.length > operationLimits.scan }
 }
 export async function readFeedList(db: Database, offset = 0): Promise<FeedList> {
   const sources = await data(db.from('supplier_feed_sources').select(sourceColumns).order('source_key').order('id').range(offset, offset + operationLimits.feeds))

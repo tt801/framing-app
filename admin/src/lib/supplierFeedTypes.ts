@@ -19,6 +19,8 @@ export type FeedRun = {
   row_count: number | null; counts: PlanCounts; failure_code: string | null;
 };
 export type FeedSummary = {
+  lastSuccessfulCheckAt?: string | null; pendingApprovalRunId?: string | null; overdue?: boolean;
+  latestAttempt?: { id: string; triggerType: string; state: 'running' | 'completed' | 'failed' | 'interrupted'; startedAt: string; completedAt: string | null; stage: string } | null;
   id: string; supplier_id: string; source_key: string; scope_key: string;
   allows_authoritative_snapshots: boolean; supplier: { id: string; name: string; status: string };
   canonicalProductCount: number; health: FeedHealth; latestCheck: FeedCheck | null; latestRun: FeedRun | null;

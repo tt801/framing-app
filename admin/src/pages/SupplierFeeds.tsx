@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { listSupplierFeeds, getSupplierFeed, getSupplierFeedRun } from '@/lib/api';
+import { listSupplierFeeds, getSupplierFeed, getSupplierFeedRun, checkSupplierFeed } from '@/lib/api';
 import type { FeedCheck, FeedRun, FeedSummary, PlanCounts } from '@/lib/supplierFeedTypes';
 import { RunActions } from './SupplierFeedRunActions';
 
@@ -82,17 +82,30 @@ function RunDetailView({ feedId, runId, supplierFeed, changed }: { feedId: strin
 }
 function FeedDetailView({ feedId, back }: { feedId: string; back: () => void }) {
   const [runId, setRunId] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkMessage, setCheckMessage] = useState('');
   const load = useCallback(() => getSupplierFeed(feedId), [feedId]);
   const { data, loading, error, replace } = useRead(load);
   const refreshSummary = () => { void getSupplierFeed(feedId).then(replace).catch(() => { /* Run detail remains authoritative; summary can be reloaded via navigation. */ }); };
+  const checkNow = async () => {
+    setChecking(true); setCheckMessage('Starting supplier check; checking, validation and planning may take several minutes.');
+    try {
+      const result = await checkSupplierFeed(feedId);
+      setCheckMessage(result.outcome === 'already_running' ? 'A check is already running. Refresh to see persisted progress.' : result.outcome === 'planned' ? 'Check complete. Review the persisted plan; approval and application remain separate human actions.' : result.outcome === 'unchanged' ? 'Check complete: unchanged.' : 'Check failed. Review persisted attempt and check evidence.');
+    } catch { setCheckMessage('Check was not confirmed. Refresh persisted evidence before retrying.'); }
+    finally { setChecking(false); refreshSummary(); }
+  };
   return <><button className="btn-ghost" onClick={back}>Back to feeds</button>
     {loading ? <p role="status">Loading feed...</p> : error ? <p role="alert" className="error-text">{error}</p> : data && <>
       <section className="card"><h2>{data.feed.supplier.name} / {data.feed.source_key}</h2><Health feed={data.feed} /><dl className="feed-info">
+        <dt>Last successful operational check</dt><dd>{date(data.feed.lastSuccessfulCheckAt ?? null)}{data.feed.overdue && <div role="status">Daily check overdue or no successful check recorded.</div>}</dd>
+        <dt>Latest execution attempt</dt><dd>{data.feed.latestAttempt ? `${data.feed.latestAttempt.triggerType} · ${data.feed.latestAttempt.state} · ${data.feed.latestAttempt.stage} · ${date(data.feed.latestAttempt.startedAt)}` : 'No scheduled/manual attempts recorded.'}</dd>
+        {data.feed.pendingApprovalRunId && <><dt>Pending human approval</dt><dd><button className="btn-ghost" onClick={() => setRunId(data.feed.pendingApprovalRunId!)}>{data.feed.pendingApprovalRunId}</button></dd></>}
         <dt>Supplier ID / state</dt><dd><code>{data.feed.supplier_id}</code> / {data.feed.supplier.status}</dd><dt>Feed ID / scope</dt><dd><code>{data.feed.id}</code> / {data.feed.scope_key}</dd>
         <dt>Authoritative snapshots allowed</dt><dd>{data.feed.allows_authoritative_snapshots ? 'Yes' : 'No'}</dd><dt>Feed enabled / source type</dt><dd>Not stored in the current schema</dd>
         <dt>Last operational check</dt><dd>{data.feed.latestCheck ? `${date(data.feed.latestCheck.checked_at)} · ${data.feed.latestCheck.status}` : 'Never checked'}</dd>
         <dt>Latest release</dt><dd><Release feed={data.feed} /></dd><dt>Canonical owned products</dt><dd>{data.feed.canonicalProductCount}</dd><dt>Latest operational run</dt><dd>{data.feed.latestRun ? `${data.feed.latestRun.id} · ${data.feed.latestRun.status}` : 'None recorded'}</dd>
-      </dl>{data.feed.historyLimited && <p role="status">Summary scans are limited to the latest 200 checks / runs. Older evidence may be omitted; health is conservative.</p>}</section>
+      </dl>{feedId === '468247ee-809b-4784-aca1-bba44f860c85' && <button className="btn-ghost" disabled={checking || data.feed.latestAttempt?.state === 'running'} onClick={() => void checkNow()}>{checking ? 'Checking…' : 'Check now'}</button>}<button className="btn-ghost" onClick={refreshSummary}>Refresh evidence</button>{checkMessage && <p role="status">{checkMessage}</p>}{data.feed.historyLimited && <p role="status">Summary scans are limited to the latest 200 checks / runs. Older evidence may be omitted; health is conservative.</p>}</section>
       <section className="card"><h2>Check History</h2><p className="text-muted">Synthetic checks remain visible for audit evidence, but do not affect feed health or release summaries. {data.syntheticChecks} synthetic checks and {data.syntheticRuns} synthetic runs identified in the scanned history.</p>
         {!data.checks.length ? <p>No checks recorded.</p> : <table className="drawer-table"><thead><tr><th>Checked</th><th>Outcome</th><th>Evidence / error</th></tr></thead><tbody>{data.checks.map(check => <tr key={check.id}>
           <td>{date(check.checked_at)}</td><td><span className={`badge badge-${check.synthetic ? 'slate' : ['changed', 'unchanged'].includes(check.status) ? 'green' : 'red'}`}>{check.status}</span><div>{check.release_classification ?? 'No release classification'}</div>{check.synthetic && <div>Synthetic verification — excluded from operational summaries</div>}</td>
@@ -113,7 +126,7 @@ export default function SupplierFeeds() {
   const [offset, setOffset] = useState(0);
   const load = useCallback(() => listSupplierFeeds(offset), [offset]);
   const { data, loading, error } = useRead(load);
-  return <div className="supplier-page feed-page"><p className="text-muted">Review persisted supplier feed plans. Approval and application require separate confirmations. No checks, fetching or planning are triggered here.</p>
+  return <div className="supplier-page feed-page"><p className="text-muted">Review persisted supplier feed plans. Check now only checks and plans; approval and application require separate human confirmations.</p>
     {feedId ? <FeedDetailView key={feedId} feedId={feedId} back={() => setFeedId(null)} /> : <section className="card"><h2>Supplier Feeds</h2>
       {loading ? <p role="status">Loading feeds...</p> : error ? <p role="alert" className="error-text">{error}</p> : data && <>
         {!data.feeds.length ? <p>No configured supplier feeds.</p> : <table className="drawer-table"><thead><tr><th>Supplier</th><th>Feed</th><th>Health</th><th>Last checked</th><th>Latest release</th><th>Latest run</th><th>Products</th></tr></thead><tbody>{data.feeds.map(feed => <tr key={feed.id}>

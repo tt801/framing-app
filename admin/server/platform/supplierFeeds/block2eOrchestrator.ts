@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { completeRead } from './completeRead.js'
+import { isSynthetic } from './operations.js'
 import { planFeed } from './planner.js'
 import { normalizeWessexArtifact } from './wessexNormalization.js'
 import {
@@ -51,6 +53,7 @@ export type Block2eStore = {
   ensureFeedSource(identity: FeedSourceIdentity): Promise<void>
   getLatestSuccessfulChecksum(feedSourceId: string): Promise<string | null>
   findRunByLogicalKey(supplierId: string, logicalRunKey: string): Promise<ExistingReleaseRun | null>
+  findReleaseByChecksum?(source: FeedSourceIdentity, sha256: string): Promise<ExistingReleaseRun | null>
   createRun(input: {
     supplierId: string
     sourceId: string
@@ -256,7 +259,8 @@ export async function orchestrateWessexCheckAndPlan(
   }
 
   const releaseLogicalKey = logicalRunKey(source.feedSourceId, check.latestSha256)
-  const existingRun = await store.findRunByLogicalKey(source.supplierId, releaseLogicalKey)
+  const existingRun = await store.findReleaseByChecksum?.(source, check.latestSha256)
+    ?? await store.findRunByLogicalKey(source.supplierId, releaseLogicalKey)
   if (existingRun) {
     if (existingRun.planFingerprint && ACCEPTED_CHANGED_RUN_STATES.has(existingRun.status)) {
       const checkId = await store.recordSourceCheck({
@@ -455,7 +459,15 @@ export async function orchestrateWessexCheckAndPlan(
 
     await store.beginStaging(runId)
     await stagePlanRows(store, runId, plan.entries, options.stagingBatchSize ?? DEFAULT_STAGING_BATCH_SIZE)
-    const fingerprint = await store.freezePlan(runId, options.massChangePolicy ?? {})
+    let fingerprint: string
+    try {
+      fingerprint = await store.freezePlan(runId, options.massChangePolicy ?? {})
+    } catch (error) {
+      // An RPC response can be lost after commit. Never re-stage or re-key.
+      const persisted = await store.readRun(runId)
+      if (!persisted.planFingerprint || !ACCEPTED_CHANGED_RUN_STATES.has(persisted.status)) throw error
+      fingerprint = persisted.planFingerprint
+    }
     const run = await store.readRun(runId)
 
     if (!run.planFingerprint || run.planFingerprint !== fingerprint) {
@@ -597,6 +609,7 @@ function classifyFetchCheckError(error: unknown): {
 }
 
 function classifyPlanningError(error: unknown): { code: string; summary: string } {
+  if (/existing run|recovery required/i.test(messageText(error))) return { code: 'recovery_required', summary: 'Existing incomplete release requires operator recovery; no automatic staging or replacement.' }
   return { code: 'planning_failed', summary: boundedErrorSummary(messageText(error)) }
 }
 
@@ -606,11 +619,9 @@ function messageText(error: unknown): string {
 }
 
 function boundedErrorSummary(message: string): string {
-  return message
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 512)
+  // Untrusted transport/DB messages can contain credentials and URLs.
+  void message
+  return 'Supplier feed operation failed; inspect persisted checkpoints before retrying.'
 }
 
 function logicalRunKey(feedSourceId: string, sha256: string): string {
@@ -735,22 +746,32 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
     },
 
     async getLatestSuccessfulChecksum(feedSourceId) {
-      const { data, error } = await db().from('supplier_feed_source_checks')
-        .select('sha256,checked_at,created_at')
-        .eq('feed_source_id', feedSourceId)
-        .in('status', ['changed', 'unchanged'])
-        .not('sha256', 'is', null)
-        .order('checked_at', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(1)
-      if (error) throw error
-      const row = (data ?? [])[0] as { sha256?: string } | undefined
+      const data = await completeRead(() => db().from('supplier_feed_source_checks')
+        .select('*,linked_run:supplier_feed_runs!feed_run_id(adapter_id,adapter_version,planner_version,artifact_ref,logical_run_key)', { count: 'exact' })
+        .eq('feed_source_id', feedSourceId))
+      const syntheticRuns = new Set(data.filter(isSynthetic).map(row => row.feed_run_id).filter(Boolean))
+      const row = data.filter(row => ['changed', 'unchanged'].includes(row.status) && !isSynthetic(row) && !syntheticRuns.has(row.feed_run_id) && /^[0-9a-f]{64}$/.test(row.sha256 ?? ''))
+        .sort((a, b) => String(b.checked_at).localeCompare(String(a.checked_at)) || String(b.created_at).localeCompare(String(a.created_at)) || b.id.localeCompare(a.id))[0]
       return row?.sha256 ?? null
+    },
+
+    async findReleaseByChecksum(source, sha256) {
+      const candidates = await completeRead(() => db().from('supplier_feed_runs')
+        .select('*', { count: 'exact' })
+        .eq('supplier_id', source.supplierId).eq('feed_source_id', source.feedSourceId).eq('scope_key', source.scopeKey)
+        .eq('persistence_version', 2).eq('source_checksum', sha256))
+      const checks = candidates.length ? await completeRead(() => db().from('supplier_feed_source_checks')
+        .select('*', { count: 'exact' }).eq('feed_source_id', source.feedSourceId).in('feed_run_id', candidates.map(row => row.id))) : []
+      const syntheticRuns = new Set(checks.filter(isSynthetic).map(row => row.feed_run_id))
+      const operational = candidates.filter(row => !isSynthetic(row) && !syntheticRuns.has(row.id))
+      if (operational.length > 1) throw new Error('Ambiguous operational release; recovery required')
+      const row = operational[0]
+      return row ? { id: row.id, status: row.status, planFingerprint: row.plan_fingerprint, planCounts: row.plan_counts, sourceChecksum: row.source_checksum } : null
     },
 
     async findRunByLogicalKey(supplierId, logicalRunKey) {
       const { data, error } = await db().from('supplier_feed_runs')
-        .select('id,status,plan_fingerprint,plan_counts,source_checksum')
+        .select('id,status,plan_fingerprint,plan_counts,source_checksum,adapter_id,adapter_version,planner_version,artifact_ref,logical_run_key')
         .eq('supplier_id', supplierId)
         .eq('persistence_version', 2)
         .eq('logical_run_key', logicalRunKey)
@@ -758,6 +779,8 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
       if (error) throw error
       const row = (data ?? [])[0] as Record<string, unknown> | undefined
       if (!row) return null
+      const checks = await completeRead(() => db().from('supplier_feed_source_checks').select('*', { count: 'exact' }).eq('feed_run_id', row.id))
+      if (isSynthetic(row) || checks.some(isSynthetic)) throw new Error('Synthetic release key collision; recovery required')
       return {
         id: String(row.id),
         status: String(row.status),
@@ -823,7 +846,7 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
     },
 
     async listCanonicalProducts(supplierId) {
-      const { data, error } = await db().from('supplier_products').select([
+      const data = await completeRead(() => db().from('supplier_products').select([
         'id',
         'supplier_id',
         'source_product_key',
@@ -864,9 +887,7 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
         'image_rights_status',
         'image_permitted_uses',
         'source_image_updated_at',
-      ].join(','))
-        .eq('supplier_id', supplierId)
-      if (error) throw error
+      ].join(','), { count: 'exact' }).eq('supplier_id', supplierId))
       return (data ?? []).map((row: Record<string, unknown>) => ({
         id: String(row.id),
         supplierId: String(row.supplier_id),
@@ -882,10 +903,9 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
     },
 
     async listSourceKeyAliases(supplierId) {
-      const { data, error } = await db().from('supplier_product_aliases')
-        .select('supplier_id,supplier_product_id,alias_kind,alias_value')
-        .eq('supplier_id', supplierId)
-      if (error) throw error
+      const data = await completeRead(() => db().from('supplier_product_aliases')
+        .select('id,supplier_id,supplier_product_id,alias_kind,alias_value', { count: 'exact' })
+        .eq('supplier_id', supplierId))
       return (data ?? []).map((row: Record<string, unknown>) => ({
         supplierId: String(row.supplier_id),
         productId: String(row.supplier_product_id),
@@ -916,7 +936,15 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
         p_error_code: input.errorCode,
         p_error_summary: input.errorSummary,
       })
-      if (error || typeof data !== 'string') throw error ?? new Error('block2e_record_source_check did not return check ID')
+      if (error || typeof data !== 'string') {
+        const checks = await completeRead(() => db().from('supplier_feed_source_checks').select('*', { count: 'exact' })
+          .eq('feed_source_id', input.feedSourceId).eq('checked_at', input.checkedAt))
+        const committed = checks.find(check => check.status === input.status && check.sha256 === input.sha256
+          && (check.feed_run_id ?? null) === (input.feedRunId ?? null)
+          && (check.plan_fingerprint ?? null) === (input.planFingerprint ?? null) && !isSynthetic(check))
+        if (committed) return committed.id
+        throw error ?? new Error('block2e_record_source_check did not return check ID')
+      }
       return data
     },
   }

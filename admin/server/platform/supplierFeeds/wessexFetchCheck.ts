@@ -51,21 +51,22 @@ type PublishedDateParse = {
 }
 
 export async function runWessexFetchCheck(options: WessexFetchCheckOptions): Promise<WessexFetchCheckResult> {
-  const timeoutMs = options.timeoutMs ?? 30_000
+  const timeoutMs = Math.min(30_000, Math.max(1, options.timeoutMs ?? 30_000))
   const now = options.now ?? (() => new Date())
 
-  const [xlsResponse, updatesResponse] = await Promise.all([
-    fetchRequired(WESSEX_MOULDINGS_XLS_URL, 'Wessex XLS', timeoutMs),
-    fetchRequired(WESSEX_UPDATES_PAGE_URL, 'Wessex updates page', timeoutMs),
+  // Await both bounded requests even on failure: no orphaned acquisition work.
+  const responses = await Promise.allSettled([
+    fetchRequired(WESSEX_MOULDINGS_XLS_URL, 'Wessex XLS', timeoutMs, 5_000_000),
+    fetchRequired(WESSEX_UPDATES_PAGE_URL, 'Wessex updates page', timeoutMs, 1_000_000),
   ])
+  for (const response of responses) if (response.status === 'rejected') throw response.reason
+  const [xlsResponse, updatesResponse] = responses.map(response => (response as PromiseFulfilledResult<{ headers: Headers; bytes: Uint8Array }>).value)
 
   const xlsRetrievedAt = now().toISOString()
   const pageRetrievedAt = now().toISOString()
 
-  const [xlsBytes, updatesHtml] = await Promise.all([
-    xlsResponse.arrayBuffer().then(buffer => new Uint8Array(buffer)),
-    updatesResponse.text(),
-  ])
+  const xlsBytes = xlsResponse.bytes
+  const updatesHtml = new TextDecoder().decode(updatesResponse.bytes)
 
   const lastModified = validateLastModifiedHeader(xlsResponse.headers.get('last-modified'))
   const sha256 = createHash('sha256').update(xlsBytes).digest('hex')
@@ -117,25 +118,65 @@ export async function runWessexFetchCheck(options: WessexFetchCheckOptions): Pro
   }
 }
 
-async function fetchRequired(url: string, label: string, timeoutMs: number): Promise<Response> {
+async function fetchRequired(url: string, label: string, timeoutMs: number, maxBytes: number): Promise<{ headers: Headers; bytes: Uint8Array }> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} request timed out`))
+      controller.abort()
+      void reader?.cancel().catch(() => {})
+    }, timeoutMs)
+  })
+  const bounded = <T>(work: Promise<T>) => Promise.race([work, timeout])
+  const fail = (reason: string): never => { throw new Error(`${label} ${reason}`) }
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      headers: { 'user-agent': 'FramersApp Wessex fetch check' },
-      signal: controller.signal,
-    })
-    if (!response.ok) throw new Error(`${label} request failed with HTTP ${response.status}`)
-    return response
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`${label} request timed out after ${timeoutMs}ms`)
+    let destination = url
+    for (let redirects = 0; ; redirects++) {
+      const response = await bounded(fetch(destination, {
+        method: 'GET', redirect: 'manual', credentials: 'omit',
+        headers: { 'user-agent': 'FramersApp Wessex fetch check' }, signal: controller.signal,
+      }))
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        void response.body?.cancel().catch(() => {})
+        if (redirects >= 2) fail('redirect limit exceeded')
+        let next: URL
+        try { next = new URL(response.headers.get('location') ?? '', destination) } catch { return fail('redirect rejected') }
+        // Deliberately narrow: only this exact HTTPS resource, no credentials,
+        // alternate hosts, ports, query strings or fragments. No ambient headers.
+        if (!response.headers.get('location') || next.href !== url || next.username || next.password) fail('redirect rejected')
+        destination = next.href
+        continue
+      }
+      if (!response.ok) { void response.body?.cancel().catch(() => {}); fail(`request failed with HTTP ${response.status}`) }
+      const length = response.headers.get('content-length')
+      if (length !== null && (!/^\d+$/.test(length) || Number(length) > maxBytes)) fail('body exceeds permitted size')
+      if (!response.body) fail('request failed with empty body')
+      reader = response.body!.getReader()
+      const chunks: Uint8Array[] = []
+      let size = 0
+      for (;;) {
+        const part = await bounded(reader.read())
+        if (part.done) break
+        size += part.value.byteLength
+        if (size > maxBytes) fail('body exceeds permitted size')
+        chunks.push(part.value)
+      }
+      const bytes = new Uint8Array(size)
+      let offset = 0
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+      return { headers: response.headers, bytes }
     }
-    throw error
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`${label} request timed out`)
+    // Only our own finite messages may escape; fetch exceptions are untrusted.
+    if (error instanceof Error && new RegExp(`^${label} (?:redirect rejected|redirect limit exceeded|body exceeds permitted size|request failed with (?:HTTP \\d{3}|empty body))$`).test(error.message)) throw error
+    throw new Error(`${label} request failed`)
   } finally {
     clearTimeout(timer)
+    controller.abort()
+    void reader?.cancel().catch(() => {})
   }
 }
 

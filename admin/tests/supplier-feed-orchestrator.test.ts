@@ -23,6 +23,10 @@ const feedSourceId = '44444444-4444-4444-8444-444444444444'
 const scopeKey = 'catalog-a'
 
 let db: PGlite
+let canonicalBaseline: string
+async function canonicalSignature() {
+  return JSON.stringify({ products: await rows('SELECT * FROM supplier_products ORDER BY id'), events: await rows('SELECT * FROM supplier_product_cost_events ORDER BY id') })
+}
 
 const rows = async (sql: string, args: unknown[] = []) => (await db.query(sql, args)).rows as Record<string, any>[]
 
@@ -42,9 +46,11 @@ beforeEach(async () => {
   await rows(`INSERT INTO public.suppliers(id,name,slug) VALUES ($1,'Wessex','wessex')`, [supplierId])
   await rows(`INSERT INTO public.supplier_feed_sources(id,supplier_id,source_key,scope_key,allows_authoritative_snapshots)
     VALUES ($1,$2,'wessex-mouldings',$3,true)`, [feedSourceId, supplierId, scopeKey])
+  canonicalBaseline = await canonicalSignature()
 })
 
 afterEach(async () => {
+  expect(await canonicalSignature()).toBe(canonicalBaseline)
   await db.close()
 })
 
@@ -297,6 +303,43 @@ async function checkStatuses(): Promise<SourceCheckStatus[]> {
 }
 
 describe('Block 2F Phase 5B orchestration', () => {
+  it('reconciles a historical alternative release key without creating a run', async () => {
+    const fixture = fetchResultFixture({ rows: [['A100', 'Frame', 3.2, 20]], classification: 'changed', previousSha256: null })
+    const store = makeStore()
+    const first = await orchestrateWessexCheckAndPlan(store, { source: { supplierId, feedSourceId, scopeKey }, acquisitionComplete: true, completeReleaseConfirmed: true, fetchCheck: async () => fixture })
+    if (first.outcome !== 'planned') throw new Error('fixture not planned')
+    store.findReleaseByChecksum = async () => ({ id: first.runId, status: 'awaiting_approval', planFingerprint: first.planFingerprint, planCounts: first.planCounts, sourceChecksum: fixture.latestSha256 })
+    store.findRunByLogicalKey = async () => { throw new Error('must use historical match') }
+    expect((await orchestrateWessexCheckAndPlan(store, { source: { supplierId, feedSourceId, scopeKey }, acquisitionComplete: true, completeReleaseConfirmed: true, fetchCheck: async () => fixture })).outcome).toBe('planned')
+    expect((await rows('select count(*)::int as n from supplier_feed_runs'))[0].n).toBe(1)
+  })
+  it('reconciles freeze commit with lost response and never stages a replacement', async () => {
+    const fixture = fetchResultFixture({ rows: [['A101', 'Frame', 3.2, 20]], classification: 'changed', previousSha256: null })
+    const store = makeStore(), freeze = store.freezePlan
+    store.freezePlan = async (...args) => { await freeze(...args); throw new Error('response lost') }
+    expect((await orchestrateWessexCheckAndPlan(store, { source: { supplierId, feedSourceId, scopeKey }, acquisitionComplete: true, completeReleaseConfirmed: true, fetchCheck: async () => fixture })).outcome).toBe('planned')
+    expect((await rows('select status from supplier_feed_runs'))[0].status).toBe('awaiting_approval')
+  })
+  it('records normalization and planner-input failures without canonical effects', async () => {
+    const fixture = fetchResultFixture({ rows: [['A102', 'Frame', 3.2, 20]], classification: 'changed', previousSha256: null })
+    const store = makeStore()
+    store.listCanonicalProducts = async () => { throw new Error('planning input failed') }
+    expect((await orchestrateWessexCheckAndPlan(store, { source: { supplierId, feedSourceId, scopeKey }, acquisitionComplete: true, completeReleaseConfirmed: true, fetchCheck: async () => fixture })).outcome).toBe('planning_error')
+    const invalid = fetchResultFixture({ rows: [['A103', 'Frame', 3.2, 20]], classification: 'changed', previousSha256: null })
+    invalid.artifact.rows[0].artifactSha256 = 'f'.repeat(64)
+    expect((await orchestrateWessexCheckAndPlan(makeStore(), { source: { supplierId, feedSourceId, scopeKey }, acquisitionComplete: true, completeReleaseConfirmed: true, fetchCheck: async () => invalid })).outcome).toBe('planning_error')
+  })
+  it('records a planner exception without staging or canonical/cost-event mutation', async () => {
+    const fixture = fetchResultFixture({ rows: [['A104', 'Frame', 3.2, 20]], classification: 'changed', previousSha256: null })
+    const store = makeStore()
+    // Fault injection at the planner input boundary; the production planner is used.
+    store.listCanonicalProducts = async () => [null as any]
+    const result = await orchestrateWessexCheckAndPlan(store, { source: { supplierId, feedSourceId, scopeKey }, acquisitionComplete: true, completeReleaseConfirmed: true, fetchCheck: async () => fixture })
+    expect(result.outcome).toBe('planning_error')
+    expect(await rows('select id from supplier_feed_rows')).toHaveLength(0)
+    expect(await rows('select id from supplier_products')).toHaveLength(0)
+    expect(await rows('select id from supplier_product_cost_events')).toHaveLength(0)
+  })
   it('changed release persists check, creates one run, stages rows, and freezes awaiting approval', async () => {
     const fixture = fetchResultFixture({
       rows: [

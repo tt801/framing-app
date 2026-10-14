@@ -30,6 +30,31 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('Supplier Feeds read-only operations UI', () => {
+  it.each(['unchanged', 'planned', 'failed', 'already_running'])('Check now shows %s and refreshes existing evidence without approval/application', async outcome => {
+    const id = '468247ee-809b-4784-aca1-bba44f860c85'
+    const realFeed = { ...feed, id, pendingApprovalRunId: null }
+    let finish: (value: any) => void = () => {}
+    const pending = new Promise(resolve => { finish = resolve })
+    const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/platform/supplier-feed-checks') {
+        expect(init.method).toBe('POST')
+        expect(JSON.parse(String(init.body))).toEqual({ feedId: id })
+        await pending
+        return { ok: outcome !== 'failed', status: outcome === 'failed' ? 503 : 200, text: async () => JSON.stringify({ outcome, error: outcome === 'failed' ? 'execution_failed' : undefined }) }
+      }
+      return { ok: true, text: async () => JSON.stringify(url.includes('offset=0') ? { feeds: [realFeed], offset: 0, hasMore: false } : { feed: realFeed, checks: [], runs: [], syntheticChecks: 0, syntheticRuns: 0 }) }
+    })
+    vi.stubGlobal('fetch', fetch)
+    render(<SupplierFeeds />)
+    fireEvent.click(await screen.findByRole('button', { name: 'wessex-mouldings-xls' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Check now' }))
+    expect((await screen.findByRole('button', { name: 'Checking…' })).hasAttribute('disabled')).toBe(true)
+    finish(null)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Check now' }).hasAttribute('disabled')).toBe(false))
+    expect(fetch.mock.calls.filter(([url]) => url === `/api/platform/supplier-feeds?feedId=${id}`).length).toBe(2)
+    expect(fetch.mock.calls.some(([url]) => url.includes('supplier-feed-actions'))).toBe(false)
+    expect(await screen.findByText(outcome === 'failed' ? /Check was not confirmed/ : outcome === 'already_running' ? /A check is already running/ : /Check complete/)).toBeTruthy()
+  })
   it.each([true, false])('renders persisted cost evidence (new format=%s) without inventing legacy old values', async recorded => {
     const oldCost = { amount: '10', currency: 'GBP', unit: 'metre', taxBasis: 'exclusive', effectiveAt: '2026-10-13T14:00:00Z' }
     const newCost = { ...oldCost, amount: '10.01', effectiveAt: '2026-10-13T15:00:00Z' }
