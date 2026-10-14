@@ -45,7 +45,7 @@ async function checked(query: any) {
   if (result.error) throw new ExecutionError(503, 'persistence_unconfirmed')
   return result.data
 }
-export type ExecutionResponse = { outcome: 'already_running' | 'unchanged' | 'planned' | 'failed'; attemptId?: string; checkId?: string; runId?: string; elapsedMs: number; code?: string }
+export type ExecutionResponse = { outcome: 'already_running' | 'unchanged' | 'planned' | 'failed'; attemptId?: string; checkId?: string; runId?: string; runStatus?: string; elapsedMs: number; code?: string }
 export async function executeSupplierFeedCheck(deps: {
   getSupabaseAdmin: () => Database; env?: Environment; now?: () => number;
   orchestrate?: typeof orchestrateWessexCheckAndPlan;
@@ -64,6 +64,7 @@ export async function executeSupplierFeedCheck(deps: {
   let outcome: 'unchanged' | 'planned' | 'failed' = 'failed'
   let stage = 'planning'
   let code: string | undefined
+  let runStatus: string | undefined
   try {
     result = await (deps.orchestrate ?? orchestrateWessexCheckAndPlan)(store, {
       source: wessexSource, acquisitionComplete: true, completeReleaseConfirmed: true,
@@ -79,6 +80,7 @@ export async function executeSupplierFeedCheck(deps: {
       if (!result.reusedExistingRun && (run.status !== 'awaiting_approval' || run.approved_by || run.approved_at || run.approved_plan_fingerprint
         || control.progress.pending !== control.progress.total || control.progress.applied || control.progress.failed || control.progress.conflict)) throw new ExecutionError(503, 'plan_unconfirmed')
       outcome = 'planned'
+      runStatus = run.status
     } else if (result.outcome === 'unchanged') outcome = 'unchanged'
     else { stage = result.outcome === 'check_error' ? 'checking' : 'planning'; code = result.errorCode }
     const check = await checked(safeDb.from('supplier_feed_source_checks').select('id,feed_source_id,status,feed_run_id,plan_fingerprint').eq('id', result.checkId).single())
@@ -97,7 +99,7 @@ export async function executeSupplierFeedCheck(deps: {
   const persisted = await checked(db.from('supplier_feed_execution_attempts').select('id,outcome,completed_at,source_check_id,feed_run_id').eq('id', attempt.id).single())
   if (!persisted || persisted.outcome !== outcome || !persisted.completed_at || persisted.source_check_id !== checkId || persisted.feed_run_id !== runId)
     throw new ExecutionError(503, 'persistence_unconfirmed')
-  return { outcome, attemptId: attempt.id, ...(checkId ? { checkId } : {}), ...(runId ? { runId } : {}), elapsedMs: now() - started, ...(code ? { code } : {}) }
+  return { outcome, attemptId: attempt.id, ...(checkId ? { checkId } : {}), ...(runId ? { runId } : {}), ...(outcome === 'planned' ? { runStatus } : {}), elapsedMs: now() - started, ...(code ? { code } : {}) }
 }
 
 // Match existing mutation-origin policy without widening Phase 5D action inputs.

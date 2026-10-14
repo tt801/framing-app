@@ -30,7 +30,14 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('Supplier Feeds read-only operations UI', () => {
-  it.each(['unchanged', 'planned', 'failed', 'already_running'])('Check now shows %s and refreshes existing evidence without approval/application', async outcome => {
+  it.each([
+    { outcome: 'planned', runStatus: 'applied', message: 'Check complete. This release was already imported and applied; no further action is required.' },
+    { outcome: 'planned', runStatus: 'awaiting_approval', message: 'Check complete. Review the persisted plan; approval and application remain separate human actions.' },
+    { outcome: 'planned', runStatus: undefined, message: 'Check complete. Review the persisted plan; approval and application remain separate human actions.' },
+    { outcome: 'unchanged', runStatus: undefined, message: 'Check complete: source checked and unchanged; no new release requires action.' },
+    { outcome: 'failed', runStatus: undefined, message: 'Check was not confirmed. Refresh persisted evidence before retrying.' },
+    { outcome: 'already_running', runStatus: undefined, message: 'A check is already running. Refresh to see persisted progress.' },
+  ])('Check now uses server result $outcome/$runStatus, not matching historical SHA, without approval/application', async ({ outcome, runStatus, message }) => {
     const id = '468247ee-809b-4784-aca1-bba44f860c85'
     const realFeed = { ...feed, id, pendingApprovalRunId: null }
     let finish: (value: any) => void = () => {}
@@ -40,9 +47,11 @@ describe('Supplier Feeds read-only operations UI', () => {
         expect(init.method).toBe('POST')
         expect(JSON.parse(String(init.body))).toEqual({ feedId: id })
         await pending
-        return { ok: outcome !== 'failed', status: outcome === 'failed' ? 503 : 200, text: async () => JSON.stringify({ outcome, error: outcome === 'failed' ? 'execution_failed' : undefined }) }
+        return { ok: outcome !== 'failed', status: outcome === 'failed' ? 503 : 200, text: async () => JSON.stringify({ outcome, runStatus, error: outcome === 'failed' ? 'execution_failed' : undefined }) }
       }
-      return { ok: true, text: async () => JSON.stringify(url.includes('offset=0') ? { feeds: [realFeed], offset: 0, hasMore: false } : { feed: realFeed, checks: [], runs: [], syntheticChecks: 0, syntheticRuns: 0 }) }
+      // Every case has the same applied historical run/SHA in browser evidence.
+      // Only the server result may determine the Check now message.
+      return { ok: true, text: async () => JSON.stringify(url.includes('offset=0') ? { feeds: [realFeed], offset: 0, hasMore: false } : { feed: realFeed, checks: [mapCheck({ id: 'check', status: 'changed', sha256: rawRun.source_checksum, feed_run_id: rawRun.id })], runs: [mapRun(rawRun)], syntheticChecks: 0, syntheticRuns: 0 }) }
     })
     vi.stubGlobal('fetch', fetch)
     render(<SupplierFeeds />)
@@ -53,7 +62,9 @@ describe('Supplier Feeds read-only operations UI', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Check now' }).hasAttribute('disabled')).toBe(false))
     expect(fetch.mock.calls.filter(([url]) => url === `/api/platform/supplier-feeds?feedId=${id}`).length).toBe(2)
     expect(fetch.mock.calls.some(([url]) => url.includes('supplier-feed-actions'))).toBe(false)
-    expect(await screen.findByText(outcome === 'failed' ? /Check was not confirmed/ : outcome === 'already_running' ? /A check is already running/ : /Check complete/)).toBeTruthy()
+    expect(await screen.findByText(message)).toBeTruthy()
+    if (runStatus === 'applied' || outcome === 'unchanged') expect(screen.queryByText(/Review the persisted plan/)).toBeNull()
+    else expect(screen.queryByText(/This release was already imported and applied/)).toBeNull()
   })
   it.each([true, false])('renders persisted cost evidence (new format=%s) without inventing legacy old values', async recorded => {
     const oldCost = { amount: '10', currency: 'GBP', unit: 'metre', taxBasis: 'exclusive', effectiveAt: '2026-10-13T14:00:00Z' }

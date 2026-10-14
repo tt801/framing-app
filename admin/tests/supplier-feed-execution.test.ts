@@ -41,6 +41,7 @@ describe('shared planning-only execution service', () => {
     const f = database()
     const out = await executeSupplierFeedCheck({ getSupabaseAdmin: () => f.db, env, orchestrate: async () => result(f) }, 'scheduled')
     expect(out).toMatchObject({ outcome: 'unchanged', checkId })
+    expect(out).not.toHaveProperty('runStatus')
     expect(JSON.stringify(out)).not.toContain('private-owner')
     expect(f.attempts[0].outcome).toBe('unchanged')
   })
@@ -55,6 +56,37 @@ describe('shared planning-only execution service', () => {
   it('verifies a changed plan without approving or applying', async () => {
     const f = database()
     expect((await executeSupplierFeedCheck({ getSupabaseAdmin: () => f.db, env, orchestrate: async () => result(f, true) }, 'manual')).outcome).toBe('planned')
+    expect(f.db.rpc.mock.calls.map(c => c[0])).toEqual(['block2e_claim_feed_execution', 'block2e_finish_feed_execution'])
+  })
+  it('reports reconciled applied status from persisted state, not the orchestrator snapshot', async () => {
+    const f = database()
+    const out = await executeSupplierFeedCheck({ getSupabaseAdmin: () => f.db, env, orchestrate: async () => {
+      const r = result(f, true)
+      f.runs[0].status = 'applied'
+      return { ...r, reusedExistingRun: true } as WessexOrchestrationResult
+    } }, 'manual')
+    expect(out).toMatchObject({ outcome: 'planned', runId, runStatus: 'applied' })
+    expect(f.db.rpc.mock.calls.map(c => c[0])).toEqual(['block2e_claim_feed_execution', 'block2e_finish_feed_execution'])
+  })
+  it.each([false, true])('reports actionable persisted awaiting-approval state (recovered=%s)', async recovered => {
+    const f = database()
+    const out = await executeSupplierFeedCheck({ getSupabaseAdmin: () => f.db, env, orchestrate: async () => {
+      const r = result(f, true)
+      return { ...r, reusedExistingRun: recovered, runStatus: 'applied' } as WessexOrchestrationResult
+    } }, 'manual')
+    expect(out).toMatchObject({ outcome: 'planned', runStatus: 'awaiting_approval' })
+  })
+  it.each(['run', 'check'])('rejects synthetic %s evidence instead of reporting applied reconciliation', async synthetic => {
+    const f = database()
+    const out = await executeSupplierFeedCheck({ getSupabaseAdmin: () => f.db, env, orchestrate: async () => {
+      const r = result(f, true)
+      f.runs[0].status = 'applied'
+      if (synthetic === 'run') f.runs[0].adapter_id = 'phase5b-synthetic-verification'
+      else f.checks[0].source_url = 'https://verification.invalid/artifact'
+      return { ...r, reusedExistingRun: true } as WessexOrchestrationResult
+    } }, 'manual')
+    expect(out.outcome).toBe('failed')
+    expect(out).not.toHaveProperty('runStatus')
     expect(f.db.rpc.mock.calls.map(c => c[0])).toEqual(['block2e_claim_feed_execution', 'block2e_finish_feed_execution'])
   })
   it('does not report success without persisted check evidence', async () => {

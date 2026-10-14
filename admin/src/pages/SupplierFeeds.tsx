@@ -91,7 +91,12 @@ function FeedDetailView({ feedId, back }: { feedId: string; back: () => void }) 
     setChecking(true); setCheckMessage('Starting supplier check; checking, validation and planning may take several minutes.');
     try {
       const result = await checkSupplierFeed(feedId);
-      setCheckMessage(result.outcome === 'already_running' ? 'A check is already running. Refresh to see persisted progress.' : result.outcome === 'planned' ? 'Check complete. Review the persisted plan; approval and application remain separate human actions.' : result.outcome === 'unchanged' ? 'Check complete: unchanged.' : 'Check failed. Review persisted attempt and check evidence.');
+      setCheckMessage(result.outcome === 'already_running' ? 'A check is already running. Refresh to see persisted progress.'
+        : result.outcome === 'planned' ? (result.runStatus === 'applied'
+          ? 'Check complete. This release was already imported and applied; no further action is required.'
+          : 'Check complete. Review the persisted plan; approval and application remain separate human actions.')
+        : result.outcome === 'unchanged' ? 'Check complete: source checked and unchanged; no new release requires action.'
+        : 'Check failed. Review persisted attempt and check evidence.');
     } catch { setCheckMessage('Check was not confirmed. Refresh persisted evidence before retrying.'); }
     finally { setChecking(false); refreshSummary(); }
   };

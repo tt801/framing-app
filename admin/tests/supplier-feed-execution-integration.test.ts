@@ -75,7 +75,7 @@ describe('Phase 5E real shared service + orchestrator + disposable SQL', () => {
   it('freezes exactly one awaiting-approval plan; sequential same-SHA invocation is unchanged', async () => {
     const c = client(), deps = { getSupabaseAdmin: () => c, env }
     const first = await executeSupplierFeedCheck(deps, 'scheduled')
-    expect(first.outcome).toBe('planned')
+    expect(first).toMatchObject({ outcome: 'planned', runStatus: 'awaiting_approval' })
     expect((await sql('select status,row_count,approved_by,approved_at,applied_by from supplier_feed_runs'))[0]).toMatchObject({ status: 'awaiting_approval', row_count: 2, approved_by: null, approved_at: null, applied_by: null })
     expect((await executeSupplierFeedCheck(deps, 'manual')).outcome).toBe('unchanged')
     expect(await sql('select id from supplier_feed_runs')).toHaveLength(1)
@@ -106,7 +106,7 @@ describe('Phase 5E real shared service + orchestrator + disposable SQL', () => {
     // Historical imports may have no operational check baseline. Exercise that
     // input while retaining the real adapter, planner, reconciliation and SQL.
     const second = await executeSupplierFeedCheck({ ...deps, orchestrate: (store, options) => orchestrateWessexCheckAndPlan({ ...store, getLatestSuccessfulChecksum: async () => null }, options) }, 'manual')
-    expect(second.outcome).toBe('planned')
+    expect(second).toMatchObject({ outcome: 'planned', runStatus: 'applied' })
     expect(await sql('select id from supplier_feed_runs')).toHaveLength(1)
     expect(c.calls.filter(name => name === 'block2e_create_run')).toHaveLength(1)
   })
