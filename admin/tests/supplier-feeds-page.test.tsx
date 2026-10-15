@@ -30,6 +30,22 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('Supplier Feeds read-only operations UI', () => {
+  it.each([false, true])('uses server capability, not a Wessex UUID, and respects scheduling (enabled=%s)', async enabled => {
+    const manual = { ...feed, overdue: true, checking: { canCheckNow: enabled, schedule: null, description: 'Historical/manual — daily checking disabled' } }
+    mockFetch({ [`/api/platform/supplier-feeds?feedId=${feedId}`]: { feed: manual, checks: [], runs: [], syntheticChecks: 0, syntheticRuns: 0 } })
+    render(<SupplierFeeds />)
+    fireEvent.click(await screen.findByRole('button', { name: 'wessex-mouldings-xls' }))
+    await screen.findByRole('heading', { name: 'Check History' })
+    expect(Boolean(screen.queryByRole('button', { name: 'Check now' }))).toBe(enabled)
+    expect(screen.queryByText(/Daily check overdue/)).toBeNull()
+    expect(screen.getByText('Historical/manual — daily checking disabled')).toBeTruthy()
+  })
+  it('shows daily overdue only when the server declares an active daily schedule', async () => {
+    mockFetch({ [`/api/platform/supplier-feeds?feedId=${feedId}`]: { feed: { ...feed, overdue: true, checking: { canCheckNow: true, schedule: 'daily', description: 'Live checking enabled' } }, checks: [], runs: [] } })
+    render(<SupplierFeeds />)
+    fireEvent.click(await screen.findByRole('button', { name: 'wessex-mouldings-xls' }))
+    expect(await screen.findByText('Daily check overdue or no successful check recorded.')).toBeTruthy()
+  })
   it.each([
     { outcome: 'planned', runStatus: 'applied', message: 'Check complete. This release was already imported and applied; no further action is required.' },
     { outcome: 'planned', runStatus: 'awaiting_approval', message: 'Check complete. Review the persisted plan; approval and application remain separate human actions.' },
@@ -39,7 +55,7 @@ describe('Supplier Feeds read-only operations UI', () => {
     { outcome: 'already_running', runStatus: undefined, message: 'A check is already running. Refresh to see persisted progress.' },
   ])('Check now uses server result $outcome/$runStatus, not matching historical SHA, without approval/application', async ({ outcome, runStatus, message }) => {
     const id = '468247ee-809b-4784-aca1-bba44f860c85'
-    const realFeed = { ...feed, id, pendingApprovalRunId: null }
+    const realFeed = { ...feed, id, pendingApprovalRunId: null, checking: { canCheckNow: true, schedule: null, description: 'Live checking enabled' } }
     let finish: (value: any) => void = () => {}
     const pending = new Promise(resolve => { finish = resolve })
     const fetch = vi.fn(async (url: string, init: RequestInit) => {

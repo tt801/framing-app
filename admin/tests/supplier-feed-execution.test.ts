@@ -145,6 +145,18 @@ async function request(trigger: 'scheduled' | 'manual', overrides: any = {}, aut
 }
 beforeEach(() => { for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v); vi.stubEnv('CRON_SECRET', 'fixture-cron-secret-1234') })
 describe('cron and Check now authentication gates', () => {
+  it.each(['url', 'sourceUrl', 'adapter', 'acquisitionComplete', 'completeReleaseConfirmed', 'mode'])('rejects caller-supplied %s before database or network access', async key => {
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher)
+    const result = await request('manual', { body: { feedId: wessexSource.feedSourceId, [key]: 'untrusted' } })
+    expect(result.status).toBe(400)
+    expect(result.getSupabaseAdmin).not.toHaveBeenCalled()
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+  it.each(['unregistered', 'international-moulding-historical', '55555555-5555-4555-8555-555555555555'])('rejects unregistered/manual-only feed %s before accessing a client', async feedId => {
+    const getSupabaseAdmin = vi.fn()
+    await expect(executeSupplierFeedCheck({ getSupabaseAdmin, env }, 'manual', feedId)).rejects.toThrow('unsupported_feed')
+    expect(getSupabaseAdmin).not.toHaveBeenCalled()
+  })
   it.each([undefined, '', 'Bearer wrong', 'bearer fixture-cron-secret-1234', ['Bearer fixture-cron-secret-1234']])('rejects malformed/missing/wrong cron auth %j', async authorization => {
     const r = await request('scheduled', { headers: { authorization } }); expect(r.status).toBe(403); expect(r.getSupabaseAdmin).not.toHaveBeenCalled()
   })

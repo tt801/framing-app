@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { wessexFeedSource } from '../server/platform/supplierFeeds/feedAdapters.js'
 import { aggregateFeed, isSynthetic, mapCheck, mapReviewRow } from '../server/platform/supplierFeeds/operations.js'
 
 const source = { id: '11111111-1111-4111-8111-111111111111', supplier_id: '22222222-2222-4222-8222-222222222222', source_key: 'wessex-mouldings-xls', scope_key: 'mouldings', allows_authoritative_snapshots: true, supplier: { id: '22222222-2222-4222-8222-222222222222', name: 'Wessex', status: 'draft' } }
@@ -6,6 +7,20 @@ const check = { id: 'check', checked_at: '2026-10-13T10:00:00Z', created_at: '20
 const run = { id: 'real', status: 'applied', created_at: '2026-10-12T10:00:00Z', completed_at: '2026-10-12T11:00:00Z', mode: 'apply_requested', source_checksum: 'a'.repeat(64), plan_fingerprint: 'b'.repeat(64), plan_counts: { create: 1194, update: 0, unchanged: 0, review: 0, reject: 0, potential_missing: 0, cost_changes: 0 }, adapter_id: 'wessex-wpp4-mouldings', artifact_ref: '/scratch/Wessex.xls' }
 
 describe('supplier feed operations aggregation', () => {
+  it('derives checking capability from registered source identity and environment; historical/non-authoritative sources stay manual-only', () => {
+    vi.stubEnv('SUPPLIER_FEED_AUTOMATION_ENABLED', 'true')
+    vi.stubEnv('SUPPLIER_FEED_EXPECTED_PROJECT_REF', 'zminmylvmtyglkujxxyk')
+    vi.stubEnv('SUPABASE_URL', 'https://zminmylvmtyglkujxxyk.supabase.co')
+    const registered = { ...source, id: wessexFeedSource.feedSourceId, supplier_id: wessexFeedSource.supplierId }
+    try {
+      expect(aggregateFeed(registered, [], [], 0).checking).toMatchObject({ canCheckNow: true, schedule: null })
+      expect(aggregateFeed({ ...registered, allows_authoritative_snapshots: false }, [], [], 0).checking.canCheckNow).toBe(false)
+      expect(aggregateFeed({ ...source, source_key: 'international-moulding-historical', allows_authoritative_snapshots: false }, [], [], 0)).toMatchObject({ checking: { canCheckNow: false, schedule: null }, overdue: false })
+      expect(aggregateFeed({ ...registered, supplier_id: 'other-supplier' }, [], [], 0).checking.canCheckNow).toBe(false)
+      vi.stubEnv('SUPPLIER_FEED_AUTOMATION_ENABLED', 'false')
+      expect(aggregateFeed(registered, [], [], 0).checking.canCheckNow).toBe(false)
+    } finally { vi.unstubAllEnvs() }
+  })
   it.each([
     ['running', '2100-01-01', 'running'], ['running', '2020-01-01', 'interrupted'],
     ['planned', '2100-01-01', 'completed'], ['failed', '2100-01-01', 'failed'], ['interrupted', '2020-01-01', 'interrupted'],

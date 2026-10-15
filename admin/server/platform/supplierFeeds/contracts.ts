@@ -5,6 +5,14 @@ export const initialFeedRetention = {
 } as const
 
 export type FeedMode = 'dry_run' | 'apply_requested'
+export type FeedAcquisition = {
+  sourceUrl: string; etag?: string | null; lastModified?: string | null; sha256: string
+  retrievedAt: string; originalFilename: string; byteSize: number
+}
+export type PublicationEvidence = {
+  sourceUrl: string; retrievedAt: string; matchedText: string
+  publishedDatabaseUpdateDateRaw: string; publishedDatabaseUpdateDate: string; extractionRule: string
+}
 export type FeedCoverage = 'snapshot' | 'delta'
 export type FeedContext = {
   supplierId: string

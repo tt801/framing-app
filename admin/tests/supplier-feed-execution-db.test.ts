@@ -15,6 +15,17 @@ beforeEach(async () => {
 afterEach(async () => { await db.close() })
 async function claim() { return (await db.query<any>('select public.block2e_claim_feed_execution($1,$2) as attempt', [source, 'scheduled'])).rows[0].attempt }
 describe('durable planning-only leases (disposable database)', () => {
+  it('isolates owners and evidence between two supplier sources', async () => {
+    const second = '55555555-5555-4555-8555-555555555555'
+    await db.query('INSERT INTO supplier_feed_sources VALUES ($1)', [second])
+    const first = await claim()
+    const other = (await db.query<any>('SELECT block2e_claim_feed_execution($1,$2) AS attempt', [second, 'manual'])).rows[0].attempt
+    expect(first.id).not.toBe(other.id)
+    expect(await claim()).toBeNull()
+    expect((await db.query<any>('SELECT block2e_claim_feed_execution($1,$2) AS attempt', [second, 'manual'])).rows[0].attempt).toBeNull()
+    await expect(db.query('SELECT block2e_finish_feed_execution($1,$2,$3,$4,$5,$6)', [first.id, other.ownership_token, 'failed', 'planning', null, null])).rejects.toThrow('lease')
+    expect((await db.query<any>("SELECT count(*)::int AS n FROM supplier_feed_execution_attempts WHERE outcome='running'")).rows[0].n).toBe(2)
+  })
   it('denies expired finish, direct service writes, terminal edits and audit deletion', async () => {
     const first = await claim()
     await db.exec('ALTER TABLE supplier_feed_execution_attempts DISABLE TRIGGER USER')

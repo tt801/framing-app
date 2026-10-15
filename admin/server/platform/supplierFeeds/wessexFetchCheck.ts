@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { normalizeWessexArtifact, type WessexNormalizationInput } from './wessexNormalization.js'
 import { parseWessexMouldings, wessexBytesChanged, type WessexRawArtifact } from './wessexMouldings.js'
+import type { PublicationEvidence } from './contracts.js'
 
 export const WESSEX_MOULDINGS_XLS_URL = 'https://www.wessexpictures.com/res/WessexMouldings.xls'
 export const WESSEX_UPDATES_PAGE_URL = 'https://www.wessexpictures.com/wessex_pricing_program_downloads.html'
@@ -25,14 +26,7 @@ export type WessexFetchCheckOptions = {
 
 export type WessexFetchCheckClassification = 'changed' | 'unchanged'
 
-export type WessexPublishedUpdateEvidence = {
-  sourceUrl: string
-  retrievedAt: string
-  matchedText: string
-  publishedDatabaseUpdateDateRaw: string
-  publishedDatabaseUpdateDate: string
-  extractionRule: string
-}
+export type WessexPublishedUpdateEvidence = PublicationEvidence
 
 export type WessexFetchCheckResult = {
   classification: WessexFetchCheckClassification

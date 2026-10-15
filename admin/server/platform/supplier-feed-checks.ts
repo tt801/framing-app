@@ -1,11 +1,12 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import type { PlatformDependencies } from './dependencies.js'
-import { createSupabaseBlock2eStore, orchestrateWessexCheckAndPlan, type WessexOrchestrationResult } from './supplierFeeds/block2eOrchestrator.js'
+import { createSupabaseBlock2eStore, orchestrateFeedCheckAndPlan, type FeedOrchestrationOptions, type Block2eStore, type WessexOrchestrationResult } from './supplierFeeds/block2eOrchestrator.js'
+import { registeredFeed, wessexFeedSource as wessexSource } from './supplierFeeds/feedAdapters.js'
 import { readRunControl } from './supplierFeeds/control.js'
 import { isSynthetic, runColumns } from './supplierFeeds/operations.js'
 
-export const wessexSource = Object.freeze({ supplierId: '1312e794-ec94-4bf0-aa3a-9ffc35b4428d', feedSourceId: '468247ee-809b-4784-aca1-bba44f860c85', scopeKey: 'mouldings' })
+export { wessexSource }
 export const executionLimits = { hardSeconds: 300, workMs: 240_000, requestMs: 15_000 } as const
 const sandbox = 'zminmylvmtyglkujxxyk'
 type Database = { from: (table: string) => any; rpc: (name: string, args: any) => any }
@@ -48,11 +49,13 @@ async function checked(query: any) {
 export type ExecutionResponse = { outcome: 'already_running' | 'unchanged' | 'planned' | 'failed'; attemptId?: string; checkId?: string; runId?: string; runStatus?: string; elapsedMs: number; code?: string }
 export async function executeSupplierFeedCheck(deps: {
   getSupabaseAdmin: () => Database; env?: Environment; now?: () => number;
-  orchestrate?: typeof orchestrateWessexCheckAndPlan;
-}, trigger: 'scheduled' | 'manual', feedId = wessexSource.feedSourceId): Promise<ExecutionResponse> {
+  orchestrate?: (store: Block2eStore, options: FeedOrchestrationOptions & { acquisitionComplete: boolean; completeReleaseConfirmed: boolean }) => Promise<WessexOrchestrationResult>;
+}, trigger: 'scheduled' | 'manual', feedId: string = wessexSource.feedSourceId): Promise<ExecutionResponse> {
   const env = deps.env ?? process.env
   checkExecutionEnvironment(env)
-  if (feedId !== wessexSource.feedSourceId) throw new ExecutionError(400, 'unsupported_feed')
+  const registered = registeredFeed(feedId)
+  if (!registered || !registered.liveChecking) throw new ExecutionError(400, 'unsupported_feed')
+  const source = registered.source
   const now = deps.now ?? Date.now, started = now(), deadline = started + executionLimits.workMs
   const db = deps.getSupabaseAdmin()
   const attempt = await checked(db.rpc('block2e_claim_feed_execution', { p_source_id: feedId, p_trigger: trigger }))
@@ -66,13 +69,13 @@ export async function executeSupplierFeedCheck(deps: {
   let code: string | undefined
   let runStatus: string | undefined
   try {
-    result = await (deps.orchestrate ?? orchestrateWessexCheckAndPlan)(store, {
-      source: wessexSource, acquisitionComplete: true, completeReleaseConfirmed: true,
+    result = await (deps.orchestrate ?? orchestrateFeedCheckAndPlan)(store, {
+      source, adapter: registered.adapter, acquisitionComplete: true, completeReleaseConfirmed: registered.adapter.allowsAuthoritative,
       fetchTimeoutMs: Math.min(30_000, Math.max(1, deadline - now())),
     })
     if (result.outcome === 'planned') {
       const run = await checked(safeDb.from('supplier_feed_runs').select(runColumns).eq('id', result.runId).single())
-      if (!run || run.feed_source_id !== feedId || run.supplier_id !== wessexSource.supplierId || run.scope_key !== wessexSource.scopeKey
+      if (!run || run.feed_source_id !== feedId || run.supplier_id !== source.supplierId || run.scope_key !== source.scopeKey
         || run.source_checksum !== result.latestSha256 || run.plan_fingerprint !== result.planFingerprint || isSynthetic(run)) throw new ExecutionError(503, 'plan_unconfirmed')
       const control = await readRunControl(safeDb, run)
       if (control.synthetic || control.progress.total !== run.row_count || control.progress.version2 !== control.progress.total) throw new ExecutionError(503, 'plan_unconfirmed')
@@ -130,10 +133,10 @@ export function createCheckHandler(deps: PlatformDependencies, trigger: 'schedul
         try { await deps.requirePlatformAdmin(req) } catch { throw new ExecutionError(403, 'unauthorized') }
         if (!safeManual(req)) throw new ExecutionError(403, 'unauthorized')
         if (typeof req.headers['content-type'] !== 'string' || !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(req.headers['content-type'])) throw new ExecutionError(415, 'invalid_content_type')
-        if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length !== 1
-          || req.body.feedId !== wessexSource.feedSourceId || Object.keys(req.query ?? {}).length) throw new ExecutionError(400, 'invalid_request')
+        if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length !== 1 || Object.keys(req.body)[0] !== 'feedId'
+          || !registeredFeed(req.body.feedId)?.liveChecking || Object.keys(req.query ?? {}).length) throw new ExecutionError(400, 'invalid_request')
       }
-      const result = await executeSupplierFeedCheck(deps, trigger)
+      const result = await executeSupplierFeedCheck(deps, trigger, trigger === 'manual' ? req.body.feedId : undefined)
       return res.status(result.outcome === 'failed' ? 503 : 200).json(result)
     } catch (error) {
       const status = error instanceof ExecutionError ? error.status : 503

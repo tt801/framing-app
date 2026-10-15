@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import * as XLSX from '@e965/xlsx'
+import type { FeedAcquisition } from './contracts.js'
 
 /** Raw evidence only. Not a Block 2E Candidate or an approval/apply request.
  * The supplier reference is a candidate sourceProductKey within this artifact; Wessex must
@@ -7,15 +8,7 @@ import * as XLSX from '@e965/xlsx'
  * Block 2E requires snapshot/delta and lifecycle; neither can be asserted here.
  * Source URL and HTTP headers are caller-supplied evidence, not proof of authenticated origin.
  */
-export type WessexAcquisition = {
-  sourceUrl: string
-  etag?: string | null
-  lastModified?: string | null
-  sha256: string
-  retrievedAt: string
-  originalFilename: string
-  byteSize: number
-}
+export type WessexAcquisition = FeedAcquisition
 export type WessexRawRow = {
   item: { key: string; rowNumber: number; path: string }
   sourceProductKey: string

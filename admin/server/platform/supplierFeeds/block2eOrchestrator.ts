@@ -3,10 +3,8 @@ import { completeRead } from './completeRead.js'
 import { batchStagingLimits, packStagingRows, postgresJsonBytes, StagingUnconfirmedError, validateBatchSize, verifyBatchEvidence, verifyBatchIds, verifyStagedCounts } from './batchStaging.js'
 import { isSynthetic } from './operations.js'
 import { planFeed } from './planner.js'
-import { normalizeWessexArtifact } from './wessexNormalization.js'
+import { createWessexAdapter, type FeedAdapter, type CheckedFeedRelease } from './feedAdapters.js'
 import {
-  WESSEX_MOULDINGS_XLS_URL,
-  WESSEX_UPDATES_PAGE_URL,
   runWessexFetchCheck,
   type WessexFetchCheckResult,
 } from './wessexFetchCheck.js'
@@ -33,23 +31,23 @@ export type FeedSourceIdentity = {
   supplierId: string
   feedSourceId: string
   scopeKey: string
+  /** Historical proofs must also match the persisted source policy. */
+  allowsAuthoritativeSnapshots?: boolean
 }
 
 export type ExistingReleaseRun = {
   id: string
   status: string
+  mode?: string
+  adapterId?: string
+  authoritative?: boolean
+  missingInferenceEnabled?: boolean
   planFingerprint: string | null
   planCounts: Record<string, number> | null
   sourceChecksum: string | null
 }
 
-export type RunSnapshot = {
-  id: string
-  status: string
-  planFingerprint: string | null
-  planCounts: Record<string, number> | null
-  sourceChecksum: string | null
-}
+export type RunSnapshot = ExistingReleaseRun
 
 export type Block2eStore = {
   ensureFeedSource(identity: FeedSourceIdentity): Promise<void>
@@ -123,7 +121,8 @@ export type WessexOrchestrationOptions = {
   fetchTimeoutMs?: number
 }
 
-export type WessexOrchestrationResult =
+export type WessexOrchestrationResult = FeedOrchestrationResult
+export type FeedOrchestrationResult =
   | {
       outcome: 'unchanged'
       checkId: string
@@ -178,7 +177,18 @@ export async function orchestrateWessexCheckAndPlan(
   store: Block2eStore,
   options: WessexOrchestrationOptions,
 ): Promise<WessexOrchestrationResult> {
+  return orchestrateFeedCheckAndPlan(store, { ...options, adapter: createWessexAdapter(options.fetchCheck ?? runWessexFetchCheck, {
+    acquisitionComplete: options.acquisitionComplete, completeReleaseConfirmed: options.completeReleaseConfirmed,
+  }) })
+}
+
+export type FeedOrchestrationOptions = {
+  source: FeedSourceIdentity; adapter: FeedAdapter; massChangePolicy?: MassChangePolicy; stagingBatchSize?: number; fetchTimeoutMs?: number
+}
+export async function orchestrateFeedCheckAndPlan(store: Block2eStore, options: FeedOrchestrationOptions): Promise<FeedOrchestrationResult> {
   const source = options.source
+  const adapter = options.adapter
+  if (!adapter.allowsAuthoritative && source.allowsAuthoritativeSnapshots !== false) throw new Error('Historical source policy must forbid authoritative snapshots')
   const stagingBatchSize = options.stagingBatchSize ?? batchStagingLimits.defaultRows
   validateBatchSize(stagingBatchSize)
   await store.ensureFeedSource(source)
@@ -186,27 +196,22 @@ export async function orchestrateWessexCheckAndPlan(
   const previousSha256 = await store.getLatestSuccessfulChecksum(source.feedSourceId)
   const checkedAt = new Date().toISOString()
 
-  const fetchCheck = options.fetchCheck ?? defaultFetchCheck
-
-  let check: WessexFetchCheckResult
+  let check: CheckedFeedRelease
   try {
-    check = await fetchCheck({
-      previousSha256,
-      supplierId: source.supplierId,
-      sourceId: source.feedSourceId,
-      scopeId: source.scopeKey,
-      acquisitionComplete: options.acquisitionComplete,
-      completeReleaseConfirmed: options.completeReleaseConfirmed,
-      timeoutMs: options.fetchTimeoutMs,
-    })
+    check = await adapter.acquire({ source, previousSha256, timeoutMs: options.fetchTimeoutMs ?? 30_000, now: () => new Date() })
+    // The historical policy additionally binds its retained ZIP/member evidence.
+    // Wessex keeps its existing acquisition validator and synthetic local-test seam.
+    if (adapter.mode === 'dry_run' && (check.artifact.acquisition.sourceUrl !== adapter.sourceUrl || check.publishedUpdate.sourceUrl !== adapter.publicationUrl))
+      throw new Error('Adapter provenance mismatch')
+    assertAdapterPolicy(adapter, check.normalized)
   } catch (error) {
     const { status, code, summary } = classifyFetchCheckError(error)
     const checkId = await store.recordSourceCheck({
       feedSourceId: source.feedSourceId,
       checkedAt,
       status,
-      sourceUrl: WESSEX_MOULDINGS_XLS_URL,
-      publishedUpdateSourceUrl: WESSEX_UPDATES_PAGE_URL,
+      sourceUrl: adapter.sourceUrl,
+      publishedUpdateSourceUrl: adapter.publicationUrl,
       publishedUpdateDate: null,
       publishedUpdateDateRaw: null,
       publishedUpdateMatch: null,
@@ -264,11 +269,11 @@ export async function orchestrateWessexCheckAndPlan(
     }
   }
 
-  const releaseLogicalKey = logicalRunKey(source.feedSourceId, check.latestSha256)
+  const releaseLogicalKey = `${adapter.releaseNamespace}:${source.feedSourceId}:${check.latestSha256}`
   const existingRun = await store.findReleaseByChecksum?.(source, check.latestSha256)
     ?? await store.findRunByLogicalKey(source.supplierId, releaseLogicalKey)
   if (existingRun) {
-    if (existingRun.planFingerprint && ACCEPTED_CHANGED_RUN_STATES.has(existingRun.status)) {
+    if (existingRun.planFingerprint && acceptedReleaseRun(adapter, existingRun)) {
       const checkId = await store.recordSourceCheck({
         feedSourceId: source.feedSourceId,
         checkedAt,
@@ -348,14 +353,14 @@ export async function orchestrateWessexCheckAndPlan(
         sourceId: source.feedSourceId,
         scopeKey: source.scopeKey,
         logicalRunKey: releaseLogicalKey,
-        mode: 'apply_requested',
+        mode: adapter.mode,
         coverage: check.normalized.context.coverage,
         authoritative: check.normalized.context.authoritative,
         adapterId: check.normalized.context.adapter.id,
         adapterVersion: check.normalized.context.adapter.version,
         plannerVersion: PLANNER_VERSION,
         checksum: check.latestSha256,
-        artifactRef: `${check.artifact.acquisition.sourceUrl}#sha256=${check.latestSha256}`,
+        artifactRef: check.artifactRef ?? `${check.artifact.acquisition.sourceUrl}#sha256=${check.latestSha256}`,
         acquisitionComplete: check.normalized.context.acquisitionComplete,
         parsingComplete: check.normalized.context.parsingComplete,
         validationSafeForMissing: check.normalized.context.validationSafeForMissing,
@@ -365,7 +370,7 @@ export async function orchestrateWessexCheckAndPlan(
       const existingAfterConflict = await store.findRunByLogicalKey(source.supplierId, releaseLogicalKey)
       if (!existingAfterConflict) throw createError
 
-      if (existingAfterConflict.planFingerprint && ACCEPTED_CHANGED_RUN_STATES.has(existingAfterConflict.status)) {
+      if (existingAfterConflict.planFingerprint && acceptedReleaseRun(adapter, existingAfterConflict)) {
         const checkId = await store.recordSourceCheck({
           feedSourceId: source.feedSourceId,
           checkedAt,
@@ -437,15 +442,8 @@ export async function orchestrateWessexCheckAndPlan(
       }
     }
 
-    const normalized = normalizeWessexArtifact(check.artifact, {
-      supplierId: source.supplierId,
-      runId,
-      sourceId: source.feedSourceId,
-      scopeId: source.scopeKey,
-      publishedDatabaseUpdateDate: check.publishedUpdate.publishedDatabaseUpdateDate,
-      acquisitionComplete: check.normalized.context.acquisitionComplete,
-      completeReleaseConfirmed: check.normalized.context.authoritative,
-    })
+    const normalized = check.normalizeForRun(runId)
+    assertAdapterPolicy(adapter, normalized)
 
     const [existingProducts, aliases] = await Promise.all([
       store.listCanonicalProducts(source.supplierId),
@@ -455,7 +453,7 @@ export async function orchestrateWessexCheckAndPlan(
     const plan = planFeed({
       context: {
         ...normalized.context,
-        mode: 'apply_requested',
+        mode: adapter.mode,
       },
       rows: normalized.planningRows,
       existingProducts,
@@ -464,7 +462,7 @@ export async function orchestrateWessexCheckAndPlan(
     })
 
     await store.beginStaging(runId)
-    await stagePlanRows(store, runId, plan.entries, stagingBatchSize)
+    await stagePlanRows(store, runId, plan.entries, stagingBatchSize, check.sourceEvidenceByRow)
     await store.verifyStagedPlan(runId, plan.counts)
     let fingerprint: string
     try {
@@ -472,7 +470,7 @@ export async function orchestrateWessexCheckAndPlan(
     } catch (error) {
       // An RPC response can be lost after commit. Never re-stage or re-key.
       const persisted = await store.readRun(runId)
-      if (!persisted.planFingerprint || !ACCEPTED_CHANGED_RUN_STATES.has(persisted.status)) throw error
+      if (!persisted.planFingerprint || !acceptedReleaseRun(adapter, persisted)) throw error
       fingerprint = persisted.planFingerprint
     }
     const run = await store.readRun(runId)
@@ -480,6 +478,7 @@ export async function orchestrateWessexCheckAndPlan(
     if (!run.planFingerprint || run.planFingerprint !== fingerprint) {
       throw new Error('Planned run fingerprint was not persisted')
     }
+    if (adapter.mode === 'dry_run' && !acceptedReleaseRun(adapter, run)) throw new Error('Persisted historical policy mismatch')
 
     const checkId = await store.recordSourceCheck({
       feedSourceId: source.feedSourceId,
@@ -558,8 +557,14 @@ async function stagePlanRows(
   runId: string,
   entries: PlanEntry[],
   batchSize: number,
+  sourceEvidenceByRow?: Map<number, Record<string, unknown>>,
 ): Promise<void> {
-  const batches = packStagingRows(entries.map(planEntryToStagedRow), batchSize)
+  const batches = packStagingRows(entries.map(entry => {
+    const row = planEntryToStagedRow(entry)
+    const sourceEvidence = sourceEvidenceByRow?.get(entry.item?.rowNumber ?? -1)
+    if (sourceEvidence) row.proposed_diff = { ...(row.proposed_diff as Record<string, unknown>), sourceEvidence }
+    return row
+  }), batchSize)
   for (const batch of batches) {
     try {
       const ids = await store.stageRows(runId, batch)
@@ -634,29 +639,17 @@ function boundedErrorSummary(message: string): string {
   return 'Supplier feed operation failed; inspect persisted checkpoints before retrying.'
 }
 
-function logicalRunKey(feedSourceId: string, sha256: string): string {
-  return `wessex:${feedSourceId}:${sha256}`
+function acceptedReleaseRun(adapter: FeedAdapter, run: ExistingReleaseRun) {
+  if (adapter.mode === 'dry_run') return run.status === 'planned' && run.mode === 'dry_run'
+    && run.adapterId === adapter.id && run.authoritative === false && run.missingInferenceEnabled === false
+  return ACCEPTED_CHANGED_RUN_STATES.has(run.status)
 }
-
-function defaultFetchCheck(args: {
-  previousSha256: string | null
-  supplierId: string
-  sourceId: string
-  scopeId: string
-  acquisitionComplete: boolean
-  completeReleaseConfirmed: boolean
-  timeoutMs?: number
-}): Promise<WessexFetchCheckResult> {
-  return runWessexFetchCheck({
-    supplierId: args.supplierId,
-    runId: '00000000-0000-4000-8000-000000000000',
-    sourceId: args.sourceId,
-    scopeId: args.scopeId,
-    acquisitionComplete: args.acquisitionComplete,
-    completeReleaseConfirmed: args.completeReleaseConfirmed,
-    previousSha256: args.previousSha256,
-    timeoutMs: args.timeoutMs,
-  })
+function assertAdapterPolicy(adapter: FeedAdapter, normalized: CheckedFeedRelease['normalized']) {
+  if (normalized.context.adapter.id !== adapter.id
+    || (!adapter.allowsAuthoritative && normalized.context.authoritative)
+    || (!adapter.allowsMissing && (normalized.context.missingInferenceEnabled || normalized.context.validationSafeForMissing))
+    || (adapter.mode === 'dry_run' && (normalized.context.mode !== 'dry_run' || normalized.planningRows.some(row => row.result.value?.cost))))
+    throw new Error('Adapter violated server-owned feed policy')
 }
 
 const stableSignature = (value: unknown): string => JSON.stringify(
@@ -747,12 +740,14 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
   return {
     async ensureFeedSource(identity) {
       const { data, error } = await db().from('supplier_feed_sources')
-        .select('id,supplier_id,scope_key')
+        .select('id,supplier_id,scope_key,allows_authoritative_snapshots')
         .eq('id', identity.feedSourceId)
         .eq('supplier_id', identity.supplierId)
         .eq('scope_key', identity.scopeKey)
         .single()
       if (error || !data) throw error ?? new Error('Configured feed source was not found')
+      if (identity.allowsAuthoritativeSnapshots !== undefined && data.allows_authoritative_snapshots !== identity.allowsAuthoritativeSnapshots)
+        throw new Error('Persisted feed source policy mismatch')
     },
 
     async getLatestSuccessfulChecksum(feedSourceId) {
@@ -776,12 +771,13 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
       const operational = candidates.filter(row => !isSynthetic(row) && !syntheticRuns.has(row.id))
       if (operational.length > 1) throw new Error('Ambiguous operational release; recovery required')
       const row = operational[0]
-      return row ? { id: row.id, status: row.status, planFingerprint: row.plan_fingerprint, planCounts: row.plan_counts, sourceChecksum: row.source_checksum } : null
+      return row ? { id: row.id, status: row.status, mode: row.mode, adapterId: row.adapter_id, authoritative: row.authoritative_snapshot,
+        missingInferenceEnabled: row.missing_inference_enabled, planFingerprint: row.plan_fingerprint, planCounts: row.plan_counts, sourceChecksum: row.source_checksum } : null
     },
 
     async findRunByLogicalKey(supplierId, logicalRunKey) {
       const { data, error } = await db().from('supplier_feed_runs')
-        .select('id,status,plan_fingerprint,plan_counts,source_checksum,adapter_id,adapter_version,planner_version,artifact_ref,logical_run_key')
+        .select('id,status,mode,authoritative_snapshot,missing_inference_enabled,plan_fingerprint,plan_counts,source_checksum,adapter_id,adapter_version,planner_version,artifact_ref,logical_run_key')
         .eq('supplier_id', supplierId)
         .eq('persistence_version', 2)
         .eq('logical_run_key', logicalRunKey)
@@ -794,6 +790,8 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
       return {
         id: String(row.id),
         status: String(row.status),
+        mode: String(row.mode), adapterId: String(row.adapter_id), authoritative: row.authoritative_snapshot as boolean | undefined,
+        missingInferenceEnabled: row.missing_inference_enabled as boolean | undefined,
         planFingerprint: textOrNull(row.plan_fingerprint),
         planCounts: (row.plan_counts ?? null) as Record<string, number> | null,
         sourceChecksum: textOrNull(row.source_checksum),
@@ -871,13 +869,15 @@ export function createSupabaseBlock2eStore(getSupabaseAdmin: () => { from: (tabl
 
     async readRun(runId) {
       const { data, error } = await db().from('supplier_feed_runs')
-        .select('id,status,plan_fingerprint,plan_counts,source_checksum')
+        .select('id,status,mode,adapter_id,authoritative_snapshot,missing_inference_enabled,plan_fingerprint,plan_counts,source_checksum')
         .eq('id', runId)
         .single()
       if (error || !data) throw error ?? new Error('Run not found after plan freeze')
       return {
         id: String(data.id),
         status: String(data.status),
+        mode: String(data.mode), adapterId: String(data.adapter_id), authoritative: data.authoritative_snapshot,
+        missingInferenceEnabled: data.missing_inference_enabled,
         planFingerprint: textOrNull(data.plan_fingerprint),
         planCounts: (data.plan_counts ?? null) as Record<string, number> | null,
         sourceChecksum: textOrNull(data.source_checksum),

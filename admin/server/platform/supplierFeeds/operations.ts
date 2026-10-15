@@ -1,6 +1,7 @@
 import type { FeedCheck, FeedRun, FeedSummary, PlanCounts, FeedList, FeedDetail, RunDetail, ReviewRow } from '../../../src/lib/supplierFeedTypes.js'
 import { readRunControl } from './control.js'
 import { readReviewEvidence } from './reviewEvidence.js'
+import { checkingCapability } from './feedAdapters.js'
 
 type Row = Record<string, any>
 const text = (value: unknown, max = 512): string | null => typeof value === 'string' ? value.slice(0, max) : null
@@ -75,9 +76,11 @@ export function aggregateFeed(source: Row, checks: Row[], runs: Row[], canonical
   const attempt = releaseEvidence?.attempt
   const interrupted = attempt?.outcome === 'running' && Date.parse(attempt.expires_at) <= Date.now()
   const lastSuccessfulCheckAt = successful?.checked_at ?? null
+  const checking = checkingCapability(source as Parameters<typeof checkingCapability>[0])
   return {
+    checking,
     lastSuccessfulCheckAt, pendingApprovalRunId: pendingApproval?.id ?? null,
-    overdue: !lastSuccessfulCheckAt || Date.now() - Date.parse(lastSuccessfulCheckAt) > 30 * 60 * 60 * 1000,
+    overdue: checking.schedule === 'daily' && (!lastSuccessfulCheckAt || Date.now() - Date.parse(lastSuccessfulCheckAt) > 30 * 60 * 60 * 1000),
     latestAttempt: attempt ? { id: attempt.id, triggerType: attempt.trigger_type, state: interrupted || attempt.outcome === 'interrupted' ? 'interrupted' : attempt.outcome === 'running' ? 'running' : attempt.outcome === 'failed' ? 'failed' : 'completed', startedAt: attempt.started_at, completedAt: attempt.completed_at, stage: attempt.stage } : null,
     id: source.id, supplier_id: source.supplier_id, source_key: source.source_key, scope_key: source.scope_key,
     allows_authoritative_snapshots: source.allows_authoritative_snapshots,

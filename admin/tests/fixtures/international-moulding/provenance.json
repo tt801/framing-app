@@ -1,0 +1,17 @@
+{
+  "purpose": "Historical, non-authoritative, planning-only parser fixture. Not current customer pricing; never authorize canonical product/cost application from this file.",
+  "officialResourcesPage": "https://www.internationalmoulding.com/page/22",
+  "distributionUrl": "https://s3.amazonaws.com/im-dropbox-sync/Excel%20Price%20Lists.zip",
+  "selectedMember": "International Moulding Price List Moulding.xlsx",
+  "selectedMemberBytes": 81568,
+  "selectedMemberSha256": "591fa9833e812d06f0b0d7ee371bc9c30dbd376224ac73a77029f863f0ace86a",
+  "observedDistributionSha256": "4260c73f108c0d80722a3b4e4afe687914a776c5f6dafd85f8c8935f6b22e4f4",
+  "worksheet": "Table 1",
+  "title": "International Moulding Price List Effective January 16,2023",
+  "products": 1024,
+  "currency": "unconfirmed",
+  "billingUnit": "unconfirmed",
+  "taxBasis": "unconfirmed",
+  "canonicalPriceTier": null,
+  "fixtureConstruction": "Exact selected workbook bytes from the official public ZIP, SHA-256 verified. Tests wrap these bytes in deterministic local archives; they do not access the network. Other archive members are not included."
+}
