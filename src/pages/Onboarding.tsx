@@ -127,45 +127,46 @@ export default function Onboarding() {
     setStep(3);
   };
 
-  const handleFinish = async () => {
+  const handleFinish = async (skipInvites = false) => {
     setSaving(true);
     setInviteError("");
-    const results: string[] = [];
+    try {
+      const saved = await save({
+        companyName: form.companyName.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        website: form.website.trim(),
+        addressLine1: form.addressLine1.trim(),
+        city: form.city.trim(),
+        region: form.region.trim(),
+        postalCode: form.postalCode.trim(),
+        country: form.country.trim(),
+        currencyCode: form.currencyCode,
+        currencySymbol: form.currencySymbol,
+      });
+      if (saved.ok === false) { setInviteError(saved.error); return; }
 
-    const saved = await save({
-      companyName: form.companyName.trim(),
-      email: form.email.trim(),
-      phone: form.phone.trim(),
-      website: form.website.trim(),
-      addressLine1: form.addressLine1.trim(),
-      city: form.city.trim(),
-      region: form.region.trim(),
-      postalCode: form.postalCode.trim(),
-      country: form.country.trim(),
-      currencyCode: form.currencyCode,
-      currencySymbol: form.currencySymbol,
-    });
-    if (!saved.ok) { setInviteError(saved.error); setSaving(false); return; }
-
-    // Send invites for non-empty rows
-    const toInvite = inviteRows.filter((r) => r.email.trim());
-    for (const row of toInvite) {
-      try {
-        await inviteCompanyMember({ email: row.email.trim(), fullName: row.fullName.trim() || undefined, role: row.role });
-        results.push(`✓ Invited ${row.email}`);
-      } catch (err) {
-        results.push(`✗ ${row.email}: ${err instanceof Error ? err.message : "failed"}`);
+      // Invitations are optional; Skip still requires the company save above.
+      const results: string[] = [];
+      const toInvite = skipInvites ? [] : inviteRows.filter((r) => r.email.trim());
+      for (const row of toInvite) {
+        try {
+          await inviteCompanyMember({ email: row.email.trim(), fullName: row.fullName.trim() || undefined, role: row.role });
+          results.push(`✓ Invited ${row.email}`);
+        } catch (err) {
+          results.push(`✗ ${row.email}: ${err instanceof Error ? err.message : "failed"}`);
+        }
       }
+      setInviteResults(results);
+
+      const { data } = await supabase.auth.getUser();
+      if (data.user?.id) markOnboardingDone(data.user.id);
+      window.location.hash = "#/dashboard";
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : "Could not save company settings");
+    } finally {
+      setSaving(false);
     }
-
-    setInviteResults(results);
-
-    // Mark onboarding done
-    const { data } = await supabase.auth.getUser();
-    if (data.user?.id) markOnboardingDone(data.user.id);
-
-    setSaving(false);
-    window.location.hash = "#/dashboard";
   };
 
   const updateInviteRow = (idx: number, field: keyof InviteRow, value: string) => {
@@ -440,34 +441,14 @@ export default function Onboarding() {
               </button>
               <div className="flex gap-3">
                 <button
-                  onClick={async () => {
-                    // Skip invites, just save company + finish
-                    setSaving(true);
-                    save({
-                      companyName: form.companyName.trim(),
-                      email: form.email.trim(),
-                      phone: form.phone.trim(),
-                      website: form.website.trim(),
-                      addressLine1: form.addressLine1.trim(),
-                      city: form.city.trim(),
-                      region: form.region.trim(),
-                      postalCode: form.postalCode.trim(),
-                      country: form.country.trim(),
-                      currencyCode: form.currencyCode,
-                      currencySymbol: form.currencySymbol,
-                    });
-                    const { data } = await supabase.auth.getUser();
-                    if (data.user?.id) markOnboardingDone(data.user.id);
-                    setSaving(false);
-                    window.location.hash = "#/dashboard";
-                  }}
+                  onClick={() => handleFinish(true)}
                   disabled={saving}
                   className="text-sm text-slate-500 hover:text-slate-700 transition disabled:opacity-40"
                 >
                   Skip for now
                 </button>
                 <button
-                  onClick={handleFinish}
+                  onClick={() => handleFinish()}
                   disabled={saving}
                   className="rounded-xl bg-emerald-600 text-white px-5 py-2.5 text-sm font-semibold hover:bg-emerald-700 transition disabled:opacity-40"
                 >
