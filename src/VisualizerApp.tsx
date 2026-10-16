@@ -1187,11 +1187,8 @@ export default function VisualizerApp() {
       },
     };
 
-    const refNo = Number(String(Date.now()).slice(-4));
-
     const job = {
       id: rid(),
-      refNo,
       createdAt: new Date().toISOString(),
       description: `Framing job — ${frameName}`,
       status: "new",

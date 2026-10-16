@@ -38,6 +38,15 @@ vi.mock('@/lib/effectiveSupplierAccess', () => ({ useEffectiveCompanyCatalogue: 
 const money = (n: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'GBP' }).format(n)
 
 describe('Visualiser persistence uses its displayed commercial result', () => {
+  it('leaves new job references to the existing company-scoped database allocator', async () => {
+    captured.jobs.length = 0
+    vi.spyOn(window, 'alert').mockImplementation(() => {})
+    vi.spyOn(Date, 'now').mockReturnValue(1790000001000)
+    render(<VisualizerApp />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Jobs' }))
+    await waitFor(() => expect(captured.jobs).toHaveLength(1))
+    expect(captured.jobs[0]).not.toHaveProperty('refNo')
+  })
   it('does not price or persist a saved supplier reference as a fallback manual product', async () => {
     captured.quotes.length = 0; captured.jobs.length = 0; captured.invoices.length = 0
     const alert = vi.spyOn(window, 'alert').mockImplementation(() => {})

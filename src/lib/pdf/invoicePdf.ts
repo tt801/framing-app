@@ -2,6 +2,7 @@
 import jsPDF from 'jspdf'
 import { computeInvoiceTotals } from '../tax' // <-- uses taxRatePct, taxLabel, vatNumber from settings
 import type { CommercialSnapshot } from '../pricing'
+import { invoiceBalance } from '../commercialDocuments'
 
 export type InvoiceItem = { id: string; description: string; qty: number; unitPrice: number }
 export type InvoicePayment = { dateISO?: string; amount: number }
@@ -228,13 +229,15 @@ export async function exportInvoicePDF(args: {
   // ---------- Totals (legal: show tax rate & amount) ----------
   const totalsX = pageW - margin - 70
   let tY = Math.max(y, hasAT ? (doc as any).lastAutoTable?.finalY + 4 || y : y)
-  doc.setDrawColor(200); doc.setFillColor(250,250,250); doc.roundedRect(totalsX, tY, 70, 26, 2, 2, 'S')
+  doc.setDrawColor(200); doc.setFillColor(250,250,250); doc.roundedRect(totalsX, tY, 70, 40, 2, 2, 'S')
   tY += 7
 
   const totalsRows: Array<[string, string, boolean?]> = [
     ['Subtotal', moneyFmt(totals.subTotal, currencyCode, currencySym)],
     [`${taxLabel} (${(totals.taxRatePct || 0).toFixed(2)}%)`, moneyFmt(totals.taxAmount, currencyCode, currencySym)],
     ['Total',    moneyFmt(totals.grandTotal, currencyCode, currencySym), true],
+    ['Amount paid', moneyFmt((invoice.payments ?? []).reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0), currencyCode, currencySym)],
+    ['Balance due', moneyFmt(invoiceBalance({ ...invoice, total: totals.grandTotal, currencyCode }), currencyCode, currencySym), true],
   ]
 
   totalsRows.forEach(([label, value, bold]) => {

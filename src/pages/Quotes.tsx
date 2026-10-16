@@ -44,10 +44,11 @@ const symbolFor = (code: string | undefined): string => {
   return code + " ";
 };
 
-const money = (amount: any, currencyCode?: string, currencySymbol?: string): string => {
+type SavedCurrency = string | { code?: string; symbol?: string };
+const money = (amount: any, currencyCode?: SavedCurrency, currencySymbol?: string): string => {
   const v = n(amount, 0);
-  const code = currencyCode || "ZAR";
-  const sym = currencySymbol || symbolFor(code);
+  const code = (typeof currencyCode === 'object' ? currencyCode.code : currencyCode) || "ZAR";
+  const sym = (typeof currencyCode === 'object' ? currencyCode.symbol : undefined) || currencySymbol || symbolFor(code);
   try {
     return new Intl.NumberFormat(undefined, { style: "currency", currency: code }).format(v);
   } catch {
@@ -181,7 +182,7 @@ const extractItems = (
   return (arr as any[]).map(coerceItem);
 };
 
-const fmt = (nVal: number | undefined, currencyCode?: string, currencySymbol?: string) =>
+const fmt = (nVal: number | undefined, currencyCode?: SavedCurrency, currencySymbol?: string) =>
   money(nVal, currencyCode, currencySymbol);
 
 /* ---------------- Query / links helpers ---------------- */

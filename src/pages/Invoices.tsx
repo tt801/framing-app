@@ -9,14 +9,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { createManualDraft, editManualDraft, invoiceBalance, type CommercialItem } from "@/lib/commercialDocuments";
 import { effectiveTaxRatePct } from "@/lib/pricing";
 
-// Optional PDF export
-let exportInvoicePDF: any;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  exportInvoicePDF = require("@/lib/pdf/invoicePdf")?.exportInvoicePDF;
-} catch {
-  /* optional */
-}
+import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
 
 type Invoice = any;
 
@@ -281,8 +274,13 @@ export default function InvoicesPage() {
       : undefined) ||
     symbolFor(currencyCode);
 
-  const money = (n: number | undefined) =>
-    formatMoney(n, currencyCode, currencySymbol);
+  const money = (n: number | undefined, invoice?: Invoice) => {
+    const code = invoice?.pricingSnapshot?.currencyCode ?? invoice?.currencyCode ??
+      (typeof invoice?.currency === 'string' ? invoice.currency : invoice?.currency?.code) ?? currencyCode;
+    const symbol = invoice?.pricingSnapshot?.currencySymbol ?? invoice?.currencySymbol ??
+      (typeof invoice?.currency === 'object' ? invoice.currency?.symbol : undefined) ?? symbolFor(code) ?? currencySymbol;
+    return formatMoney(n, code, symbol);
+  };
 
   const integrations = settings.integrations || {};
   const qbConfig = integrations.quickbooks || {};
@@ -450,6 +448,7 @@ export default function InvoicesPage() {
     () => filtered.find((x: any) => x.id === selectedId) ?? filtered[0],
     [filtered, selectedId]
   );
+  const selectedMoney = (n: number | undefined) => money(n, selected);
 
   const displayName = selected
     ? resolveCustomerName(selected, customersList)
@@ -553,7 +552,7 @@ export default function InvoicesPage() {
 
 Your invoice ${
         selected.number ?? selected.id ?? ""
-      } is ${money(selected.total)}.
+      } is ${selectedMoney(selected.total)}.
 
 Thank you.
 — ${companyName}`
@@ -567,7 +566,7 @@ Thank you.
   const whatsappText = selected
     ? `Hi ${displayName}, your invoice ${
         selected.number ?? selected.id ?? ""
-      } is ${money(selected.total)}. Reply here with any questions. — ${companyName}`
+      } is ${selectedMoney(selected.total)}. Reply here with any questions. — ${companyName}`
     : `Hi, please see your invoice. — ${companyName}`;
 
   /* ---------- Overview chips ---------- */
@@ -665,12 +664,7 @@ Thank you.
   const onExportPDF = async () => {
     if (!selected) return;
     if (invoiceDraftDirty) { toast('Save the Draft invoice before exporting its PDF', 'error'); return; }
-    if (!exportInvoicePDF) {
-      console.warn(
-        "exportInvoicePDF not found. Add '@/lib/pdf/invoicePdf'."
-      );
-      return;
-    }
+
     try {
       const customer = customersList.find(
         (x: any) => x.id === selected.customerId
@@ -945,7 +939,7 @@ Thank you.
             <div className="grid gap-2">
               {filtered.map((row: any) => {
                 const cName = resolveCustomerName(row, customersList);
-                const amount = money(row?.total);
+                const amount = money(row?.total, row);
                 const isSelected = (selected?.id ?? selectedId) === row.id;
                 const st =
                   statusOverride[row.id] ?? (row?.status ?? "Draft");
@@ -1030,7 +1024,7 @@ Thank you.
                       Total
                     </div>
                     <div className="text-lg font-semibold">
-                      {money(selected?.total)}
+                      {selectedMoney(selected?.total)}
                     </div>
                   </div>
                 </div>
@@ -1219,7 +1213,7 @@ Thank you.
                         onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, qty: Number(e.target.value)} : row))}/>
                       <input aria-label={`Invoice unit price ${index + 1}`} type="number" min="0" step="any" className="col-span-2 rounded-lg border p-2" value={item.unitPrice}
                         onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, unitPrice: Number(e.target.value)} : row))}/>
-                      <span className="col-span-2 text-right">{money(invoiceDraftPreview?.pricingSnapshot.items[index]?.lineTotal ?? 0)}</span>
+                      <span className="col-span-2 text-right">{selectedMoney(invoiceDraftPreview?.pricingSnapshot.items[index]?.lineTotal ?? 0)}</span>
                       <button type="button" className="col-span-2 text-red-600 text-sm" onClick={() => setInvoiceDraftItems(prev => prev.filter((_, i) => i !== index))}>Remove</button>
                     </div>
                   ))}
@@ -1229,7 +1223,7 @@ Thank you.
                 </> : (selectedItems.length ? selectedItems.map((item, index) => (
                   <div key={index} className="grid grid-cols-12 gap-2 text-sm py-1">
                     <span className="col-span-4">{item.name}</span><span className="col-span-2">{item.qty}</span>
-                    <span className="col-span-2">{money(item.unitPrice)}</span><span className="col-span-2">{money(item.total)}</span>
+                    <span className="col-span-2">{selectedMoney(item.unitPrice)}</span><span className="col-span-2">{selectedMoney(item.total)}</span>
                   </div>
                 )) : <div className="text-sm text-slate-500">No line items.</div>)}
               </div>
@@ -1297,7 +1291,7 @@ Thank you.
                   <div className="flex justify-between">
                     <span className="text-slate-500">Subtotal</span>
                     <span>
-                      {money(
+                      {selectedMoney(
                         invoiceDraftPreview?.subtotal ?? selected?.subtotal ??
                           (selected?.total ?? 0) -
                             (selected?.tax ?? 0)
@@ -1313,18 +1307,18 @@ Thank you.
                           ).toFixed(0)}%)`
                         : ""}
                     </span>
-                    <span>{money(invoiceDraftPreview?.tax ?? selected?.tax)}</span>
+                    <span>{selectedMoney(invoiceDraftPreview?.tax ?? selected?.tax)}</span>
                   </div>
 
                   <div className="flex justify-between font-medium">
                     <span>{invoiceDraftDirty ? 'Total (unsaved preview)' : 'Total'}</span>
-                    <span>{money(invoiceDraftPreview?.total ?? selected?.total)}</span>
+                    <span>{selectedMoney(invoiceDraftPreview?.total ?? selected?.total)}</span>
                   </div>
                   {/* Paid & balance derived from payments */}
                   <div className="flex justify-between">
                     <span className="text-slate-500">Paid</span>
                     <span>
-                      {money(
+                      {selectedMoney(
                         (Array.isArray(selected.payments)
                           ? selected.payments.reduce(
                               (s: number, p: any) =>
@@ -1339,7 +1333,7 @@ Thank you.
                   <div className="flex justify-between font-semibold">
                     <span>Balance due</span>
                     <span>
-                      {money(invoiceBalance(selected))}
+                      {selectedMoney(invoiceBalance(selected))}
                     </span>
                   </div>
                 </div>
