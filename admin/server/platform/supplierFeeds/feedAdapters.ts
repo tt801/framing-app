@@ -6,19 +6,26 @@ import { normalizeWessexArtifact } from './wessexNormalization.js'
 import { runInternationalFetchCheck } from './internationalFetchCheck.js'
 import { normalizeInternationalArtifact } from './internationalNormalization.js'
 import { INTERNATIONAL_MEMBER, INTERNATIONAL_ZIP_URL } from './internationalMoulding.js'
+import { runLarsonFetchCheck } from './larsonJuhlFetchCheck.js'
+import { normalizeLarsonCatalogue } from './larsonJuhlNormalization.js'
+import { LARSON_CATALOGUE_URL } from './larsonJuhlCatalogue.js'
 
 export type FeedNormalization = { context: FeedContext; planningRows: PlanningRow[] }
 export type CheckedFeedRelease = {
   classification: 'changed' | 'unchanged'; latestSha256: string
   artifact: { acquisition: FeedAcquisition }
-  publishedUpdate: PublicationEvidence
+  // Undated public catalogues must not manufacture supplier publication dates.
+  // Keep PublicationEvidence itself strict for Wessex's dated acquisition contract.
+  publishedUpdate: Omit<PublicationEvidence, 'publishedDatabaseUpdateDateRaw' | 'publishedDatabaseUpdateDate'> & {
+    publishedDatabaseUpdateDateRaw: string | null; publishedDatabaseUpdateDate: string | null
+  }
   normalized: FeedNormalization
   normalizeForRun(runId: string): FeedNormalization
   artifactRef?: string
   sourceEvidenceByRow?: Map<number, Record<string, unknown>>
 }
 export type FeedAdapter = {
-  readonly id: 'wessex-wpp4-mouldings' | 'international-moulding-historical'
+  readonly id: 'wessex-wpp4-mouldings' | 'international-moulding-historical' | 'larson-juhl-uk-public-catalogue'
   readonly sourceUrl: string; readonly publicationUrl: string; readonly releaseNamespace: string
   readonly mode: 'apply_requested' | 'dry_run'; readonly allowsAuthoritative: boolean; readonly allowsMissing: boolean
   acquire(input: { source: FeedSourceIdentity; previousSha256: string | null; timeoutMs: number; now: () => Date }): Promise<CheckedFeedRelease>
@@ -52,9 +59,23 @@ export function createInternationalAdapter(fetchCheck = runInternationalFetchChe
     } })
 }
 
+export function createLarsonJuhlAdapter(fetchCheck = runLarsonFetchCheck): FeedAdapter {
+  return Object.freeze({ id: 'larson-juhl-uk-public-catalogue', sourceUrl: LARSON_CATALOGUE_URL, publicationUrl: LARSON_CATALOGUE_URL,
+    releaseNamespace: 'larson-juhl-uk-public-catalogue', mode: 'dry_run', allowsAuthoritative: false, allowsMissing: false,
+    async acquire({ source, previousSha256, timeoutMs, now }) {
+      if (source.allowsAuthoritativeSnapshots !== false) throw new Error('Larson source cannot allow authoritative snapshots')
+      const identity = { supplierId: source.supplierId, sourceId: source.feedSourceId, scopeId: source.scopeKey }
+      const check = await fetchCheck({ ...identity, runId: 'pending-run-id', previousSha256, timeoutMs, now })
+      return { ...check, normalizeForRun: runId => normalizeLarsonCatalogue(check.artifact, { ...identity, runId }),
+        artifactRef: `${LARSON_CATALOGUE_URL}#manifest-v1=${check.latestSha256}`,
+        sourceEvidenceByRow: check.normalized.sourceEvidenceByRow }
+    } })
+}
+
 export type RegisteredFeed = { source: FeedSourceIdentity; adapter: FeedAdapter; liveChecking: boolean; schedule: 'daily' | null }
 // Only approved existing identities are registered. International has deliberately NO
 // feed UUID/operational registration until a separately approved Sandbox registration.
+// Larson likewise remains internal-only: no live identity, Check Now or scheduling.
 export const wessexFeedSource = Object.freeze({
   supplierId: '1312e794-ec94-4bf0-aa3a-9ffc35b4428d', feedSourceId: '468247ee-809b-4784-aca1-bba44f860c85',
   scopeKey: 'mouldings' })

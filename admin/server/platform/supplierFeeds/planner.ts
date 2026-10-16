@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto'
 import { captureReviewEvidence } from './reviewEvidence.js'
 import type { Candidate, CanonicalProduct, FeedContext, FeedIssue, FeedPlan, MassChangePolicy, PlanEntry, ProductFields, ReconciliationAction, SourceItem, SourceKeyAlias, ValidationResult } from './contracts.js'
 
-export type PlanningRow = { item: SourceItem; result: ValidationResult }
+export type PlanningRow = {
+  item: SourceItem; result: ValidationResult
+  /** Adapter evidence may require review; it never grants additional write authority. */
+  policy?: { reviewReason?: FeedIssue; preserveLifecycle?: boolean }
+}
 export type PlanningInput = {
   context: FeedContext
   rows: readonly PlanningRow[]
@@ -122,6 +126,15 @@ export function planFeed({ context, rows, existingProducts, aliases, massChangeP
       action = 'review'
       base.ordinaryChanges = []; base.lifecycleChanges = []; base.assetChanges = []; base.costChange = false
       warnings.push(issue('missing_product_revision', 'Apply planning requires canonical product_revision evidence', row.item.key))
+    }
+    if (candidate && !errors.length) {
+      const lifecycleBlocked = row.policy?.preserveLifecycle && base.lifecycleChanges.length > 0
+      if (row.policy?.reviewReason || lifecycleBlocked) {
+        action = 'review'
+        base.ordinaryChanges = []; base.lifecycleChanges = []; base.assetChanges = []; base.costChange = false
+        if (row.policy?.reviewReason) warnings.push({ ...row.policy.reviewReason, itemKey: row.item.key })
+        if (lifecycleBlocked) warnings.push(issue('lifecycle_not_qualified', 'Product-only source cannot change existing lifecycle or availability', row.item.key))
+      }
     }
     entries.push({ ...base, action, actionId: actionId([context.supplierId, context.runId, context.sourceId, context.scopeId, row.item, position, action, candidate, match?.updatedAt, match?.productRevision]),
       ...(candidate && !errors.length ? { candidate } : {}),
