@@ -9,6 +9,9 @@ import { INTERNATIONAL_MEMBER, INTERNATIONAL_ZIP_URL } from './internationalMoul
 import { runLarsonFetchCheck } from './larsonJuhlFetchCheck.js'
 import { normalizeLarsonCatalogue } from './larsonJuhlNormalization.js'
 import { LARSON_CATALOGUE_URL, LARSON_SCOPE } from './larsonJuhlCatalogue.js'
+import { runLionFetchCheck } from './lionFetchCheck.js'
+import { normalizeLionCatalogue } from './lionNormalization.js'
+import { LION_CSV_URL, LION_SCOPE } from './lionCatalogue.js'
 
 export type FeedNormalization = { context: FeedContext; planningRows: PlanningRow[] }
 export type CheckedFeedRelease = {
@@ -25,7 +28,7 @@ export type CheckedFeedRelease = {
   sourceEvidenceByRow?: Map<number, Record<string, unknown>>
 }
 export type FeedAdapter = {
-  readonly id: 'wessex-wpp4-mouldings' | 'international-moulding-historical' | 'larson-juhl-uk-public-catalogue'
+  readonly id: 'wessex-wpp4-mouldings' | 'international-moulding-historical' | 'larson-juhl-uk-public-catalogue' | 'lion-uk-public-mouldings'
   readonly sourceUrl: string; readonly publicationUrl: string; readonly releaseNamespace: string
   readonly mode: 'apply_requested' | 'dry_run'; readonly allowsAuthoritative: boolean; readonly allowsMissing: boolean
   acquire(input: { source: FeedSourceIdentity; previousSha256: string | null; timeoutMs: number; now: () => Date }): Promise<CheckedFeedRelease>
@@ -72,6 +75,18 @@ export function createLarsonJuhlAdapter(fetchCheck = runLarsonFetchCheck): FeedA
     } })
 }
 
+export function createLionAdapter(fetchCheck = runLionFetchCheck): FeedAdapter {
+  return Object.freeze({ id: 'lion-uk-public-mouldings', sourceUrl: LION_CSV_URL, publicationUrl: LION_CSV_URL,
+    releaseNamespace: 'lion-uk-public-mouldings', mode: 'dry_run', allowsAuthoritative: false, allowsMissing: false,
+    async acquire({ source, previousSha256, timeoutMs, now }) {
+      if (source.allowsAuthoritativeSnapshots !== false || source.scopeKey !== LION_SCOPE) throw new Error('Lion source cannot allow authoritative snapshots or a different scope')
+      const identity = { supplierId: source.supplierId, sourceId: source.feedSourceId, scopeId: source.scopeKey }
+      const check = await fetchCheck({ ...identity, runId: 'pending-run-id', previousSha256, timeoutMs, now })
+      return { ...check, normalizeForRun: runId => normalizeLionCatalogue(check.artifact, { ...identity, runId }),
+        artifactRef: `${LION_CSV_URL}#sha256=${check.latestSha256}`, sourceEvidenceByRow: check.normalized.sourceEvidenceByRow }
+    } })
+}
+
 export type RegisteredFeed = { source: FeedSourceIdentity; adapter: FeedAdapter; liveChecking: boolean; schedule: 'daily' | null }
 export type PersistedFeedSource = { id: string; supplier_id: string; source_key: string; scope_key: string; allows_authoritative_snapshots: boolean;
   supplier?: { id?: string; name?: string; slug?: string; status: string } }
@@ -85,16 +100,19 @@ export const wessexFeedSource = Object.freeze({
 const registeredFeeds: readonly RegisteredFeed[] = [Object.freeze({ source: wessexFeedSource, adapter: createWessexAdapter(), liveChecking: true, schedule: null })]
 const larsonRegistration = Object.freeze({ supplierName: 'Larson-Juhl UK', supplierSlug: 'larson-juhl-uk',
   sourceKey: 'larson-juhl-uk-public-mouldings', scopeKey: LARSON_SCOPE, adapter: createLarsonJuhlAdapter(), liveChecking: true, schedule: null })
+const lionRegistration = Object.freeze({ supplierName: 'LION', supplierSlug: 'lion', sourceKey: 'lion-uk-public-mouldings',
+  scopeKey: LION_SCOPE, adapter: createLionAdapter(), liveChecking: true, schedule: null })
 export const isFeedUuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 export function registeredFeed(feedId: unknown, persisted?: PersistedFeedSource): RegisteredFeed | null {
   const fixed = registeredFeeds.find(feed => feed.source.feedSourceId === feedId)
   if (fixed) return fixed
   if (!isFeedUuid(feedId) || !persisted || persisted.id !== feedId || !isFeedUuid(persisted.supplier_id)
-    || persisted.supplier?.id !== persisted.supplier_id || persisted.supplier.name !== larsonRegistration.supplierName
-    || persisted.supplier.slug !== larsonRegistration.supplierSlug || persisted.source_key !== larsonRegistration.sourceKey
-    || persisted.scope_key !== larsonRegistration.scopeKey || persisted.allows_authoritative_snapshots !== false) return null
+    || persisted.supplier?.id !== persisted.supplier_id || persisted.allows_authoritative_snapshots !== false) return null
+  const registration = [larsonRegistration, lionRegistration].find(entry => persisted.supplier?.name === entry.supplierName
+    && persisted.supplier.slug === entry.supplierSlug && persisted.source_key === entry.sourceKey && persisted.scope_key === entry.scopeKey)
+  if (!registration) return null
   return { source: { supplierId: persisted.supplier_id, feedSourceId: persisted.id, scopeKey: persisted.scope_key, allowsAuthoritativeSnapshots: false },
-    adapter: larsonRegistration.adapter, liveChecking: larsonRegistration.liveChecking, schedule: larsonRegistration.schedule }
+    adapter: registration.adapter, liveChecking: registration.liveChecking, schedule: registration.schedule }
 }
 export function checkingCapability(source: PersistedFeedSource) {
   const registered = registeredFeed(source.id, source)

@@ -63,7 +63,8 @@ export async function executeSupplierFeedCheck(deps: {
     registered = registeredFeed(feedId, persisted ?? undefined)
   }
   if (!registered || !registered.liveChecking) throw new ExecutionError(400, 'unsupported_feed')
-  if (trigger === 'scheduled' && registered.adapter.id === 'larson-juhl-uk-public-catalogue') throw new ExecutionError(400, 'unsupported_feed')
+  if (trigger === 'scheduled' && (registered.adapter.id === 'larson-juhl-uk-public-catalogue'
+    || registered.adapter.id === 'lion-uk-public-mouldings')) throw new ExecutionError(400, 'unsupported_feed')
   const source = registered.source
   const attempt = await checked(db.rpc('block2e_claim_feed_execution', { p_source_id: feedId, p_trigger: trigger }))
   if (!attempt) return { outcome: 'already_running', elapsedMs: now() - started }

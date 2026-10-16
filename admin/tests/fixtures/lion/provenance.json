@@ -1,0 +1,10 @@
+{
+  "sourceUrl": "https://cdn.lionpic.co.uk/website/media/m4vnra0t/estlite_lionmouldings.csv",
+  "retrievedAt": "2026-10-16T10:49:00.407323+00:00",
+  "originalByteSize": 71834,
+  "originalSha256": "dbd60f693d3264d3b21931c00ff9a168dd29484320aaaf03f18a25210dfe09d5",
+  "originalProducts": 1268,
+  "fixtureSha256": "049359dc17eeca73715c097acbdca02f7d5528effc01a7b79443fe2d4e8eda45",
+  "fixtureProducts": 11,
+  "transformation": "Selected 11 exact original product rows; retained original preamble/header/footer. CSV reserialized as UTF-8 CRLF; not a complete catalogue. Synthetic edge cases belong only in tests."
+}
