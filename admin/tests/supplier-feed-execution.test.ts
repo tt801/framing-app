@@ -22,7 +22,7 @@ function database() {
   })
   const db = { rpc, from: vi.fn((table: string) => {
     let data = table === 'supplier_feed_execution_attempts' ? attempts : table === 'supplier_feed_source_checks' ? checks : table === 'supplier_feed_runs' ? runs : [], single = false, head = false
-    const q: any = { select: (_: any, opts: any) => { head = opts?.head; return q }, eq: (key: string, value: any) => { data = data.filter(a => a[key] === value); return q }, limit: () => q, single: () => { single = true; return q }, abortSignal: () => q,
+    const q: any = { select: (_: any, opts: any) => { head = opts?.head; return q }, eq: (key: string, value: any) => { data = data.filter(a => a[key] === value); return q }, limit: () => q, single: () => { single = true; return q }, maybeSingle: () => { single = true; return q }, abortSignal: () => q,
       then: (resolve: any) => resolve({ data: single ? data[0] : head ? null : data, count: data.length, error: null }) }
     return q
   }) }
@@ -152,10 +152,11 @@ describe('cron and Check now authentication gates', () => {
     expect(result.getSupabaseAdmin).not.toHaveBeenCalled()
     expect(fetcher).not.toHaveBeenCalled()
   })
-  it.each(['unregistered', 'international-moulding-historical', '55555555-5555-4555-8555-555555555555'])('rejects unregistered/manual-only feed %s before accessing a client', async feedId => {
-    const getSupabaseAdmin = vi.fn()
+  it.each(['unregistered', 'international-moulding-historical', '55555555-5555-4555-8555-555555555555'])('rejects unsupported feed %s before any write (UUIDs require persisted identity read)', async feedId => {
+    const f = database(), getSupabaseAdmin = vi.fn(() => f.db)
     await expect(executeSupplierFeedCheck({ getSupabaseAdmin, env }, 'manual', feedId)).rejects.toThrow('unsupported_feed')
-    expect(getSupabaseAdmin).not.toHaveBeenCalled()
+    expect(getSupabaseAdmin).toHaveBeenCalledTimes(feedId.startsWith('55555555-') ? 1 : 0)
+    expect(f.db.rpc).not.toHaveBeenCalled()
   })
   it.each([undefined, '', 'Bearer wrong', 'bearer fixture-cron-secret-1234', ['Bearer fixture-cron-secret-1234']])('rejects malformed/missing/wrong cron auth %j', async authorization => {
     const r = await request('scheduled', { headers: { authorization } }); expect(r.status).toBe(403); expect(r.getSupabaseAdmin).not.toHaveBeenCalled()

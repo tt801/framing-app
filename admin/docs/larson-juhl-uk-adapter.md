@@ -9,7 +9,7 @@
 - Scope: `uk-public-mouldings-category`.
 - Mode: **dry_run only**; authoritative snapshots, missing inference and canonical cost are disabled.
 - Internal adapter factory: `createLarsonJuhlAdapter()` in `feedAdapters.ts`.
-- There is **no operational source UUID/registration**, live Check Now or schedule. Database registration alone will not enable them.
+- The operational registry binds Larson UUIDs from exact persisted supplier name/slug, source key and scope, with false source authority. Manual Check Now is available only after matching database registration and the existing Sandbox/environment guards. No source UUIDs are invented or hardcoded; scheduling remains disabled.
 
 This implementation is not permission to register, execute, approve/apply or deploy. No migration is required. Existing Wessex and International factories, operational identities, acquisition rules and release namespaces are unchanged.
 
@@ -96,9 +96,9 @@ Supplier values:
 - `slug`: `larson-juhl-uk`
 - `status`: `draft`
 - `asset_rights_status`: `unknown`
-- Minimal informational `source_metadata`: `{"region":"UK","source_url":"https://larsonjuhl.co.uk/mouldings/","source_classification":"C"}`.
+- No adapter-specific `source_metadata` is required; leave the schema default `{}` when registering.
 
-The adapter requires no metadata JSON to grant capability or policy. Its enforced binding is the exact scope plus persisted false authority, server-owned dry-run/no-cost/no-missing policies, and absence from the live registry. Metadata is descriptive, not security enforcement.
+The adapter requires no metadata JSON to grant capability or policy. Its enforced binding is supplier name `Larson-Juhl UK`, slug `larson-juhl-uk`, the source key/scope below, matching supplier UUIDs and persisted false authority, plus the existing exact Sandbox/environment guards. The operational service resolves identity before claiming an execution attempt; mismatches cannot write or acquire. Server-owned dry-run/no-cost/no-missing policies remain unchanged. Metadata is not security enforcement.
 
 Source values:
 
@@ -107,9 +107,9 @@ Source values:
 - `scope_key`: `uk-public-mouldings-category`;
 - `allows_authoritative_snapshots`: `false`.
 
-Logical name: Larson-Juhl UK public mouldings catalogue. Logical URL: https://larsonjuhl.co.uk/mouldings/. The source table has no name/URL/metadata columns; do not invent INSERT columns or a migration. The URL is server-owned adapter configuration and descriptive supplier metadata.
+Logical name: Larson-Juhl UK public mouldings catalogue. Logical URL: https://larsonjuhl.co.uk/mouldings/. The source table has no name/URL/metadata columns; do not invent INSERT columns or a migration. The URL remains server-owned adapter configuration.
 
-No records or live registry entries were created. Registration does not authorize acquisition, check persistence, attempts, plans or canonical mutation. A later approved planning proof must enumerate the selected orchestration entry point's write set, including mandatory source checks; the operational wrapper additionally creates execution attempts and remains disabled for Larson. Scheduling is not enabled.
+No database records were created by this repository implementation. Registration does not authorize acquisition, check persistence, attempts, plans or canonical mutation. A later approved planning proof must enumerate the selected orchestration entry point's write set, including mandatory source checks; manual operational execution additionally creates execution attempts. The service verifies a dry-run `planned` status, false authoritative/validation-safe-for-missing/missing flags and zero cost changes before reporting success. Its existing RPC facade cannot approve or apply. Scheduled Larson execution is explicitly rejected before any claim or acquisition.
 
 ## Limitations
 
@@ -118,4 +118,4 @@ No records or live registry entries were created. Registration does not authoriz
 - Catalogue-only: explicitly labelled optional detail enrichment is deferred rather than guessed.
 - No qualified cost source or image rights.
 - No live acquisition benchmark, Sandbox registration/execution or hosted application UAT has been performed. The pacing/deadline may fail closed on a slow/large source.
-- Future Check Now support for a dry-run non-authoritative source would need narrow capability and operational-success-status changes; this implementation truthfully leaves it disabled.
+- Manual Check Now capability is implemented and deterministically tested, but matching Sandbox database registration, deployment/runtime readiness and separately authorized live proof are still required. No environment or deployment configuration is changed by this registry fix.

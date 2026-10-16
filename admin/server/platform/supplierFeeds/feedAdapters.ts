@@ -8,7 +8,7 @@ import { normalizeInternationalArtifact } from './internationalNormalization.js'
 import { INTERNATIONAL_MEMBER, INTERNATIONAL_ZIP_URL } from './internationalMoulding.js'
 import { runLarsonFetchCheck } from './larsonJuhlFetchCheck.js'
 import { normalizeLarsonCatalogue } from './larsonJuhlNormalization.js'
-import { LARSON_CATALOGUE_URL } from './larsonJuhlCatalogue.js'
+import { LARSON_CATALOGUE_URL, LARSON_SCOPE } from './larsonJuhlCatalogue.js'
 
 export type FeedNormalization = { context: FeedContext; planningRows: PlanningRow[] }
 export type CheckedFeedRelease = {
@@ -73,21 +73,33 @@ export function createLarsonJuhlAdapter(fetchCheck = runLarsonFetchCheck): FeedA
 }
 
 export type RegisteredFeed = { source: FeedSourceIdentity; adapter: FeedAdapter; liveChecking: boolean; schedule: 'daily' | null }
+export type PersistedFeedSource = { id: string; supplier_id: string; source_key: string; scope_key: string; allows_authoritative_snapshots: boolean;
+  supplier?: { id?: string; name?: string; slug?: string; status: string } }
 // Only approved existing identities are registered. International has deliberately NO
 // feed UUID/operational registration until a separately approved Sandbox registration.
-// Larson likewise remains internal-only: no live identity, Check Now or scheduling.
+// Larson UUIDs are bound only from exact persisted supplier/source identity below.
 export const wessexFeedSource = Object.freeze({
   supplierId: '1312e794-ec94-4bf0-aa3a-9ffc35b4428d', feedSourceId: '468247ee-809b-4784-aca1-bba44f860c85',
   scopeKey: 'mouldings' })
 // Native production scheduling is deferred; manual execution capability is separate.
 const registeredFeeds: readonly RegisteredFeed[] = [Object.freeze({ source: wessexFeedSource, adapter: createWessexAdapter(), liveChecking: true, schedule: null })]
-export function registeredFeed(feedId: unknown): RegisteredFeed | null {
-  return typeof feedId === 'string' ? registeredFeeds.find(feed => feed.source.feedSourceId === feedId) ?? null : null
+const larsonRegistration = Object.freeze({ supplierName: 'Larson-Juhl UK', supplierSlug: 'larson-juhl-uk',
+  sourceKey: 'larson-juhl-uk-public-mouldings', scopeKey: LARSON_SCOPE, adapter: createLarsonJuhlAdapter(), liveChecking: true, schedule: null })
+export const isFeedUuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+export function registeredFeed(feedId: unknown, persisted?: PersistedFeedSource): RegisteredFeed | null {
+  const fixed = registeredFeeds.find(feed => feed.source.feedSourceId === feedId)
+  if (fixed) return fixed
+  if (!isFeedUuid(feedId) || !persisted || persisted.id !== feedId || !isFeedUuid(persisted.supplier_id)
+    || persisted.supplier?.id !== persisted.supplier_id || persisted.supplier.name !== larsonRegistration.supplierName
+    || persisted.supplier.slug !== larsonRegistration.supplierSlug || persisted.source_key !== larsonRegistration.sourceKey
+    || persisted.scope_key !== larsonRegistration.scopeKey || persisted.allows_authoritative_snapshots !== false) return null
+  return { source: { supplierId: persisted.supplier_id, feedSourceId: persisted.id, scopeKey: persisted.scope_key, allowsAuthoritativeSnapshots: false },
+    adapter: larsonRegistration.adapter, liveChecking: larsonRegistration.liveChecking, schedule: larsonRegistration.schedule }
 }
-export function checkingCapability(source: { id: string; supplier_id: string; source_key: string; scope_key: string; allows_authoritative_snapshots: boolean; supplier?: { status: string } }) {
-  const registered = registeredFeed(source.id)
+export function checkingCapability(source: PersistedFeedSource) {
+  const registered = registeredFeed(source.id, source)
   const identityMatches = registered && registered.source.supplierId === source.supplier_id
-    && registered.source.scopeKey === source.scope_key && source.allows_authoritative_snapshots
+    && registered.source.scopeKey === source.scope_key && source.allows_authoritative_snapshots === registered.adapter.allowsAuthoritative
   const enabled = Boolean(identityMatches && registered.liveChecking && process.env.SUPPLIER_FEED_AUTOMATION_ENABLED === 'true'
     && process.env.SUPPLIER_FEED_EXPECTED_PROJECT_REF === 'zminmylvmtyglkujxxyk'
     && process.env.SUPABASE_URL === 'https://zminmylvmtyglkujxxyk.supabase.co')

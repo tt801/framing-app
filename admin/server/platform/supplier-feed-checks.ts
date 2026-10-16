@@ -2,9 +2,9 @@ import { timingSafeEqual } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import type { PlatformDependencies } from './dependencies.js'
 import { createSupabaseBlock2eStore, orchestrateFeedCheckAndPlan, type FeedOrchestrationOptions, type Block2eStore, type WessexOrchestrationResult } from './supplierFeeds/block2eOrchestrator.js'
-import { registeredFeed, wessexFeedSource as wessexSource } from './supplierFeeds/feedAdapters.js'
+import { isFeedUuid, registeredFeed, wessexFeedSource as wessexSource } from './supplierFeeds/feedAdapters.js'
 import { readRunControl } from './supplierFeeds/control.js'
-import { isSynthetic, runColumns } from './supplierFeeds/operations.js'
+import { isSynthetic, runColumns, sourceColumns } from './supplierFeeds/operations.js'
 
 export { wessexSource }
 export const executionLimits = { hardSeconds: 300, workMs: 240_000, requestMs: 15_000 } as const
@@ -53,11 +53,18 @@ export async function executeSupplierFeedCheck(deps: {
 }, trigger: 'scheduled' | 'manual', feedId: string = wessexSource.feedSourceId): Promise<ExecutionResponse> {
   const env = deps.env ?? process.env
   checkExecutionEnvironment(env)
-  const registered = registeredFeed(feedId)
-  if (!registered || !registered.liveChecking) throw new ExecutionError(400, 'unsupported_feed')
-  const source = registered.source
+  let registered = registeredFeed(feedId)
+  if (!registered && !isFeedUuid(feedId)) throw new ExecutionError(400, 'unsupported_feed')
   const now = deps.now ?? Date.now, started = now(), deadline = started + executionLimits.workMs
   const db = deps.getSupabaseAdmin()
+  if (!registered) {
+    // Authenticated UUID selection is not registration: bind only exact persisted identity before any write.
+    const persisted = await checked(db.from('supplier_feed_sources').select(sourceColumns).eq('id', feedId).maybeSingle())
+    registered = registeredFeed(feedId, persisted ?? undefined)
+  }
+  if (!registered || !registered.liveChecking) throw new ExecutionError(400, 'unsupported_feed')
+  if (trigger === 'scheduled' && registered.adapter.id === 'larson-juhl-uk-public-catalogue') throw new ExecutionError(400, 'unsupported_feed')
+  const source = registered.source
   const attempt = await checked(db.rpc('block2e_claim_feed_execution', { p_source_id: feedId, p_trigger: trigger }))
   if (!attempt) return { outcome: 'already_running', elapsedMs: now() - started }
   if (typeof attempt.id !== 'string' || typeof attempt.ownership_token !== 'string') throw new ExecutionError(503, 'persistence_unconfirmed')
@@ -77,10 +84,13 @@ export async function executeSupplierFeedCheck(deps: {
       const run = await checked(safeDb.from('supplier_feed_runs').select(runColumns).eq('id', result.runId).single())
       if (!run || run.feed_source_id !== feedId || run.supplier_id !== source.supplierId || run.scope_key !== source.scopeKey
         || run.source_checksum !== result.latestSha256 || run.plan_fingerprint !== result.planFingerprint || isSynthetic(run)) throw new ExecutionError(503, 'plan_unconfirmed')
+      if (registered.adapter.mode === 'dry_run' && (run.mode !== 'dry_run' || run.status !== 'planned'
+        || run.authoritative_snapshot !== false || run.validation_safe_for_missing !== false || run.missing_inference_enabled !== false
+        || run.plan_counts?.cost_changes !== 0)) throw new ExecutionError(503, 'plan_unconfirmed')
       const control = await readRunControl(safeDb, run)
       if (control.synthetic || control.progress.total !== run.row_count || control.progress.version2 !== control.progress.total) throw new ExecutionError(503, 'plan_unconfirmed')
       // Existing approved/applied runs are observations only, never transitioned.
-      if (!result.reusedExistingRun && (run.status !== 'awaiting_approval' || run.approved_by || run.approved_at || run.approved_plan_fingerprint
+      if (!result.reusedExistingRun && (run.status !== (registered.adapter.mode === 'dry_run' ? 'planned' : 'awaiting_approval') || run.approved_by || run.approved_at || run.approved_plan_fingerprint
         || control.progress.pending !== control.progress.total || control.progress.applied || control.progress.failed || control.progress.conflict)) throw new ExecutionError(503, 'plan_unconfirmed')
       outcome = 'planned'
       runStatus = run.status
@@ -134,7 +144,7 @@ export function createCheckHandler(deps: PlatformDependencies, trigger: 'schedul
         if (!safeManual(req)) throw new ExecutionError(403, 'unauthorized')
         if (typeof req.headers['content-type'] !== 'string' || !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(req.headers['content-type'])) throw new ExecutionError(415, 'invalid_content_type')
         if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length !== 1 || Object.keys(req.body)[0] !== 'feedId'
-          || !registeredFeed(req.body.feedId)?.liveChecking || Object.keys(req.query ?? {}).length) throw new ExecutionError(400, 'invalid_request')
+          || (!registeredFeed(req.body.feedId)?.liveChecking && !isFeedUuid(req.body.feedId)) || Object.keys(req.query ?? {}).length) throw new ExecutionError(400, 'invalid_request')
       }
       const result = await executeSupplierFeedCheck(deps, trigger, trigger === 'manual' ? req.body.feedId : undefined)
       return res.status(result.outcome === 'failed' ? 503 : 200).json(result)

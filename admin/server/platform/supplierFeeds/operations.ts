@@ -91,7 +91,7 @@ export function aggregateFeed(source: Row, checks: Row[], runs: Row[], canonical
 
 type Database = { from: (table: string) => any }
 export const operationLimits = { feeds: 25, scan: 200, checks: 50, runs: 20, rows: 50 } as const
-const sourceColumns = 'id,supplier_id,source_key,scope_key,allows_authoritative_snapshots,supplier:suppliers(id,name,status)'
+export const sourceColumns = 'id,supplier_id,source_key,scope_key,allows_authoritative_snapshots,supplier:suppliers(id,name,slug,status)'
 export const runColumns = 'id,feed_source_id,supplier_id,scope_key,persistence_version,logical_run_key,created_at,status,mode,approved_by,approved_at,approved_plan_fingerprint,acknowledged_anomalies,completed_at,plan_fingerprint,plan_counts,policy_snapshot,anomaly_flags,apply_disposition,acquisition_complete,parsing_complete,staging_purged_at,source_checksum,artifact_ref,adapter_id,adapter_version,planner_version,row_count,failure_code'
 const checkColumns = 'id,checked_at,created_at,status,release_classification,source_url,published_update_source_url,published_update_date,published_update_date_raw,published_update_match,artifact_retrieved_at,evidence_retrieved_at,etag,last_modified,content_byte_length,sha256,release_logical_key,feed_run_id,plan_fingerprint,error_code,error_summary,linked_run:supplier_feed_runs!feed_run_id(adapter_id,adapter_version,planner_version,artifact_ref,logical_run_key)'
 const rowColumns = 'id,row_number,source_product_key,source_record_key,source_path,row_kind,proposed_action,validation_status,matched_product_id,apply_state,failure_code,proposed_product,proposed_diff,validation_errors,validation_warnings'
