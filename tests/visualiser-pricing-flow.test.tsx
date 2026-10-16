@@ -6,6 +6,8 @@ import VisualizerApp from '@/VisualizerApp'
 import type { CommercialSnapshot } from '@/lib/pricing'
 
 type Saved = {
+  jobSpecification?: { artwork: unknown; frame: unknown; details: unknown; customerSnapshot?: unknown }
+  artwork?: unknown; frame?: unknown; details?: unknown
   pricingSnapshot: CommercialSnapshot
   total: number
   subtotal: number
@@ -75,6 +77,7 @@ describe('Visualiser persistence uses its displayed commercial result', () => {
     const [quote] = captured.quotes, [job] = captured.jobs, [invoice] = captured.invoices
     expect(quote.pricingSnapshot).toEqual(job.pricingSnapshot)
     expect(quote.pricingSnapshot).toEqual(invoice.pricingSnapshot)
+    expect(quote.jobSpecification).toMatchObject({ artwork: job.artwork, frame: job.frame, details: job.details })
     expect(quote.total).toBe(job.total)
     expect(quote.total).toBe(invoice.total)
     expect(quote.items.reduce((sum, line) => sum + line.total, 0)).toBe(quote.subtotal)

@@ -252,7 +252,7 @@ export default function JobsPage() {
 
   // Default selection (first job)
   const [selectedId, setSelectedId] = useState<string | null>(
-    jobs?.[0]?.id ?? null
+    () => new URLSearchParams(window.location.hash.split('?')[1] || '').get('id') ?? jobs?.[0]?.id ?? null
   );
 
   const [searchInput, setSearchInput] = useState("");
@@ -409,7 +409,7 @@ export default function JobsPage() {
   useEffect(() => {
     try {
       const pending = sessionStorage.getItem("frameit_select_job");
-      if (pending) {
+      if (pending && !new URLSearchParams(window.location.hash.split('?')[1] || '').has('id')) {
         setSelectedId(pending);
         sessionStorage.removeItem("frameit_select_job");
       }
@@ -537,7 +537,7 @@ export default function JobsPage() {
         null;
 
       const customer =
-        liveCustomer || job?.customer || job?.customerSnapshot || null;
+        job?.customerSnapshot || liveCustomer || job?.customer || null;
 
       await exportJobCardPDF({
         job,
@@ -677,8 +677,8 @@ export default function JobsPage() {
   }, [views, toast]);
 
   const selected = useMemo(
-    () => views.find((v) => v.id === selectedId) ?? null,
-    [views, selectedId]
+    () => allViews.find((v) => v.id === selectedId) ?? null,
+    [allViews, selectedId]
   );
 
   // try to enrich with live customer record if we only had an id
@@ -1189,6 +1189,10 @@ export default function JobsPage() {
                 <header className="flex items-start justify-between">
                   <div>
                     <h2 className="text-lg font-semibold">Details</h2>
+                    <div className="flex gap-3 text-sm text-emerald-700">
+                      {selected.__raw.quoteId && <a href={`#/quotes?id=${encodeURIComponent(selected.__raw.quoteId)}`}>Source Quote</a>}
+                      {selected.__raw.invoiceId && <a href={`#/invoices?id=${encodeURIComponent(selected.__raw.invoiceId)}`}>View Invoice</a>}
+                    </div>
                     <div className="text-xs text-slate-500 flex items-center gap-2">
                       {selected.createdAt
                         ? new Date(

@@ -8,6 +8,7 @@ import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
 import { exportQuotePDF } from "@/lib/pdf/quotePdf";
 import { useInvoices } from "@/lib/invoices";
+import { useJobs } from "@/lib/jobs";
 import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
 import { createManualDraft, editManualDraft, invoiceFromQuote, type CommercialItem } from "@/lib/commercialDocuments";
 import { effectiveTaxRatePct } from "@/lib/pricing";
@@ -333,6 +334,9 @@ export default function QuotesPage() {
   const c = useCustomers() as any;
   const s = useCatalog() as any;
   const invoicesStore = useInvoices() as any;
+  const jobsStore = useJobs();
+  const [creatingJob, setCreatingJob] = useState(false);
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
   const { add: toast } = useToast();
   const { add: addToHistory } = useHistory();
 
@@ -369,7 +373,7 @@ export default function QuotesPage() {
   const [statusFilter, setStatusFilter] = useState<QuoteStatus | "All">("All");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"date" | "total" | "customer">("date");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => new URLSearchParams(window.location.hash.split('?')[1] || '').get('id'));
   const [statusOverride, setStatusOverride] = useState<Record<string, QuoteStatus>>({});
 
   const handleNewQuote = React.useCallback(async () => {
@@ -529,13 +533,28 @@ export default function QuotesPage() {
   }, [rows, statusFilter, search, sortBy, statusOverride, settings]);
 
   const selected =
-    filtered.find((r: any) => safeRowId(r) === selectedId) ?? filtered[0] ?? null;
+    selectedId ? rows.find((r: any) => safeRowId(r) === selectedId) ?? null : filtered[0] ?? null;
+  const linkedJobs = (jobsStore.jobs ?? []).filter(job => job.quoteId === selected?.id);
+  const linkedJob = linkedJobs.length === 1 ? linkedJobs[0] : undefined;
+  const quoteInvoices = linkedJob ? (invoicesStore.invoices ?? []).filter((invoice: any) => invoice.quoteId === selected?.id) : [];
+  const existingJobInvoice = quoteInvoices.length === 1 ? quoteInvoices[0] : undefined;
+
+  const handleCreateJobFromQuote = async () => {
+    if (!selected || creatingJob) return;
+    setCreatingJob(true);
+    try {
+      const result = await jobsStore.createFromQuote(selected.id);
+      if (result.ok === false) { toast(result.error, 'error'); return; }
+      toast(`Job ${result.job.refNo ?? result.job.id} is linked to this quote`, 'success');
+    } catch { toast('Could not create the job. Reload and try again.', 'error'); }
+    finally { setCreatingJob(false); }
+  };
 
   React.useEffect(() => {
-    if (!selected && filtered.length > 0) {
+    if (!selectedId && !selected && filtered.length > 0) {
       setSelectedId(safeRowId(filtered[0]));
     }
-  }, [selected, filtered]);
+  }, [selectedId, selected, filtered]);
 
   const overview = useMemo(() => {
     const counts: Record<string, number> = {
@@ -647,8 +666,8 @@ export default function QuotesPage() {
 
     const items = extractItems(selected);
     const customer =
-      customersList.find((cx: any) => cx.id === (selected as any).customerId) ||
       (selected as any).customerSnapshot ||
+      customersList.find((cx: any) => cx.id === (selected as any).customerId) ||
       (selected as any).customer || {
         firstName: (selected as any).customerName,
         email: (selected as any).customerEmail,
@@ -716,9 +735,12 @@ export default function QuotesPage() {
 
   // Invoices: add helper
   const handleCreateInvoiceFromQuote = async () => {
-    if (!selected) return;
+    if (!selected || creatingInvoice || jobsStore.loading) return;
 
     if (quoteDraftDirty) { toast('Save the Draft quote before creating an invoice', 'error'); return; }
+    if (linkedJobs.length > 1 || (linkedJob && quoteInvoices.length > 1)) {
+      toast('This quote has multiple jobs or invoices. Review the existing records before linking.', 'error'); return;
+    }
     const todayISO = new Date().toISOString();
     const agreement = invoiceFromQuote({ ...selected, items: selectedItems });
     const currencyCode = agreement.currencyCode;
@@ -729,20 +751,30 @@ export default function QuotesPage() {
       dateISO: todayISO,
       createdAt: todayISO,
       notes: selected.notes ?? selected.internalNotes ?? selected.details?.notes ?? '',
+      customerSnapshot: selected.customerSnapshot ?? linkedJob?.customerSnapshot,
       details: { costs: { subtotal: agreement.subtotal, taxRate: agreement.taxRate,
         tax: agreement.tax, total: agreement.total, currency: agreement.currency } },
     };
 
+    setCreatingInvoice(true);
     try {
-      const result = await invoicesStore?.addInvoice?.(invoiceObj);
+      const result = existingJobInvoice ? { ok: true, invoice: existingJobInvoice } : await invoicesStore?.addInvoice?.(invoiceObj);
       if (!result?.ok) {
         toast(result?.error || "Could not save invoice", "error");
         return;
       }
 
+      if (linkedJob) {
+        const link = await jobsStore.linkInvoiceFromQuote(selected.id, result.invoice.id);
+        if (link.ok === false) {
+          toast(`Invoice ${result.invoice.number} is already saved. Its job link failed: ${link.error}. Use Link Invoice to Job to retry.`, 'error');
+          return;
+        }
+        if (existingJobInvoice) { toast(`Invoice ${result.invoice.number} linked to Job ${link.job.refNo ?? link.job.id}`, 'success'); return; }
+      }
       const customer =
-        customersList.find((cx: any) => cx.id === invoiceObj.customerId) ||
         (selected as any).customerSnapshot ||
+        customersList.find((cx: any) => cx.id === invoiceObj.customerId) ||
         (selected as any).customer ||
         undefined;
 
@@ -791,7 +823,7 @@ export default function QuotesPage() {
     } catch (e) {
       console.error("Failed to create invoice from quote", e);
       alert("Could not create invoice. Please check console for details.");
-    }
+    } finally { setCreatingInvoice(false); }
   };
 
   const companyName = settings.companyName || "Our workshop";
@@ -1118,13 +1150,24 @@ export default function QuotesPage() {
                   >
                     Decline
                   </button>
-                  <button
+                  {linkedJob?.invoiceId ? <a href={`#/invoices?id=${encodeURIComponent(linkedJob.invoiceId)}`} className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm">View Invoice</a> : <button
                     onClick={handleCreateInvoiceFromQuote}
+                    disabled={creatingInvoice || jobsStore.loading}
                     className="rounded-xl border border-emerald-300 text-emerald-700 px-3 py-1.5 text-sm bg-white hover:bg-emerald-600 hover:text-white"
                     title="Create invoice from this quote"
                   >
-                    Create Invoice
-                  </button>
+                    {creatingInvoice ? 'Saving Invoice…' : existingJobInvoice ? 'Link Invoice to Job' : 'Create Invoice'}
+                  </button>}
+                  {linkedJobs.length ? linkedJobs.map(job => (
+                    <a key={job.id} href={`#/jobs?id=${encodeURIComponent(job.id)}`} className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm">
+                      View Job {job.refNo ?? job.id}
+                    </a>
+                  )) : <button onClick={handleCreateJobFromQuote}
+                    disabled={creatingJob || jobsStore.loading || jobsStore.readOnly || normaliseStatus(selected) !== 'Accepted' || !selected.jobSpecification || !selected.customerId}
+                    title="Create production work from the accepted saved quote"
+                    className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50">
+                    {creatingJob ? 'Creating Job…' : 'Create Job'}
+                  </button>}
                   <button
                     onClick={onDelete}
                     className="rounded-xl border border-slate-300 text-slate-700 px-3 py-1.5 text-sm bg-white hover:bg-slate-50"
@@ -1134,6 +1177,9 @@ export default function QuotesPage() {
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500 text-right">
+                  {!linkedJobs.length && (!selected.jobSpecification
+                    ? 'This quote has no saved framing specification for automatic job creation. '
+                    : normaliseStatus(selected) !== 'Accepted' ? 'Accept this quote before creating its job. ' : '')}
                   Tip: Use the “Send to customer” section below to email or WhatsApp this
                   quote.
                 </p>

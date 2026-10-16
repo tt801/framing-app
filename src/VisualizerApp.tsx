@@ -967,6 +967,7 @@ export default function VisualizerApp() {
       : undefined;
 
     const commercial = toVisualiserQuote(pricingSnapshot);
+    const jobSpecification = jobForDesign(customerId);
 
     const existingInStore = (qStore?.quotes ?? qStore?.items ?? []) as any[];
     const existingInLS = readQuotesFromAnyLS();
@@ -1012,6 +1013,8 @@ export default function VisualizerApp() {
         undefined,
 
       ...commercial,
+      jobSpecification,
+      customerSnapshot: jobSpecification.customerSnapshot,
     };
 
     const wroteStore = await qStore?.add?.(payload);
@@ -1027,10 +1030,7 @@ export default function VisualizerApp() {
     alert(`Quote ${payload.number} created.`);
   }
 
-  async function addJobNow() {
-    if (!guardSupplierSelection()) return;
-    const customerId = await ensureCustomerId();
-
+  function jobForDesign(customerId: string | null) {
     const frameName = frameProfile?.name || selectedFrame || "Frame";
     const mat1Name = hasMat1 ? mat1?.name || selectedMat1 : "";
     const mat2Name = hasMat2 ? mat2?.name || selectedMat2 : "";
@@ -1188,8 +1188,6 @@ export default function VisualizerApp() {
     };
 
     const job = {
-      id: rid(),
-      createdAt: new Date().toISOString(),
       description: `Framing job — ${frameName}`,
       status: "new",
       priority: "normal",
@@ -1206,6 +1204,13 @@ export default function VisualizerApp() {
       checklist: makeJobChecklist(),
     };
 
+    return job;
+  }
+
+  async function addJobNow() {
+    if (!guardSupplierSelection()) return;
+    const customerId = await ensureCustomerId();
+    const job = jobForDesign(customerId);
     try {
       const result = await addJob(job as any);
       if (!result?.ok) {

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useBillingAccess, useBillingWriteGuard } from '@/lib/billingAccess'
 import { isRecord } from './persistedRows'
+import { rowToQuote } from './quotes'
+import { jobFromQuote } from './quoteJobLinkage'
 
 export type JobStatus = 'new' | 'in_progress' | 'on_hold' | 'done' | 'cancelled' | string
 export type JobChecklistItem =
@@ -78,6 +80,89 @@ export function useJobs() {
     const job = rowToJob(data as JobRow); if (!job) return { ok: false, error: 'Saved job has incomplete data' }; setJobs(prev => [job, ...prev.filter(row => row.id !== job.id)]); return { ok: true, job }
   }, [allowWrite, companyAccountId])
 
+  const createFromQuote = useCallback(async (quoteId: string): Promise<JobOpResult> => {
+    if (!allowWrite('create jobs')) return { ok: false, error: 'Read-only account' }
+    if (!supabase || !companyAccountId) return { ok: false, error: 'No active company account' }
+    const requestId = requestIdRef.current
+    try {
+      const { data: source, error: sourceError } = await supabase.from('quotes').select('id, customer_id, payload')
+        .eq('id', quoteId).eq('company_account_id', companyAccountId).single()
+      if (sourceError || !source) return { ok: false, error: 'Quote not found in this company' }
+      const quote = rowToQuote(source)
+      if (!quote || !source.customer_id || source.customer_id !== quote.customerId)
+        return { ok: false, error: 'The quote customer is missing or no longer linked' }
+      const { data: existing, error: lookupError } = await supabase.from('jobs').select('*')
+        .eq('company_account_id', companyAccountId).eq('quote_id', quoteId)
+      if (lookupError) return { ok: false, error: lookupError.message }
+      if (existing && existing.length > 1) return { ok: false, error: 'This quote has multiple linked jobs. Open Jobs to review them.' }
+      let row = existing?.[0]
+      if (!row) {
+        const payload = jobFromQuote(quote)
+        if (requestId !== requestIdRef.current) return { ok: false, error: 'Company changed. Try again.' }
+        const { data, error: createError } = await supabase.rpc('create_job', {
+          p_id: payload.id, p_company_account_id: companyAccountId, p_payload: payload,
+          p_customer_id: quote.customerId, p_quote_id: quoteId, p_invoice_id: null, p_ref_no: null,
+        })
+        if (createError?.code === '23505') {
+          // A concurrent conversion can only win this existing primary key once.
+          const retry = await supabase.from('jobs').select('*').eq('id', payload.id)
+            .eq('company_account_id', companyAccountId).eq('quote_id', quoteId).single()
+          if (retry.error || !retry.data) return { ok: false, error: 'Job creation conflicted. Reload and try again.' }
+          row = retry.data
+        } else {
+          if (createError || !data) return { ok: false, error: message(createError, 'Could not create job') }
+          row = data
+        }
+      }
+      if (row.customer_id !== source.customer_id || row.quote_id !== quoteId)
+        return { ok: false, error: 'The linked job no longer matches this quote and customer' }
+      const job = rowToJob(row)
+      if (!job) return { ok: false, error: 'Saved job has incomplete data' }
+      if (requestId !== requestIdRef.current) return { ok: false, error: 'Company changed. Reload to view the saved job.' }
+      setJobs(prev => [job, ...prev.filter(saved => saved.id !== job.id)])
+      return { ok: true, job }
+    } catch (error) { return { ok: false, error: message(error, 'Could not create job from quote') } }
+  }, [allowWrite, companyAccountId])
+
+  const linkInvoiceFromQuote = useCallback(async (quoteId: string, invoiceId: string): Promise<JobOpResult> => {
+    if (!allowWrite('link invoices')) return { ok: false, error: 'Read-only account' }
+    if (!supabase || !companyAccountId) return { ok: false, error: 'No active company account' }
+    const requestId = requestIdRef.current
+    try {
+      const { data: quote, error: quoteError } = await supabase.from('quotes').select('id, customer_id')
+        .eq('id', quoteId).eq('company_account_id', companyAccountId).single()
+      if (quoteError || !quote || !quote.customer_id)
+        return { ok: false, error: 'The source quote or its customer is no longer linked' }
+      const { data: invoice, error: invoiceError } = await supabase.from('invoices').select('id, quote_id, customer_id')
+        .eq('id', invoiceId).eq('company_account_id', companyAccountId).single()
+      if (invoiceError || !invoice || invoice.quote_id !== quoteId || invoice.customer_id !== quote.customer_id)
+        return { ok: false, error: 'Invoice does not belong to this quote and company' }
+      const { data: row, error: lookupError } = await supabase.from('jobs').select('*')
+        .eq('company_account_id', companyAccountId).eq('quote_id', quoteId).single()
+      if (lookupError || !row || row.customer_id !== invoice.customer_id)
+        return { ok: false, error: 'The linked job is missing, ambiguous, or has a different customer' }
+      if (row.invoice_id && row.invoice_id !== invoiceId)
+        return { ok: false, error: 'This job already has a different invoice' }
+      let saved = row
+      if (row.invoice_id !== invoiceId) {
+        const current = rowToJob(row)
+        if (!current) return { ok: false, error: 'Saved job has incomplete data' }
+        if (requestId !== requestIdRef.current) return { ok: false, error: 'Company changed. Try again.' }
+        const { data, error: linkError } = await supabase.from('jobs')
+          .update({ invoice_id: invoiceId, payload: { ...current, invoiceId } })
+          .eq('id', row.id).eq('company_account_id', companyAccountId).eq('quote_id', quoteId)
+          .eq('updated_at', row.updated_at).select('*').single()
+        if (linkError || !data) return { ok: false, error: message(linkError, 'Job changed. Retry the invoice link.') }
+        saved = data
+      }
+      const job = rowToJob(saved)
+      if (!job) return { ok: false, error: 'Saved job has incomplete data' }
+      if (requestId !== requestIdRef.current) return { ok: false, error: 'Company changed. Reload to view the saved link.' }
+      setJobs(prev => prev.map(current => current.id === job.id ? job : current))
+      return { ok: true, job }
+    } catch (error) { return { ok: false, error: message(error, 'Could not link the invoice') } }
+  }, [allowWrite, companyAccountId])
+
   const update = useCallback(async (patch: Partial<Job> & { id: string }): Promise<JobOpResult> => {
     if (!allowWrite('edit jobs')) return { ok: false, error: 'Read-only account' }
     if (!supabase || !companyAccountId) return { ok: false, error: 'No active company account' }
@@ -120,5 +205,5 @@ export function useJobs() {
   }, [add, allowWrite, companyAccountId, refresh])
 
   const byId = useMemo(() => new Map<string, Job>(jobs.map(job => [job.id, job])), [jobs])
-  return { jobs, loading, error, refresh, add, update, remove, byId, readOnly: billing.readOnly, companyName: billing.companyName, getLegacyLocalJobCount, importLegacyLocalJobs }
+  return { jobs, loading, error, refresh, add, createFromQuote, linkInvoiceFromQuote, update, remove, byId, readOnly: billing.readOnly, companyName: billing.companyName, getLegacyLocalJobCount, importLegacyLocalJobs }
 }

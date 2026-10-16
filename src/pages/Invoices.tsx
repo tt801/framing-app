@@ -1,6 +1,7 @@
 // src/pages/Invoices.tsx
 import React, { useMemo, useState } from "react";
 import { useInvoices } from "@/lib/invoices";
+import { useJobs } from "@/lib/jobs";
 import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -182,6 +183,7 @@ const isInvoiceSyncedToQuickBooks = (row: any) => {
    ======================================================================= */
 export default function InvoicesPage() {
   const inv = useInvoices() as any;
+  const { jobs: relatedJobs } = useJobs();
   const billingCompanyName = inv?.companyName;
   const c = useCustomers() as any;
   const { add: toast } = useToast();
@@ -307,7 +309,7 @@ export default function InvoicesPage() {
 
   // UI state
   const [selectedId, setSelectedId] = useState<string | null>(
-    allInvoices?.[0]?.id ?? null
+    () => new URLSearchParams(window.location.hash.split('?')[1] || '').get('id') ?? allInvoices?.[0]?.id ?? null
   );
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -444,10 +446,7 @@ export default function InvoicesPage() {
     return base;
   }, [allInvoices, statusOverride]);
 
-  const selected = useMemo(
-    () => filtered.find((x: any) => x.id === selectedId) ?? filtered[0],
-    [filtered, selectedId]
-  );
+  const selected = selectedId ? allInvoices.find((x: any) => x.id === selectedId) : filtered[0];
   const selectedMoney = (n: number | undefined) => money(n, selected);
 
   const displayName = selected
@@ -666,9 +665,9 @@ Thank you.
     if (invoiceDraftDirty) { toast('Save the Draft invoice before exporting its PDF', 'error'); return; }
 
     try {
-      const customer = customersList.find(
-        (x: any) => x.id === selected.customerId
-      ) || selected.customerSnapshot || selected.customer;
+      const customer = selected.customerSnapshot || customersList.find(
+        (cx: any) => cx.id === selected.customerId
+      ) || selected.customer;
       await exportInvoicePDF({ invoice: selected, customer, settings });
     } catch (err) {
       console.error("exportInvoicePDF failed:", err);
@@ -1017,6 +1016,11 @@ Thank you.
                     <div className="font-medium">{displayName}</div>
                     <div className="text-slate-600">
                       Invoice: {selected.number ?? selected.id ?? "—"}
+                    </div>
+                    <div className="flex gap-3 text-sm text-emerald-700">
+                      {selected.quoteId && <a href={`#/quotes?id=${encodeURIComponent(selected.quoteId)}`}>Source Quote</a>}
+                      {(relatedJobs ?? []).filter(job => job.invoiceId === selected.id).map(job =>
+                        <a key={job.id} href={`#/jobs?id=${encodeURIComponent(job.id)}`}>View Job {job.refNo ?? job.id}</a>)}
                     </div>
                   </div>
                   <div className="text-right">
