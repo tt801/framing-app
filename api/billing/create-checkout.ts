@@ -98,9 +98,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw new Error("Invalid plan configuration");
     }
 
-    let idempotencyKey = isFounderCheckout
-      ? `checkout:${account.id}:${priceId}:${randomUUID()}`
-      : `checkout:${account.id}:${priceId}`;
+    // New purchases need a new key, including reactivation of the same plan.
+    // The coordinator returns the stored key for pending attempts, preserving
+    // retry/concurrent-request idempotency without colliding with completed sales.
+    let idempotencyKey = `checkout:${account.id}:${priceId}:${randomUUID()}`;
     const beginAttempt = () => supabase.rpc("begin_stripe_checkout_v2", {
       p_company_account_id: account.id,
       p_price_id: priceId,
