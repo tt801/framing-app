@@ -40,6 +40,7 @@ try {
     'migrations/20260928_fix_company_settings_catalog_rls.sql', 'migrations/20260929_restrict_numbering_helpers.sql',
     'migrations/20260914_block3a_webhooks.sql', 'migrations/20260914_block3b_checkout.sql',
     'migrations/20261001_founder_paid_history.sql', 'migrations/20261005_recurring_checkout_completion.sql',
+    'migrations/20261019_restrict_internal_coordination_tables.sql',
   ]) await db.exec(await readFile(new URL(`../${path}`, import.meta.url), 'utf8'))
   for (const user of [ownerA, staffA, ownerB, staffB, invitee, outsider, unconfirmed])
     await q('insert into auth.users values($1,$2,$3)', [user, `${user}@test.invalid`, user === unconfirmed ? null : '2026-01-01'])

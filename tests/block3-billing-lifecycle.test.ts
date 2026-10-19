@@ -78,7 +78,15 @@ suite('Block 3 local billing lifecycle: real handlers + PostgreSQL + signed synt
   const account = async () => (await query('select * from company_accounts where id=$1', [companyA])).rows[0]
   const writable = async () => (await query('select is_company_account_writable($1) as value', [companyA])).rows[0].value
   const response = () => { const out: any = {}; return { out, status(code: number) { out.status = code; return this }, json(body: any) { out.body = body; return this }, end() { return this } } }
-  const invoke = async (handler: any, req: any) => { const res = response(); await handler(req, res); return res.out }
+  const invoke = async (handler: any, req: any) => {
+    const res = response()
+    await state.db.exec('set role service_role')
+    try {
+      expect((await query('select current_user as role')).rows[0].role).toBe('service_role')
+      await handler(req, res)
+      return res.out
+    } finally { await state.db.exec('reset role') }
+  }
   const request = (priceId = 'price_starter') => ({ method: 'POST', headers: { authorization: 'Bearer local-owner', host: 'local.invalid' }, body: { priceId, isOneTime: priceId === 'price_founder', companyAccountId: companyB } })
   const confirm = (id: unknown) => ({ method: 'GET', headers: request().headers, query: { billingAction: 'confirm-checkout', session_id: id } })
   const subscription = (status = 'active', id = 'sub_a', price = 'price_starter'): any => ({ id, customer: 'cus_a', status, metadata: { company_account_id: companyA }, cancel_at: null, items: { data: [{ price: { id: price }, current_period_end: 2000000000 }] } })
@@ -100,13 +108,18 @@ suite('Block 3 local billing lifecycle: real handlers + PostgreSQL + signed synt
   beforeAll(async () => {
     const { PGlite } = createRequire(import.meta.url)(process.env.BLOCK3_PGLITE_MODULE!)
     state.db = new PGlite()
-    await state.db.exec(`create role anon; create role authenticated; create role service_role;
+    await state.db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
       create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);
       create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
       create function auth.role() returns text language sql stable as $$select current_setting('request.jwt.claim.role',true)$$;
       create function auth.jwt() returns jsonb language sql stable as $$select '{}'::jsonb$$;
       grant usage on schema auth to authenticated,anon;`)
-    for (const path of ['TRIAL_SETUP.sql', 'TEAM_ACCESS_SETUP.sql', 'migrations/20260914_block1_access_controls.sql', 'migrations/20260914_block2a_customers.sql', 'migrations/20260914_block3a_webhooks.sql', 'migrations/20260914_block3b_checkout.sql', 'migrations/20261001_founder_paid_history.sql', 'migrations/20261005_recurring_checkout_completion.sql']) await state.db.exec(readFileSync(path, 'utf8'))
+    for (const path of ['TRIAL_SETUP.sql', 'TEAM_ACCESS_SETUP.sql', 'migrations/20260914_block1_access_controls.sql', 'migrations/20260914_block2a_customers.sql', 'migrations/20260914_block6b_catalog.sql', 'migrations/20260914_block3a_webhooks.sql', 'migrations/20260914_block3b_checkout.sql', 'migrations/20261001_founder_paid_history.sql', 'migrations/20261005_recurring_checkout_completion.sql']) await state.db.exec(readFileSync(path, 'utf8'))
+    // Model hosted grants rather than relying on restrictive vanilla PG defaults.
+    await state.db.exec(`grant usage on schema auth to service_role;
+      grant all on all tables in schema public to service_role;
+      grant all on stripe_checkout_attempts,stripe_subscription_reconciliation_locks,catalog_stock_adjustments to anon,authenticated;`)
+    await state.db.exec(readFileSync('migrations/20261019_restrict_internal_coordination_tables.sql', 'utf8'))
     vi.stubEnv('SUPABASE_URL', 'http://local.invalid'); vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'synthetic_local_only')
     vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_synthetic_local_only'); vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'whsec_synthetic_local_only')
     for (const plan of ['STARTER', 'GROWTH', 'PRO', 'FOUNDER']) vi.stubEnv(`VITE_STRIPE_PRICE_${plan}`, `price_${plan.toLowerCase()}`)
