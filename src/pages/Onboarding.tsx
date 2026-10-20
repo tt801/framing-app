@@ -141,6 +141,11 @@ export default function Onboarding() {
         region: form.region.trim(),
         postalCode: form.postalCode.trim(),
         country: form.country.trim(),
+        // Replace any address derived from defaults with the submitted address.
+        companyAddress: [form.addressLine1, form.city, form.region, form.postalCode, form.country]
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .join(", "),
         currencyCode: form.currencyCode,
         currencySymbol: form.currencySymbol,
       });
