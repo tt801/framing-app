@@ -1,5 +1,5 @@
 // src/pages/Onboarding.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useCompany } from "@/lib/company";
 import { inviteCompanyMember } from "@/lib/companyMembers";
 import { supabase } from "@/lib/supabase";
@@ -65,6 +65,8 @@ export default function Onboarding() {
   const [inviteRows, setInviteRows] = useState<InviteRow[]>([{ ...EMPTY_INVITE }]);
   const [inviteResults, setInviteResults] = useState<string[]>([]);
   const [inviteError, setInviteError] = useState("");
+  const [setupCompleted, setSetupCompleted] = useState(false);
+  const submissionLocked = useRef(false);
 
   // Company info fields (local state to avoid re-saving on every keystroke)
   const [form, setForm] = useState({
@@ -128,6 +130,8 @@ export default function Onboarding() {
   };
 
   const handleFinish = async (skipInvites = false) => {
+    if (submissionLocked.current) return;
+    submissionLocked.current = true;
     setSaving(true);
     setInviteError("");
     try {
@@ -149,25 +153,35 @@ export default function Onboarding() {
         currencyCode: form.currencyCode,
         currencySymbol: form.currencySymbol,
       });
-      if (saved.ok === false) { setInviteError(saved.error); return; }
+      if (saved.ok === false) { submissionLocked.current = false; setInviteError(saved.error); return; }
 
       // Invitations are optional; Skip still requires the company save above.
       const results: string[] = [];
+      let hasInviteIssue = false;
       const toInvite = skipInvites ? [] : inviteRows.filter((r) => r.email.trim());
       for (const row of toInvite) {
         try {
-          await inviteCompanyMember({ email: row.email.trim(), fullName: row.fullName.trim() || undefined, role: row.role });
-          results.push(`✓ Invited ${row.email}`);
+          const result = await inviteCompanyMember({ email: row.email.trim(), fullName: row.fullName.trim() || undefined, role: row.role });
+          if (result.warning) {
+            hasInviteIssue = true;
+            results.push(`${row.email}: Membership created, but the invitation email could not be sent: ${result.warning}`);
+          } else {
+            results.push(`✓ ${row.email}: Membership created; invitation email sent successfully.`);
+          }
         } catch (err) {
-          results.push(`✗ ${row.email}: ${err instanceof Error ? err.message : "failed"}`);
+          hasInviteIssue = true;
+          results.push(`${row.email}: Could not confirm membership creation or invitation email sending: ${err instanceof Error ? err.message : "failed"}. No automatic retry was made.`);
         }
       }
       setInviteResults(results);
 
       const { data } = await supabase.auth.getUser();
       if (data.user?.id) markOnboardingDone(data.user.id);
+      setSetupCompleted(true);
+      if (hasInviteIssue) return;
       window.location.hash = "#/dashboard";
     } catch (err) {
+      submissionLocked.current = false;
       setInviteError(err instanceof Error ? err.message : "Could not save company settings");
     } finally {
       setSaving(false);
@@ -181,6 +195,24 @@ export default function Onboarding() {
   const logoSrc = themeMode === "dark" ? "/FramersApp%20Logo%20white.png" : "/FramersApp%20logo%20Black.png";
 
   const steps = ["Company info", "Currency", "Invite users"];
+
+  if (setupCompleted) {
+    return (
+      <main className="mx-auto max-w-lg px-4 py-10 space-y-4">
+        <h1 className="text-xl font-semibold">Company setup saved successfully</h1>
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">
+          <p>Setup is complete. Review the invitation results below. Invitations will not be retried automatically.</p>
+          {inviteResults.map((result, index) => <p key={index}>{result}</p>)}
+        </div>
+        <button
+          onClick={() => { window.location.hash = "#/dashboard"; }}
+          className="rounded-xl bg-emerald-600 text-white px-5 py-2.5 text-sm font-semibold"
+        >
+          Continue to Dashboard
+        </button>
+      </main>
+    );
+  }
 
   return (
     <div className="min-h-dvh bg-slate-50 flex flex-col items-center justify-start px-4 py-10">

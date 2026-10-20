@@ -2291,7 +2291,7 @@ function CompanyAccessPanel() {
       setDraft({ fullName: "", email: "", phone: "", role: "manager" });
       await refresh();
       if (result.warning) {
-        toast(result.note || result.warning, "warning");
+        toast(`Membership created, but the invitation email could not be sent: ${result.warning}`, "warning");
       } else {
         toast(`Access invite sent to ${result.member.email}.`, "success");
       }

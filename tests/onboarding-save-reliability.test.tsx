@@ -34,7 +34,7 @@ beforeEach(() => {
   window.location.hash = '#/onboarding'
   mocks.getUser.mockResolvedValue({ data: { user: { id: 'onboarding-user', email: 'owner@example.test', user_metadata: { company_name: 'Original Studio' } } }, error: null })
   mocks.save.mockResolvedValue(success)
-  mocks.invite.mockResolvedValue(undefined)
+  mocks.invite.mockResolvedValue({ member: { id: 'staff-member' } })
 })
 afterEach(cleanup)
 
