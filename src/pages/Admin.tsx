@@ -1045,7 +1045,7 @@ function GlazingPanel({
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        Cost per square meter; you can include standard, UV, museum glass, etc.
+        Manual material rate per square meter, before the Visualiser multiplier. This is not a supplier wholesale cost.
       </p>
 
       {glazing.length === 0 && (
@@ -1061,7 +1061,7 @@ function GlazingPanel({
               <tr className="text-left text-slate-500 border-b">
                 <th className="py-1 pr-2">Name</th>
                 <th className="py-1 pr-2">Type</th>
-                <th className="py-1 pr-2">Cost / m²</th>
+                <th className="py-1 pr-2">Material rate / m²</th>
                 <th className="py-1 pr-2">Markup %</th>
                 <th className="py-1 pr-2 w-10" />
               </tr>
@@ -1095,11 +1095,12 @@ function GlazingPanel({
                       <input
                         type="number"
                         className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                        value={(g as any).costPerSqm ?? ""}
+                        aria-label={`Glazing material rate ${idx + 1}`}
+                        value={g.pricePerSqM ?? ""}
                         onChange={(e) =>
                           updateRow(idx, {
-                            costPerSqm: Number(e.target.value) || 0,
-                          } as any)
+                            pricePerSqM: Number(e.target.value) || 0,
+                          })
                         }
                       />
                     </div>

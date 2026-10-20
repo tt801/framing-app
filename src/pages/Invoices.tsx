@@ -7,6 +7,7 @@ import { useCatalog } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import StatusBadge from "@/components/StatusBadge";
+import InvoicePaymentForm from "@/components/InvoicePaymentForm";
 import { createManualDraft, editManualDraft, invoiceBalance, type CommercialItem } from "@/lib/commercialDocuments";
 import { effectiveTaxRatePct } from "@/lib/pricing";
 
@@ -182,6 +183,7 @@ const isInvoiceSyncedToQuickBooks = (row: any) => {
    PAGE
    ======================================================================= */
 export default function InvoicesPage() {
+  const [paymentPending, setPaymentPending] = useState(false);
   const inv = useInvoices() as any;
   const { jobs: relatedJobs } = useJobs();
   const billingCompanyName = inv?.companyName;
@@ -193,6 +195,7 @@ export default function InvoicesPage() {
   // Listen for global "New invoice" event from header
   React.useEffect(() => {
     const onGlobalNew = async (event: Event) => {
+      if (paymentPending) return;
       const detail = (event as CustomEvent).detail as { type?: string };
       if (detail?.type === "invoice") {
         // Create a new blank invoice with editable fields
@@ -257,7 +260,7 @@ export default function InvoicesPage() {
 
     window.addEventListener("frameapp:new", onGlobalNew as EventListener);
     return () => window.removeEventListener("frameapp:new", onGlobalNew as EventListener);
-  }, [inv, toast, catalog]);
+  }, [inv, toast, catalog, paymentPending]);
 
   // 🔑 Match Customers / Quotes: useCatalog returns an object with { catalog }
   const settings = catalog?.settings || {};
@@ -294,7 +297,8 @@ export default function InvoicesPage() {
     qbConfig.connectionStatus !== "disconnected";
 
   const allInvoices: Invoice[] = (inv?.invoices ?? inv?.items ?? []) as Invoice[];
-  const saveInvoice = async (id: string, patch: any) => {
+  const saveInvoice = async (id: string, patch: any, paymentCompletion = false) => {
+    if (paymentPending && !paymentCompletion) return { ok: false, error: 'Confirm the pending payment before editing this invoice' };
     if (typeof inv?.updateInvoice !== "function") return { ok: false, error: "No invoice update function available" };
     return inv.updateInvoice(id, patch);
   };
@@ -530,7 +534,7 @@ export default function InvoicesPage() {
     ? (() => { try { return editManualDraft(selected, invoiceDraftItems, 'invoice'); } catch { return null; } })()
     : null;
   const saveDraftInvoice = async () => {
-    if (!selected || selStatus !== 'Draft') return;
+    if (!selected || selStatus !== 'Draft' || paymentPending) return;
     try {
       const patch = editManualDraft(selected, invoiceDraftItems, 'invoice');
       const result = await saveInvoice(selected.id, { ...patch, details: {
@@ -614,7 +618,7 @@ Thank you.
   const markStatus = async (
     status: "Draft" | "Sent" | "Paid" | "Overdue" | "Void"
   ) => {
-    if (!selected) return;
+    if (!selected || paymentPending) return;
     if (invoiceDraftDirty) { toast('Save the Draft invoice before changing its status', 'error'); return; }
 
     const id = selected.id;
@@ -947,6 +951,7 @@ Thank you.
                 return (
                   <button
                     key={row.id}
+                    disabled={paymentPending}
                     onClick={() => setSelectedId(row.id)}
                     className={`text-left rounded-lg border px-3 py-2.5 transition ${
                       isSelected
@@ -1234,7 +1239,7 @@ Thank you.
 
               {/* Actions */}
               {selected && (
-                <div className="rounded-2xl ring-1 ring-slate-200 p-4">
+                <fieldset disabled={paymentPending} className="rounded-2xl ring-1 ring-slate-200 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <div className="text-sm font-medium">Actions</div>
                     <div className="flex flex-wrap gap-2 justify-end">
@@ -1252,6 +1257,7 @@ Thank you.
                       </button>
                       <button
                         onClick={() => markStatus("Paid")}
+                        disabled={paymentPending}
                         className="rounded-xl border border-green-300 text-green-700 px-3 py-1.5 text-sm hover:bg-green-50"
                       >
                         Mark Paid
@@ -1285,7 +1291,7 @@ Thank you.
                   <p className="text-[11px] text-slate-500">
                     Ensure customer details and totals are accurate before sending.
                   </p>
-                </div>
+                </fieldset>
               )}
 
               {/* Totals */}
@@ -1342,6 +1348,21 @@ Thank you.
                   </div>
                 </div>
               </div>
+
+              <InvoicePaymentForm key={selected.id}
+                balance={invoiceBalance(selected)}
+                disabled={Boolean(inv.readOnly || invoiceDraftDirty || selStatus === 'Paid' || selStatus === 'Void')}
+                onPendingChange={setPaymentPending}
+                onRecord={async payment => {
+                  const result = await inv.addPayment(selected.id, payment);
+                  if (result.ok === false) return result;
+                  if (invoiceBalance(result.invoice) <= 0) {
+                    const saved = await saveInvoice(selected.id, { payments: result.invoice.payments, status: 'Paid', paidAt: new Date().toISOString() }, true);
+                    if (saved.ok) setStatusOverride(previous => ({ ...previous, [selected.id]: 'Paid' }));
+                    return saved;
+                  }
+                  return result;
+                }} />
 
               {/* Send to customer */}
               <div className="rounded-2xl ring-1 ring-slate-200 p-4">
