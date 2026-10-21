@@ -1,0 +1,88 @@
+import React from 'react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import Jobs from '@/pages/Jobs'
+const state = vi.hoisted(() => ({ jobs: [] as Record<string, unknown>[], add: vi.fn(), createIntake: vi.fn(), updateDetails: vi.fn(), company: 'a' }))
+vi.mock('@/lib/jobs', () => ({ useJobs: () => ({ jobs: state.jobs, add: state.add, createIntake: state.createIntake, updateDetails: state.updateDetails, companyAccountId: state.company, readOnly: false }) }))
+vi.mock('@/lib/quotes', () => ({ useQuotes: () => ({ quotes: [] }) }))
+vi.mock('@/lib/customers', () => ({ useCustomers: () => ({ customers: [{ id: 'c1', firstName: 'Local', lastName: 'Customer', email: 'test@example.test' }], loading: false }) }))
+vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: { settings: { currencyCode: 'GBP', currencySymbol: '£', jobChecklistTemplate: ['Inspect work', 'Quality check'] } }, settingsLoading: false }) }))
+vi.mock('@/lib/toast', () => ({ useToast: () => ({ add: vi.fn() }) }))
+vi.mock('@/lib/history', () => ({ useHistory: () => ({ add: vi.fn() }) }))
+vi.mock('@/lib/favorites', () => ({ useFavorites: () => ({ isFavorited: () => false, toggle: vi.fn() }) }))
+vi.mock('@/lib/pdf/jobCardPdf', () => ({ exportJobCardPDF: vi.fn() }))
+beforeEach(() => {
+  localStorage.clear(); window.location.hash = ''; state.jobs = []; state.company = 'a'; vi.clearAllMocks()
+  state.createIntake.mockResolvedValue({ ok: true, job: { id: 'created', refNo: 1001 } })
+  state.updateDetails.mockResolvedValue({ ok: true, job: { id: 'existing', refNo: 1001 } })
+})
+afterEach(cleanup)
+function form() { return screen.getByRole('dialog', { name: /job details|new job/i }) }
+it('opens an intake and Cancel persists nothing', () => {
+  render(<Jobs />)
+  fireEvent.click(screen.getByRole('button', { name: /New Job/i }))
+  expect(form()).toBeTruthy()
+  expect(state.add).not.toHaveBeenCalled(); expect(state.createIntake).not.toHaveBeenCalled()
+  fireEvent.click(within(form()).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(state.createIntake).not.toHaveBeenCalled()
+})
+it('validates normal intake and submits local customer, instructions and company checklist once', async () => {
+  render(<Jobs />); fireEvent.click(screen.getByRole('button', { name: /New Job/i }))
+  fireEvent.click(within(form()).getByRole('button', { name: 'Create Job' }))
+  expect(state.createIntake).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Description / work summary'), { target: { value: 'Repair loose corner' } })
+  fireEvent.click(within(form()).getByRole('button', { name: 'Create Job' }))
+  expect(state.createIntake).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Customer'), { target: { value: 'c1' } })
+  fireEvent.click(within(form()).getByRole('button', { name: 'Use company checklist' }))
+  fireEvent.click(within(form()).getByRole('button', { name: 'Create Job' }))
+  await waitFor(() => expect(state.createIntake).toHaveBeenCalledTimes(1))
+  expect(state.createIntake.mock.calls[0][0]).toMatchObject({ customerId: 'c1', description: 'Repair loose corner', checklist: [
+    { text: 'Inspect work', done: false }, { text: 'Quality check', done: false } ] })
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+})
+it('creates explicitly Internal work without a dummy customer and retains draft on save failure', async () => {
+  state.createIntake.mockResolvedValue({ ok: false, error: 'Could not save' })
+  render(<Jobs />); fireEvent.click(screen.getByRole('button', { name: /New Job/i }))
+  fireEvent.change(screen.getByLabelText('Job type'), { target: { value: 'internal' } })
+  fireEvent.change(screen.getByLabelText('Work instructions'), { target: { value: 'Repair workshop sample' } })
+  fireEvent.click(within(form()).getByRole('button', { name: 'Create Job' }))
+  await screen.findByText('Could not save')
+  expect(state.createIntake.mock.calls[0][0]).toMatchObject({ customerId: '', jobType: 'internal', workInstructions: 'Repair workshop sample' })
+  expect((screen.getByLabelText('Work instructions') as HTMLTextAreaElement).value).toBe('Repair workshop sample')
+})
+it('opens editing without writes, saves explicit changes, and Cancel/no-op create no mutation', async () => {
+  state.jobs = [{ id: 'existing', refNo: 1001, status: 'new', createdAt: '2026-10-21', updatedAt: 'revision-1',
+    customerId: 'c1', customer: { firstName: 'Local' }, artwork: {}, frame: {}, description: 'Repair', checklist: [] }]
+  render(<Jobs />)
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Job Details' }))
+  fireEvent.click(within(form()).getByRole('button', { name: 'Save Job Details' }))
+  expect(state.updateDetails).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Job Details' }))
+  fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Unsaved' } })
+  fireEvent.click(within(form()).getByRole('button', { name: 'Cancel' }))
+  expect(state.updateDetails).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Job Details' }))
+  fireEvent.change(screen.getByLabelText('Work instructions'), { target: { value: 'Retain backing' } })
+  fireEvent.click(within(form()).getByRole('button', { name: 'Save Job Details' }))
+  await waitFor(() => expect(state.updateDetails).toHaveBeenCalledTimes(1))
+  expect(state.updateDetails.mock.calls[0]).toEqual(['existing', expect.objectContaining({ workInstructions: 'Retain backing' }), 'revision-1'])
+})
+it('discards an open intake when the company changes', async () => {
+  const view = render(<Jobs />); fireEvent.click(screen.getByRole('button', { name: /New Job/i }))
+  state.company = 'b'; view.rerender(<Jobs />)
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(state.createIntake).not.toHaveBeenCalled()
+})
+it('blocks double submission while creation is pending', async () => {
+  let finish!: (value: unknown) => void
+  state.createIntake.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+  render(<Jobs />); fireEvent.click(screen.getByRole('button', { name: /New Job/i }))
+  fireEvent.change(screen.getByLabelText('Job type'), { target: { value: 'internal' } })
+  fireEvent.change(screen.getByLabelText('Description / work summary'), { target: { value: 'Sample' } })
+  const button = within(form()).getByRole('button', { name: 'Create Job' })
+  fireEvent.click(button); fireEvent.click(button)
+  expect(state.createIntake).toHaveBeenCalledTimes(1)
+  await act(async () => finish({ ok: true, job: { id: 'new', refNo: 1001 } }))
+})

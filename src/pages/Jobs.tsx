@@ -13,6 +13,8 @@ import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import { useFavorites } from "@/lib/favorites";
 import StatusBadge from "@/components/StatusBadge";
+import JobDetailsForm from "@/components/JobDetailsForm";
+import { savedJobDetails } from "@/lib/jobEditing";
 
 type Job = any;
 
@@ -128,14 +130,7 @@ type JobTemplate = {
 
 // ---------- normalization helpers ----------
 function parseDetails(job: Job) {
-  // details (object) or detailsJson (string)
-  let d = job?.details;
-  if (!d && typeof job?.detailsJson === "string") {
-    try {
-      d = JSON.parse(job.detailsJson);
-    } catch { /* ignore parse errors */ }
-  }
-  return d || null;
+  return savedJobDetails(job) as any;
 }
 
 function normalizeJob(job: Job, catalogSettings?: any) {
@@ -215,7 +210,7 @@ function normalizeJob(job: Job, catalogSettings?: any) {
       .join(" ")
       .trim() ||
     customer?.company ||
-    "Anonymous";
+    (job?.jobType === "internal" ? "Internal work — no customer" : "Anonymous");
 
   return {
     id: job?.id,
@@ -239,8 +234,8 @@ function normalizeJob(job: Job, catalogSettings?: any) {
 export default function JobsPage() {
   const jobsStore = useJobs() as any;
   const { quotes } = useQuotes();
-  const { customers } = useCustomers();
-  const { catalog } = useCatalog();
+  const { customers, loading: customersLoading, error: customersError } = useCustomers();
+  const { catalog, settingsLoading, settingsError } = useCatalog();
   const { add: toast } = useToast();
   const { add: addToHistory } = useHistory();
   const { isFavorited, toggle: toggleFavorite } = useFavorites();
@@ -271,31 +266,10 @@ export default function JobsPage() {
   });
   const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(new Set());
 
-  const handleNewJob = useCallback(async () => {
-    setSearchInput("");
-    setSearchTerm("");
-    setStatusFilter("all");
-    setSortBy("recent");
-
-    const id = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
-
-    const result = await jobsStore?.add?.({
-      id,
-      status: "new",
-      customer: {},
-      artwork: {},
-      frame: {},
-      checklist: [],
-      notes: "",
-    });
-
-    if (!result?.ok) {
-      toast(result?.error || "Could not save job", "error");
-      return;
-    }
-    setSelectedId(result.job.id);
-    toast("New job created. Fill in the job details on the right.", "success");
-  }, [jobsStore, toast]);
+  const [editor, setEditor] = useState<{ job?: Job; companyId?: string } | null>(null);
+  useEffect(() => { setEditor(null); }, [jobsStore.companyAccountId]);
+  const handleNewJob = () => setEditor({ companyId: jobsStore.companyAccountId });
+  const detailsUnavailable = Boolean(jobsStore.readOnly || customersLoading || customersError || settingsLoading || settingsError);
 
     // Phase 3: Timeline, templates, communication log
     const [timeline, setTimeline] = useState<Record<string, JobTimelineEvent[]>>(() => {
@@ -800,7 +774,7 @@ export default function JobsPage() {
     const list = Array.isArray(jobView?.checklist)
       ? jobView.checklist.slice()
       : [];
-    const idx = list.findIndex((i: any) => i?.id === itemId);
+    const idx = list.findIndex((i: any) => (i?.id ?? i?.key) === itemId);
     if (idx === -1) return;
     list[idx] = { ...list[idx], done: !list[idx].done };
     // patch raw job
@@ -830,8 +804,8 @@ export default function JobsPage() {
   }
 
   const selectedChecklist = (Array.isArray(selected?.checklist)
-    ? selected?.checklist
-    : []) as {
+    ? selected.checklist
+    : []).map((item: any) => ({ ...item, id: item.id ?? item.key, text: item.text ?? item.label })) as {
     id: string;
     text: string;
     done?: boolean;
@@ -861,6 +835,16 @@ export default function JobsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {editor && editor.companyId === jobsStore.companyAccountId && <JobDetailsForm
+        job={editor.job} customers={customers ?? []} checklistTemplate={(catalog?.settings as any)?.jobChecklistTemplate}
+        disabled={detailsUnavailable} onCancel={() => setEditor(null)}
+        onSave={draft => editor.job
+          ? jobsStore.updateDetails(editor.job.id, draft, editor.job.updatedAt)
+          : jobsStore.createIntake(draft)}
+        onSaved={job => {
+          setEditor(null); setSearchInput(""); setSearchTerm(""); setStatusFilter("all"); setSortBy("recent");
+          setSelectedId(job.id); toast(editor.job ? "Job details saved" : `Job ${job.refNo ?? job.id} created`, "success");
+        }} />}
       <main className="w-full p-6 space-y-6">
         <header className="pb-6 border-b border-slate-200">
           <div className="flex items-start justify-between gap-3">
@@ -872,7 +856,7 @@ export default function JobsPage() {
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={() => void importLegacyJobs()} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50">Import saved jobs</button>
-              <button type="button" onClick={() => void handleNewJob()} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50">New job</button>
+              <button type="button" disabled={detailsUnavailable} onClick={handleNewJob} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50 disabled:opacity-50">New job</button>
             </div>
           </div>
         </header>
@@ -882,6 +866,7 @@ export default function JobsPage() {
         {jobsStore.error && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">Could not load jobs: {jobsStore.error}</div>
         )}
+        {(customersError || settingsError) && <p role="alert" className="text-sm text-rose-700">Job intake is unavailable until customer and company settings load successfully.</p>}
         {/* OVERVIEW SECTION – matches Quotes style */}
         <section className="rounded-2xl ring-1 ring-slate-200 bg-white p-4 md:p-5">
           <div className="flex items-center justify-between mb-3">
@@ -1055,8 +1040,7 @@ export default function JobsPage() {
               )}
               {!views || views.length === 0 ? (
                 <div className="text-sm text-slate-500 p-6 text-center">
-                  No jobs yet. Create one from the Visualizer using “Add to
-                  Jobs”.
+                  No jobs yet. Use New job or create a Job from an accepted quote.
                 </div>
               ) : (
                 <ul className="space-y-2">
@@ -1215,6 +1199,8 @@ export default function JobsPage() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
+                    <button type="button" disabled={detailsUnavailable} className="col-span-2 px-3 py-1.5 text-xs rounded-lg ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50"
+                      onClick={() => setEditor({ job: selected.__raw, companyId: jobsStore.companyAccountId })}>Edit Job Details</button>
                     <button
                       className="px-3 py-1.5 text-xs rounded-lg ring-1 ring-slate-300 hover:bg-slate-50"
                       onClick={() => openPDF(selected.__raw)}
@@ -1241,6 +1227,12 @@ export default function JobsPage() {
                   </div>
                 </header>
 
+                <section className="rounded-xl border border-slate-200 p-4 text-sm space-y-2" aria-label="Job work details">
+                  <div><span className="text-slate-500">Job type: </span>{selected.__raw.jobType === "internal" ? "Internal" : selected.__raw.jobType || "Customer work"}</div>
+                  <div className="whitespace-pre-wrap"><span className="text-slate-500">Description: </span>{selected.__raw.description || "Not recorded"}</div>
+                  <div className="whitespace-pre-wrap"><span className="text-slate-500">Work instructions: </span>{selected.__raw.workInstructions || "Not recorded"}</div>
+                  <div className="whitespace-pre-wrap"><span className="text-slate-500">Notes: </span>{selected.__raw.notes || "Not recorded"}</div>
+                </section>
                 {/* Totals & Customer */}
                 <section className="grid grid-cols-2 gap-3 text-sm">
                   <div className="rounded-lg border p-3">
@@ -1308,7 +1300,8 @@ export default function JobsPage() {
                     <div className="text-xs text-slate-500 mb-1">
                       Totals
                     </div>
-                    <div className="space-y-0.5">
+                    {!selected.__raw.pricingSnapshot && selected.__raw.total == null && selected.__raw.details?.costs?.total == null
+                      ? <p className="text-slate-500">Commercial value not recorded</p> : <div className="space-y-0.5">
                       <div>
                         Subtotal:{" "}
                         <span className="font-medium">
@@ -1340,7 +1333,7 @@ export default function JobsPage() {
                           )}
                         </span>
                       </div>
-                    </div>
+                    </div>}
                   </div>
                 </section>
 

@@ -1163,7 +1163,7 @@ export default function QuotesPage() {
                       View Job {job.refNo ?? job.id}
                     </a>
                   )) : <button onClick={handleCreateJobFromQuote}
-                    disabled={creatingJob || jobsStore.loading || jobsStore.readOnly || normaliseStatus(selected) !== 'Accepted' || !selected.jobSpecification || !selected.customerId}
+                    disabled={creatingJob || jobsStore.loading || jobsStore.readOnly || normaliseStatus(selected) !== 'Accepted' || !selected.customerId}
                     title="Create production work from the accepted saved quote"
                     className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50">
                     {creatingJob ? 'Creating Job…' : 'Create Job'}
@@ -1177,9 +1177,10 @@ export default function QuotesPage() {
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500 text-right">
-                  {!linkedJobs.length && (!selected.jobSpecification
-                    ? 'This quote has no saved framing specification for automatic job creation. '
-                    : normaliseStatus(selected) !== 'Accepted' ? 'Accept this quote before creating its job. ' : '')}
+                  {!linkedJobs.length && (normaliseStatus(selected) !== 'Accepted'
+                    ? 'Accept this quote before creating its job. '
+                    : !selected.customerId ? 'Select a customer before creating its job. '
+                    : selected.jobSpecification === undefined ? 'Workshop details are not recorded; complete them in the Job after creation. ' : '')}
                   Tip: Use the “Send to customer” section below to email or WhatsApp this
                   quote.
                 </p>

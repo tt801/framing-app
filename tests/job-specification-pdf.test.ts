@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { jobSpecificationFields } from '@/lib/jobSpecification'
 import { exportJobCardPDF } from '@/lib/pdf/jobCardPdf'
+import { buildJobDetails, jobDetailsDraft } from '@/lib/jobEditing'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js'
 
 const details = {
@@ -43,6 +44,24 @@ it('exports enabled printing/backer and additional saved mat names and borders',
 it('does not invent missing production options in a legacy PDF', async () => {
   const text = await pdfText({ id: 'legacy' })
   for (const label of ['Mat 1', 'Additional mats', 'Printing', 'Foam/backer']) expect(text).toContain(`${label}: Not recorded`)
+})
+
+it('prints non-framing Internal instructions and notes without invented specification or sale', async () => {
+  const text = await pdfText({ id: 'internal', jobType: 'internal', description: 'Repair sample', workInstructions: 'Keep the original backing', notes: 'Workshop only',
+    customer: {}, artwork: {}, frame: {}, checklist: [{ key: 'inspect', label: 'Inspect repair', done: true }] })
+  for (const value of ['Internal', 'Repair sample', 'Keep the original backing', 'Workshop only', 'Inspect repair', 'Commercial value not recorded',
+    'Frame: Not recorded', 'Glazing: Not recorded', 'Artwork: Not recorded']) expect(text).toContain(value)
+  expect(text).not.toContain('£0.00')
+})
+
+it('prints edited workshop values while retaining complete source pricing', async () => {
+  const original = { customerId: 'c1', description: 'Repair', details: structuredClone(details), artwork: {}, frame: {}, checklist: [] }
+  const draft = jobDetailsDraft(original); draft.spec.frameName = 'Edited workshop frame'; draft.spec.artWidth = '42'
+  draft.workInstructions = 'Retain glazing'
+  const edited = buildJobDetails(draft, [{ id: 'c1', firstName: 'Saved', lastName: 'Customer', email: 'test@example.test' }], original)
+  const text = await pdfText(edited)
+  for (const value of ['Edited workshop frame', '42.0 × 30.0 cm', 'Retain glazing', '£202.11', '£26.36']) expect(text).toContain(value)
+  expect(original.details.frame.name).toBe('UAT-H2 Frame')
 })
 
 it('reads top-level saved fields without catalogue lookups', () => {

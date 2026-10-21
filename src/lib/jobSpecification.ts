@@ -1,3 +1,5 @@
+import { savedJobDetails } from './jobEditing';
+
 type SavedRecord = Record<string, unknown>;
 const NOT_RECORDED = "Not recorded";
 const record = (value: unknown): SavedRecord =>
@@ -12,11 +14,7 @@ const measurement = (value: unknown): string | undefined =>
 /** Read only the frozen Job snapshot; never resolve materials from a catalogue. */
 export function jobSpecificationFields(value: unknown): { label: string; value: string }[] {
   const job = record(value);
-  let jsonDetails: SavedRecord = {};
-  if (typeof job.detailsJson === "string") {
-    try { jsonDetails = record(JSON.parse(job.detailsJson)); } catch { /* Legacy malformed JSON is missing data. */ }
-  }
-  const details = { ...jsonDetails, ...record(job.details) };
+  const details = savedJobDetails(job);
   const dims = { ...record(job.dims), ...record(details.dims) };
   const artwork = record(job.artwork);
   const art = record(dims.art);

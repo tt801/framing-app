@@ -51,6 +51,17 @@ it('creates a job from the saved quote and replaces conversion with a durable jo
   expect(screen.queryByRole('button', { name: 'Create Job' })).toBeNull()
 })
 
+it('enables accepted customer-bound manual conversion without requiring framing data', async () => {
+  delete state.quote.jobSpecification
+  render(<Quotes />)
+  const button = screen.getByRole('button', { name: 'Create Job' }) as HTMLButtonElement
+  expect(button.disabled).toBe(false)
+  expect(screen.getByText(/Workshop details are not recorded/)).toBeTruthy()
+  fireEvent.click(button)
+  await screen.findByRole('link', { name: 'View Job 1001' })
+  expect(state.convert).toHaveBeenCalledExactlyOnceWith('q1')
+})
+
 it('exports the accepted customer snapshot rather than changed CRM details', async () => {
   render(<Quotes />)
   fireEvent.click(screen.getByRole('button', { name: 'PDF' }))

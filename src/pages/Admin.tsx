@@ -1,5 +1,6 @@
 // src/pages/Admin.tsx
 import React, { useMemo, useState } from "react";
+import { DEFAULT_JOB_CHECKLIST } from "@/lib/jobChecklist";
 import {
   useCatalog,
   newFrame,
@@ -43,16 +44,7 @@ const CURRENCIES = [
 /* ------------------------------------------------------------------
    Jobs defaults (checklist + ready message template)
    ------------------------------------------------------------------ */
-const DEFAULT_JOB_CHECKLIST: string[] = [
-  "Cut frame",
-  "Join frame",
-  "Cut glazing / glass",
-  "Cut mat / mount",
-  "Assemble artwork",
-  "Fit backing & hardware",
-  "Final clean & quality check",
-  "Pack for collection",
-];
+// Shared with Job intake; Visualiser retains its existing generated checklist.
 
 const DEFAULT_READY_MESSAGE = [
   "Hi {{customerName}},",

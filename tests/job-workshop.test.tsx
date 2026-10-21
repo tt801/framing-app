@@ -43,6 +43,14 @@ it('renders the saved workshop specification without changing the Job', () => {
   expect(state.update).not.toHaveBeenCalled(); expect(state.add).not.toHaveBeenCalled(); expect(state.remove).not.toHaveBeenCalled()
 })
 
+it('renders legacy checklist labels and targets their exact keys', () => {
+  state.jobs[0].checklist = [{ key: 'inspect', label: 'Inspect repair', done: true }]
+  render(<Jobs />)
+  const label = screen.getByText('Inspect repair')
+  fireEvent.click(within(label.closest('li')!).getByRole('checkbox'))
+  expect(state.update).toHaveBeenCalledWith({ id: 'job-test', checklist: [{ key: 'inspect', label: 'Inspect repair', done: false }] })
+})
+
 it('reads detailsJson when the legacy Job has no details object', () => {
   state.jobs[0].detailsJson = JSON.stringify(details()); delete state.jobs[0].details
   render(<Jobs />)

@@ -1,6 +1,7 @@
 // src/lib/pdf/jobCardPdf.ts
 import jsPDF from "jspdf";
 import { jobSpecificationFields } from "@/lib/jobSpecification";
+import { jobDetailsDraft, savedJobDetails } from "@/lib/jobEditing";
 
 type AnyRecord = Record<string, any>;
 
@@ -13,19 +14,13 @@ type ExportJobCardPdfArgs = {
 const CM_PER_IN = 2.54;
 
 function parseDetails(job: AnyRecord): AnyRecord | null {
-  let d = job?.details;
-  if (!d && typeof job?.detailsJson === "string") {
-    try {
-      d = JSON.parse(job.detailsJson);
-    } catch {
-      // ignore
-    }
-  }
-  return d || null;
+  return savedJobDetails(job);
 }
 
 function normalizeJobForPdf(job: AnyRecord, catalogSettings?: AnyRecord) {
   const d = parseDetails(job);
+  const spec = jobDetailsDraft(job).spec;
+  const fields = Object.fromEntries(jobSpecificationFields(job).map(field => [field.label, field.value]));
 
   const currencyCode =
     job?.currency?.code ??
@@ -38,21 +33,18 @@ function normalizeJobForPdf(job: AnyRecord, catalogSettings?: AnyRecord) {
     catalogSettings?.currencySymbol ??
     "R ";
 
-  const frameName =
-    job?.frameName || d?.frame?.name || job?.frame?.name || "Frame";
-
-  const glazingName =
-    job?.glazingName || d?.glazing?.name || job?.glazing?.name || "Glazing";
+  const frameName = fields.Frame;
+  const glazingName = fields.Glazing;
 
   const unit = d?.dims?.unit || job?.unit || "metric";
 
   const dims = {
     unit,
-    artWcm: d?.dims?.art?.widthCm ?? job?.artWcm ?? 0,
-    artHcm: d?.dims?.art?.heightCm ?? job?.artHcm ?? 0,
-    visWcm: d?.dims?.visible?.widthCm ?? job?.visibleWcm ?? 0,
-    visHcm: d?.dims?.visible?.heightCm ?? job?.visibleHcm ?? 0,
-    faceWcm: d?.dims?.frameFaceWidthCm ?? job?.faceWidthCm ?? 0,
+    artWcm: Number(spec.artWidth || 0),
+    artHcm: Number(spec.artHeight || 0),
+    visWcm: Number(spec.visibleWidth || 0),
+    visHcm: Number(spec.visibleHeight || 0),
+    faceWcm: Number(spec.faceWidth || 0),
   };
 
   const costs = {
@@ -70,7 +62,7 @@ function normalizeJobForPdf(job: AnyRecord, catalogSettings?: AnyRecord) {
   return {
     id: job?.id,
     refNo: job?.refNo,
-    description: job?.description || `Framing job — ${frameName}`,
+    description: job?.description || "Not recorded",
     status: job?.status ?? "new",
     createdAt: job?.createdAt || job?.created_at || null,
     frameName,
@@ -118,6 +110,13 @@ export async function exportJobCardPDF({
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 40;
   let y = margin;
+  const writeLine = (text: string) => {
+    const lines: string[] = doc.splitTextToSize(text, pageWidth - margin * 2);
+    for (const line of lines) {
+      if (y > 740) { doc.addPage(); y = margin; }
+      doc.text(line, margin, y); y += 12;
+    }
+  };
 
   const companyName = settings?.companyName || "Framing Studio";
   const companyAddress = settings?.companyAddress || "";
@@ -195,7 +194,7 @@ export async function exportJobCardPDF({
         .join(" ")
         .trim()) ||
     customer?.company ||
-    "Customer";
+    (job.jobType === "internal" ? "Internal work — no customer" : "Customer");
 
   doc.setDrawColor(200);
   doc.setLineWidth(0.5);
@@ -247,15 +246,18 @@ export async function exportJobCardPDF({
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.text(`Description: ${view.description}`, margin, y);
-  y += 12;
-  doc.text(`Frame: ${view.frameName}`, margin, y);
-  y += 12;
-  doc.text(`Glazing: ${view.glazingName}`, margin, y);
-  y += 16;
+  if (job.jobType) writeLine(`Job type: ${job.jobType === 'internal' ? 'Internal' : job.jobType}`);
+  writeLine(`Description: ${view.description}`);
+  if (job.workInstructions) writeLine(`Work instructions: ${job.workInstructions}`);
+  if (job.notes) writeLine(`Notes: ${job.notes}`);
+  writeLine(`Frame: ${view.frameName}`);
+  writeLine(`Glazing: ${view.glazingName}`);
+  y += 4;
 
   const dimsLines: string[] = [];
-  if (view.dims.artWcm || view.dims.artHcm) {
+  const spec = jobDetailsDraft(job).spec;
+  const fields = Object.fromEntries(jobSpecificationFields(job).map(field => [field.label, field.value]));
+  if (spec.artWidth !== '' && spec.artHeight !== '') {
     const wIn = (view.dims.artWcm / CM_PER_IN).toFixed(2);
     const hIn = (view.dims.artHcm / CM_PER_IN).toFixed(2);
     dimsLines.push(
@@ -263,21 +265,20 @@ export async function exportJobCardPDF({
         1
       )} cm (${wIn} × ${hIn} in)`
     );
-  }
-  if (view.dims.visWcm || view.dims.visHcm) {
+  } else dimsLines.push(`Artwork: ${fields['Artwork dimensions']}`);
+  if (spec.visibleWidth !== '' && spec.visibleHeight !== '') {
     dimsLines.push(
       `Visible: ${view.dims.visWcm.toFixed(1)} × ${view.dims.visHcm.toFixed(
         1
       )} cm`
     );
-  }
-  if (view.dims.faceWcm) {
+  } else dimsLines.push(`Visible: ${fields['Visible dimensions']}`);
+  if (spec.faceWidth !== '') {
     dimsLines.push(`Frame face width: ${view.dims.faceWcm.toFixed(1)} cm`);
-  }
+  } else dimsLines.push('Frame face width: Not recorded');
 
   dimsLines.forEach((line) => {
-    doc.text(line, margin, y);
-    y += 12;
+    writeLine(line);
   });
 
   jobSpecificationFields(job)
@@ -293,6 +294,12 @@ export async function exportJobCardPDF({
 
   y += 6;
 
+  const recordedCommercial = job.pricingSnapshot || job.total != null || parseDetails(job)?.costs?.total != null;
+  if (!recordedCommercial) {
+    writeLine('Commercial value not recorded');
+    y += 12;
+  } else {
+  if (y > 660) { doc.addPage(); y = margin; }
   const taxAmount =
     (view.costs.subtotal ?? 0) * (view.costs.taxRate ?? 0);
 
@@ -332,7 +339,10 @@ export async function exportJobCardPDF({
   );
   y += 20;
 
+  }
+
   // ---------- Checklist ----------
+  if (y > 700) { doc.addPage(); y = margin; }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text("Workshop checklist", margin, y);
@@ -356,8 +366,7 @@ export async function exportJobCardPDF({
         y = margin;
       }
       const mark = item.done ? "[x]" : "[ ]";
-      doc.text(`${mark} ${item.text ?? ""}`, margin, y);
-      y += 12;
+      writeLine(`${mark} ${item.text ?? item.label ?? ""}`);
       if (index === checklist.length - 1) y += 4;
     });
   }

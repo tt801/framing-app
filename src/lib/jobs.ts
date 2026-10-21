@@ -4,6 +4,8 @@ import { useBillingAccess, useBillingWriteGuard } from '@/lib/billingAccess'
 import { isRecord } from './persistedRows'
 import { rowToQuote } from './quotes'
 import { jobFromQuote } from './quoteJobLinkage'
+import { buildJobDetails, jobDetailsDraft, type JobDetailsDraft } from './jobEditing'
+import type { Customer } from './customers'
 
 export type JobStatus = 'new' | 'in_progress' | 'on_hold' | 'done' | 'cancelled' | string
 export type JobChecklistItem =
@@ -15,6 +17,7 @@ export type Job = {
   customerId?: string; invoiceId?: string; quoteId?: string; customer: Record<string, any>
   artwork: Record<string, any>; frame: Record<string, any>
   checklist: JobChecklistItem[]; notes?: string; [key: string]: any
+  description?: string; workInstructions?: string; jobType?: string; dueDate?: string
 }
 export type JobOpResult = { ok: true; job: Job } | { ok: false; error: string }
 const LEGACY_STORAGE_KEY = 'jobs_v1'
@@ -73,12 +76,64 @@ export function useJobs() {
   const add = useCallback(async (input: Partial<Job>): Promise<JobOpResult> => {
     if (!allowWrite('create jobs')) return { ok: false, error: 'Read-only account' }
     if (!supabase || !companyAccountId) return { ok: false, error: 'No active company account' }
+    const requestId = requestIdRef.current
     const { __payload, ...fields } = input as Partial<Job> & { __payload?: Record<string, any> }
     const payload = { ...(__payload || fields), id: input.id || Math.random().toString(36).slice(2, 10), createdAt: input.createdAt || new Date().toISOString() }
     const { data, error: createError } = await supabase.rpc('create_job', { p_id: payload.id, p_company_account_id: companyAccountId, p_payload: payload, p_customer_id: input.customerId || input.customer?.id || null, p_quote_id: input.quoteId || null, p_invoice_id: input.invoiceId || null, p_ref_no: input.refNo || null })
     if (createError || !data) return { ok: false, error: message(createError, 'Could not save job') }
+    if (requestId !== requestIdRef.current) return { ok: false, error: 'Company changed. Reload the original company to view the saved Job.' }
     const job = rowToJob(data as JobRow); if (!job) return { ok: false, error: 'Saved job has incomplete data' }; setJobs(prev => [job, ...prev.filter(row => row.id !== job.id)]); return { ok: true, job }
   }, [allowWrite, companyAccountId])
+
+  const intakeCustomers = useCallback(async (customerId: string): Promise<Customer[]> => {
+    if (!customerId) return []
+    if (!supabase || !companyAccountId) throw new Error('No active company account')
+    const { data, error } = await supabase.from('customers').select('id, first_name, last_name, email, phone, company_name, notes')
+      .eq('id', customerId).eq('company_account_id', companyAccountId).single()
+    if (error || !data) throw new Error('Select an existing customer in this company.')
+    return [{ id: data.id, firstName: data.first_name, lastName: data.last_name, email: data.email,
+      phone: data.phone ?? '', company: data.company_name ?? '', notes: data.notes ?? '' }]
+  }, [companyAccountId])
+
+  const createIntake = useCallback(async (draft: JobDetailsDraft): Promise<JobOpResult> => {
+    if (!allowWrite('create jobs')) return { ok: false, error: 'Read-only account' }
+    if (!supabase || !companyAccountId) return { ok: false, error: 'No active company account' }
+    const requestId = requestIdRef.current
+    try {
+      const customers = await intakeCustomers(draft.customerId)
+      const payload = buildJobDetails(draft, customers)
+      if (requestId !== requestIdRef.current) return { ok: false, error: 'Company changed. Reopen Job intake.' }
+      return await add(payload)
+    } catch (error) { return { ok: false, error: message(error, 'Could not create Job') } }
+  }, [add, allowWrite, companyAccountId, intakeCustomers])
+
+  const updateDetails = useCallback(async (id: string, draft: JobDetailsDraft, expectedUpdatedAt?: string): Promise<JobOpResult> => {
+    if (!allowWrite('edit jobs')) return { ok: false, error: 'Read-only account' }
+    if (!supabase || !companyAccountId) return { ok: false, error: 'No active company account' }
+    const requestId = requestIdRef.current
+    try {
+      const { data: source, error: fetchError } = await supabase.from('jobs').select('*')
+        .eq('id', id).eq('company_account_id', companyAccountId).single()
+      if (fetchError || !source) return { ok: false, error: 'Job not found in this company' }
+      const current = rowToJob(source)
+      if (!current || !expectedUpdatedAt || current.updatedAt !== expectedUpdatedAt)
+        return { ok: false, error: 'Job changed. Reload before editing its details.' }
+      if (requestId !== requestIdRef.current) return { ok: false, error: 'Company changed. Reopen Job details.' }
+      if (JSON.stringify(draft) === JSON.stringify(jobDetailsDraft(current))) return { ok: true, job: current }
+      const customers = current.quoteId || current.invoiceId ? [] : await intakeCustomers(draft.customerId)
+      const payload = buildJobDetails(draft, customers, current)
+      if (requestId !== requestIdRef.current) return { ok: false, error: 'Company changed. Reopen Job details.' }
+      const { data, error: saveError } = await supabase.from('jobs')
+        .update({ customer_id: payload.customerId || null, payload })
+        .eq('id', id).eq('company_account_id', companyAccountId).eq('updated_at', expectedUpdatedAt).select('*').single()
+      if (saveError || !data) return { ok: false, error: message(saveError, 'Job changed. Reload before saving.') }
+      if (requestId !== requestIdRef.current) return { ok: false, error: 'Company changed. Reload the original company to view the saved Job.' }
+      const job = rowToJob(data)
+      if (!job) return { ok: false, error: 'Saved Job has incomplete data' }
+      setJobs(previous => previous.map(existing => existing.id === id ? job : existing))
+      return { ok: true, job }
+    } catch (error) { return { ok: false, error: message(error, 'Could not save Job details') } }
+  }, [allowWrite, companyAccountId, intakeCustomers])
 
   const createFromQuote = useCallback(async (quoteId: string): Promise<JobOpResult> => {
     if (!allowWrite('create jobs')) return { ok: false, error: 'Read-only account' }
@@ -205,5 +260,5 @@ export function useJobs() {
   }, [add, allowWrite, companyAccountId, refresh])
 
   const byId = useMemo(() => new Map<string, Job>(jobs.map(job => [job.id, job])), [jobs])
-  return { jobs, loading, error, refresh, add, createFromQuote, linkInvoiceFromQuote, update, remove, byId, readOnly: billing.readOnly, companyName: billing.companyName, getLegacyLocalJobCount, importLegacyLocalJobs }
+  return { jobs, loading, error, refresh, add, createIntake, updateDetails, createFromQuote, linkInvoiceFromQuote, update, remove, byId, readOnly: billing.readOnly, companyAccountId, companyName: billing.companyName, getLegacyLocalJobCount, importLegacyLocalJobs }
 }

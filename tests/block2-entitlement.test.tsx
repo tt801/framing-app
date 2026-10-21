@@ -35,6 +35,7 @@ vi.mock('@/lib/supabase', () => ({
 import { useTrialStatus } from '@/lib/trial'
 import { useQuotes } from '@/lib/quotes'
 import { useJobs } from '@/lib/jobs'
+import { jobDetailsDraft } from '@/lib/jobEditing'
 import { useInvoices } from '@/lib/invoices'
 vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: { settings: {} } }) }))
 function account(user: string) {
@@ -85,6 +86,8 @@ describe('Block 2 client entitlement and stale identity', () => {
       expect(await hook.result.current.quotes.update({ id: 'q-a' })).toMatchObject({ ok: false })
       expect(await hook.result.current.quotes.remove('q-a')).toMatchObject({ ok: false })
       expect(await hook.result.current.jobs.createFromQuote('q-a')).toMatchObject({ ok: false })
+      expect(await hook.result.current.jobs.createIntake(jobDetailsDraft())).toMatchObject({ ok: false })
+      expect(await hook.result.current.jobs.updateDetails('j-a', jobDetailsDraft(), 'revision')).toMatchObject({ ok: false })
       expect(await hook.result.current.jobs.linkInvoiceFromQuote('q-a', 'i-a')).toMatchObject({ ok: false })
       expect(await hook.result.current.invoices.addPayment('i-a', { id: 'p-a', amount: 1, method: 'cash', dateISO: '2026-10-17' })).toMatchObject({ ok: false })
     })

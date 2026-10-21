@@ -12,6 +12,30 @@ const quote = () => ({ ...toVisualiserQuote(pricingSnapshot), id: 'q1', number: 
       mats: { mat1: { id: 'mat', borderCm: 5 } }, costs: {} }, checklist: [{ id: 'cut', text: 'Cut', done: false }] } })
 
 describe('accepted quote to job agreement', () => {
+  it('converts a manual agreement without inventing framing data', () => {
+    const manual = { ...quote(), jobSpecification: undefined }
+    const source = { ...manual, items: manual.items.map((item, index) => ({ ...item, id: `manual-${index}`, description: item.name })), description: 'Repair the loose corner', workInstructions: 'Retain original backing', notes: 'Call before collection', customerSnapshot: { id: 'c1', firstName: 'Manual' } }
+    const before = structuredClone(source)
+    const job = jobFromQuote(source)
+    expect(job).toMatchObject({ id: 'quote-job:q1', quoteId: 'q1', quoteNumber: 'Q-001', customerId: 'c1',
+      customerSnapshot: source.customerSnapshot, description: source.description, workInstructions: source.workInstructions, notes: source.notes,
+      artwork: {}, frame: {}, subtotal: 175.75, tax: 26.36, total: 202.11, items: source.items })
+    expect(job.details.dims).toBeUndefined()
+    expect(job.details.mats).toBeUndefined()
+    expect(source).toEqual(before)
+    job.pricingSnapshot.items[0].description = 'Changed only on job'
+    expect(source.pricingSnapshot.items[0].description).not.toBe('Changed only on job')
+  })
+  it.each([null, [], 'bad', {}, { artwork: {}, frame: [] , details: {} },
+    { artwork: {}, frame: {}, details: { dims: 'bad' } }, { artwork: {}, frame: {}, details: {}, checklist: 'bad' }])('rejects a present malformed specification (%j)', jobSpecification => {
+    expect(() => jobFromQuote({ ...quote(), items: [], jobSpecification })).toThrow(/specification/i)
+  })
+  it('carries recorded legacy instructions and description rather than interpreting selling lines', () => {
+    const source = { ...quote(), items: [], jobSpecification: undefined, instructions: 'Reuse the existing hardware', details: { description: 'Repair existing frame' } }
+    const job = jobFromQuote(source)
+    expect(job.workInstructions).toBe(source.instructions)
+    expect(job.description).toBe(source.details.description)
+  })
   it('uses the quote agreement and customer after Draft edits, never stale specification identities or numbering', () => {
     const source = { ...quote(), customerSnapshot: { id: 'c1', firstName: 'Accepted' },
       jobSpecification: { ...quote().jobSpecification, refNo: 9000, invoiceId: 'stale-invoice',

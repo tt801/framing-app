@@ -7,10 +7,12 @@ import { invoiceBalance, invoiceFromQuote } from '@/lib/commercialDocuments'
 import { exportQuotePDF } from '@/lib/pdf/quotePdf'
 import { exportInvoicePDF } from '@/lib/pdf/invoicePdf'
 import { exportJobCardPDF } from '@/lib/pdf/jobCardPdf'
+import { jobDetailsDraft } from '@/lib/jobEditing'
 // @ts-expect-error pdfjs-dist legacy CommonJS build lacks its declaration path.
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js'
 
-const state = vi.hoisted(() => ({ tables: new Map<string, Record<string, unknown>[]>(), rpc: vi.fn() }))
+const state = vi.hoisted(() => ({ tables: new Map<string, Record<string, unknown>[]>(), rpc: vi.fn(),
+  customerGate: null as Promise<void> | null, beforeUpdate: undefined as (() => void) | undefined }))
 vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: { settings: {
   currencyCode: 'USD', currencySymbol: '$', taxRatePct: 30, marginMultiplier: 5, invoicePrefix: 'INV-', invoiceStartNumber: 1200,
 } } }) }))
@@ -20,6 +22,7 @@ vi.mock('@/lib/supabase', () => ({ supabase: {
     const filters: [string, unknown][] = []
     let patch: Record<string, unknown> | undefined, single = false
     const execute = () => {
+      if (patch) state.beforeUpdate?.()
       const rows = (state.tables.get(table) || []).filter(row => filters.every(([key, value]) => row[key] === value))
       if (patch) rows.forEach(row => Object.assign(row, patch, { updated_at: `${Number(row.updated_at) + 1}` }))
       return single ? { data: rows.length === 1 ? structuredClone(rows[0]) : null, error: rows.length === 1 ? null : { message: 'Record not found' } }
@@ -29,7 +32,7 @@ vi.mock('@/lib/supabase', () => ({ supabase: {
       select: () => query, order: () => query,
       eq: (key: string, value: unknown) => { filters.push([key, value]); return query },
       update: (value: Record<string, unknown>) => { patch = value; return query },
-      single: () => { single = true; return Promise.resolve(execute()) },
+      single: async () => { single = true; if (table === 'customers' && state.customerGate) await state.customerGate; return execute() },
       then: (resolve: (value: ReturnType<typeof execute>) => unknown) => Promise.resolve(execute()).then(resolve),
     }
     return query
@@ -42,8 +45,11 @@ const billing: BillingAccess = { readOnly: false, hasFullAccess: true, canUsePre
 const Wrapper = ({ children }: { children: React.ReactNode }) => <BillingAccessProvider value={billing}>{children}</BillingAccessProvider>
 const agreement = priceSellingDocument({ items: [{ description: 'Frame', qty: 1, unitPrice: 175.75 }], currencyCode: 'GBP', currencySymbol: '£', taxRatePct: 15 })
 beforeEach(() => {
+  state.customerGate = null; state.beforeUpdate = undefined
   state.tables.clear()
   state.tables.set('jobs', [])
+  state.tables.set('customers', [{ id: 'c1', company_account_id: 'company-a', first_name: 'Local', last_name: 'Customer', email: 'test@example.test' },
+    { id: 'foreign-customer', company_account_id: 'company-b', first_name: 'Foreign' }])
   state.tables.set('quotes', [{ id: 'q1', company_account_id: 'company-a', customer_id: 'c1', payload: {
     ...toVisualiserQuote(agreement), id: 'q1', status: 'Accepted', customerId: 'c1',
     jobSpecification: { artwork: { widthCm: 40, heightCm: 30 }, frame: { id: 'oak' },
@@ -76,6 +82,85 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('company-scoped quote job conversion', () => {
+  it('rejects a concurrent revision change at the actual update boundary', async () => {
+    const hook = renderHook(useJobs, { wrapper: Wrapper })
+    await waitFor(() => expect(hook.result.current.loading).toBe(false))
+    await act(async () => { await hook.result.current.createFromQuote('q1') })
+    const job = hook.result.current.jobs[0]
+    const draft = jobDetailsDraft(job); draft.description = 'New instructions'
+    state.beforeUpdate = () => { state.tables.get('jobs')![0].updated_at = 'concurrent-revision' }
+    await act(async () => { expect((await hook.result.current.updateDetails(job.id, draft, job.updatedAt)).ok).toBe(false) })
+    expect((state.tables.get('jobs')![0].payload as Record<string, unknown>).description).not.toBe('New instructions')
+  })
+  it('aborts intake before persistence if the company changes during customer validation', async () => {
+    let company = 'company-a'
+    const Dynamic = ({ children }: { children: React.ReactNode }) => <BillingAccessProvider value={{ ...billing, companyAccountId: company }}>{children}</BillingAccessProvider>
+    const hook = renderHook(useJobs, { wrapper: Dynamic })
+    await waitFor(() => expect(hook.result.current.loading).toBe(false))
+    let release!: () => void
+    state.customerGate = new Promise(resolve => { release = resolve })
+    const draft = jobDetailsDraft(); draft.customerId = 'c1'; draft.description = 'Repair'
+    const pending = hook.result.current.createIntake(draft)
+    company = 'company-b'; hook.rerender()
+    await waitFor(() => expect(hook.result.current.companyAccountId).toBe('company-b'))
+    await act(async () => { release(); expect((await pending).ok).toBe(false) })
+    expect(state.rpc).not.toHaveBeenCalled()
+  })
+  it('persists manual conversion, working edits and reload without touching the quote agreement', async () => {
+    const payload = state.tables.get('quotes')![0].payload as Record<string, unknown>
+    delete payload.jobSpecification
+    payload.customerSnapshot = { id: 'c1', firstName: 'Frozen' }
+    payload.description = 'Repair'; payload.notes = 'Recorded quote note'
+    const source = structuredClone(state.tables.get('quotes'))
+    const hook = renderHook(useJobs, { wrapper: Wrapper })
+    await waitFor(() => expect(hook.result.current.loading).toBe(false))
+    await act(async () => {
+      const results = await Promise.all([hook.result.current.createFromQuote('q1'), hook.result.current.createFromQuote('q1')])
+      expect(results.every(result => result.ok)).toBe(true)
+    })
+    expect(state.tables.get('jobs')).toHaveLength(1)
+    const job = hook.result.current.jobs[0]
+    const draft = jobDetailsDraft(job); draft.spec.frameName = 'Workshop repair frame'; draft.workInstructions = 'Retain glass'
+    await act(async () => { expect((await hook.result.current.updateDetails(job.id, draft, job.updatedAt)).ok).toBe(true) })
+    expect(state.tables.get('quotes')).toEqual(source)
+    hook.unmount()
+    const reload = renderHook(useJobs, { wrapper: Wrapper })
+    await waitFor(() => expect(reload.result.current.jobs).toHaveLength(1))
+    expect(reload.result.current.jobs[0]).toMatchObject({ quoteId: 'q1', customerId: 'c1', total: 202.11,
+      workInstructions: 'Retain glass', details: { frame: { name: 'Workshop repair frame' } }, notes: 'Recorded quote note' })
+    const stale = await reload.result.current.updateDetails(job.id, draft, job.updatedAt)
+    expect(stale.ok).toBe(false)
+  })
+  it('validates standalone company customers and allows Internal work without customer or pricing', async () => {
+    const hook = renderHook(useJobs, { wrapper: Wrapper })
+    await waitFor(() => expect(hook.result.current.loading).toBe(false))
+    const draft = jobDetailsDraft(); draft.description = 'Repair'
+    draft.customerId = 'foreign-customer'
+    await act(async () => { expect((await hook.result.current.createIntake(draft)).ok).toBe(false) })
+    expect(state.rpc).not.toHaveBeenCalled()
+    draft.customerId = 'c1'
+    await act(async () => { expect((await hook.result.current.createIntake(draft)).ok).toBe(true) })
+    expect(hook.result.current.jobs[0]).toMatchObject({ customerId: 'c1', customerSnapshot: { firstName: 'Local' }, description: 'Repair' })
+    draft.jobType = 'internal'; draft.customerId = ''
+    await act(async () => { expect((await hook.result.current.createIntake(draft)).ok).toBe(true) })
+    expect(hook.result.current.jobs[0].customerId).toBeUndefined()
+    expect(hook.result.current.jobs[0].total).toBeUndefined()
+  })
+  it('rejects foreign detail saves, stale revisions and linked customer changes without writes', async () => {
+    const hook = renderHook(useJobs, { wrapper: Wrapper })
+    await waitFor(() => expect(hook.result.current.loading).toBe(false))
+    await act(async () => { await hook.result.current.createFromQuote('q1') })
+    const job = hook.result.current.jobs[0]
+    const before = structuredClone(state.tables.get('jobs'))
+    const draft = jobDetailsDraft(job); draft.description = 'Revised'
+    expect((await hook.result.current.updateDetails('foreign-job', draft, '1')).ok).toBe(false)
+    expect((await hook.result.current.updateDetails(job.id, draft, 'stale')).ok).toBe(false)
+    draft.customerId = 'foreign-customer'
+    expect((await hook.result.current.updateDetails(job.id, draft, job.updatedAt)).ok).toBe(false)
+    expect(state.tables.get('jobs')).toEqual(before)
+    expect((await hook.result.current.updateDetails(job.id, jobDetailsDraft(job), job.updatedAt)).ok).toBe(true)
+    expect(state.tables.get('jobs')).toEqual(before)
+  })
   it('preserves the saved design agreement through job, invoice, manual payment, real PDFs and reload', async () => {
     state.tables.set('invoices', [])
     const hook = renderHook(() => ({ jobs: useJobs(), invoices: useInvoices() }), { wrapper: Wrapper })
