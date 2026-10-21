@@ -6,9 +6,10 @@ import { useCatalog } from "@/lib/store";
 import { useEffectiveCompanyCatalogue } from "@/lib/effectiveSupplierAccess";
 import { priceVisualiser, effectiveTaxRatePct, toVisualiserQuote, toVisualiserJobCosts, toVisualiserInvoice } from "@/lib/pricing";
 import { useQuotes } from "@/lib/quotes";
-import { useCustomers } from "@/lib/customers";
+import { useCustomers, validateCustomer, type Customer } from "@/lib/customers";
 import { useInvoices } from "@/lib/invoices";
 import { useJobs } from "@/lib/jobs";
+import { useToast } from "@/lib/toast";
 import { useLayout } from "@/lib/layout";
 import * as htmlToImage from "html-to-image";
 
@@ -218,6 +219,7 @@ export default function VisualizerApp() {
   const billing = useBillingAccess();
   const effectiveCatalogue = useEffectiveCompanyCatalogue(billing.companyAccountId, catalog);
   const qStore = useQuotes() as any;
+  const { add: toast } = useToast();
   const jobsStore = useJobs() as any;
   const invoicesStore = useInvoices() as any;
 
@@ -961,13 +963,17 @@ export default function VisualizerApp() {
 
   async function addQuoteNow() {
     if (!guardSupplierSelection()) return;
-    const customerId = await ensureCustomerId();
-    const customerObj = customerId
-      ? (customers || []).find((c: any) => c.id === customerId)
-      : undefined;
+    let customerObj: Customer;
+    try {
+      customerObj = await resolveQuoteCustomer();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not resolve the customer. No quote was created.", "error");
+      return;
+    }
+    const customerId = customerObj.id;
 
     const commercial = toVisualiserQuote(pricingSnapshot);
-    const jobSpecification = jobForDesign(customerId);
+    const jobSpecification = jobForDesign(customerId, customerObj);
 
     const existingInStore = (qStore?.quotes ?? qStore?.items ?? []) as any[];
     const existingInLS = readQuotesFromAnyLS();
@@ -1030,7 +1036,27 @@ export default function VisualizerApp() {
     alert(`Quote ${payload.number} created.`);
   }
 
-  function jobForDesign(customerId: string | null) {
+  async function resolveQuoteCustomer(): Promise<Customer> {
+    let customer: Customer;
+    if (selectedCustomerId && selectedCustomerId !== "__new__") {
+      const selected = customers.find((row) => row.id === selectedCustomerId);
+      if (!selected) throw new Error("The selected customer is unavailable. Select an existing customer again before creating a quote.");
+      customer = selected;
+    } else {
+      const errors = validateCustomer({ ...cust, id: "" });
+      if (errors.length) throw new Error(`Select an existing customer or complete valid new customer details: ${errors.join(". ")}`);
+      const result = await addCustomer({ ...cust, id: "" });
+      if (result.ok === false) throw new Error(result.error || "Could not save the customer. No quote was created.");
+      customer = result.customer;
+    }
+    if (!customer?.id?.trim() || customer.id === "__new__" || validateCustomer(customer).length) {
+      throw new Error("Could not resolve valid saved customer details. No quote was created.");
+    }
+    setSelectedCustomerId(customer.id);
+    return customer;
+  }
+
+  function jobForDesign(customerId: string | null, resolvedCustomer?: Customer) {
     const frameName = frameProfile?.name || selectedFrame || "Frame";
     const mat1Name = hasMat1 ? mat1?.name || selectedMat1 : "";
     const mat2Name = hasMat2 ? mat2?.name || selectedMat2 : "";
@@ -1038,9 +1064,9 @@ export default function VisualizerApp() {
     const glazingName =
       glazing?.name || selectedGlazingId || "Glazing";
 
-    const customerObj = customerId
+    const customerObj = resolvedCustomer || (customerId
       ? (customers || []).find((c: any) => c.id === customerId)
-      : undefined;
+      : undefined);
     const customerSnapshot = customerObj
       ? {
           id: customerObj.id,

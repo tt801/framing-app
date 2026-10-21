@@ -26,7 +26,10 @@ vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: {
 vi.mock('@/lib/quotes', () => ({ useQuotes: () => ({ quotes: [], add: async (payload: Saved) => { captured.quotes.push(payload); return { ok: true, quote: payload } } }) }))
 vi.mock('@/lib/jobs', () => ({ useJobs: () => ({ add: async (payload: Saved) => { captured.jobs.push(payload); return { ok: true, job: payload } } }) }))
 vi.mock('@/lib/invoices', () => ({ useInvoices: () => ({ addInvoice: async (payload: Saved) => { const invoice = { ...payload, number: 'INV-1' }; captured.invoices.push(invoice); return { ok: true, invoice } } }) }))
-vi.mock('@/lib/customers', () => ({ useCustomers: () => ({ customers: captured.customers, add: async () => ({ ok: false }) }) }))
+vi.mock('@/lib/customers', async importOriginal => ({
+  ...await importOriginal<typeof import('@/lib/customers')>(),
+  useCustomers: () => ({ customers: captured.customers, add: async () => ({ ok: false }) }),
+}))
 vi.mock('@/lib/layout', () => ({ useLayout: () => ({ layoutMode: 'fixed' }) }))
 vi.mock('@/lib/billingAccess', () => ({ useBillingAccess: () => ({ readOnly: false }) }))
 vi.mock('@/lib/pdf/invoicePdf', () => ({ exportInvoicePDF: async (args: PdfArgs) => { captured.pdfs.push(args); return {} } }))
@@ -68,8 +71,10 @@ describe('Visualiser persistence uses its displayed commercial result', () => {
   })
   it('writes identical pricing snapshots for Quote, Job and direct Invoice, and hands selling lines to PDF', async () => {
     captured.quotes.length = 0; captured.jobs.length = 0; captured.invoices.length = 0; captured.pdfs.length = 0
+    captured.customers = [{ id: 'pricing-customer', firstName: 'Pricing', lastName: 'Customer', email: 'pricing@example.test' }]
     vi.spyOn(window, 'alert').mockImplementation(() => {})
     render(<VisualizerApp />)
+    fireEvent.change(screen.getByText('Existing customer').parentElement!.querySelector('select')!, { target: { value: 'pricing-customer' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add to Quotes' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add to Jobs' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add to Invoices' }))
