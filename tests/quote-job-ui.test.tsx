@@ -90,7 +90,7 @@ it('opens the linked job by URL identity and exposes its quote and invoice', asy
       customerSnapshot: { firstName: 'Saved' }, customer: {}, artwork: {}, frame: {}, checklist: [] }]
   window.location.hash = '#/jobs?id=job1'
   render(<Jobs />)
-  expect((await screen.findByRole('link', { name: 'Source Quote' })).getAttribute('href')).toBe('#/quotes?id=q1')
+  expect((await screen.findByRole('link', { name: 'Source Quote: Q-001 →' })).getAttribute('href')).toBe('#/quotes?id=q1')
   expect(screen.getByRole('link', { name: 'View Invoice' }).getAttribute('href')).toBe('#/invoices?id=i1')
   fireEvent.click(screen.getAllByRole('button', { name: 'PDF' }).at(-1)!)
   await waitFor(() => expect(state.jobPdf).toHaveBeenCalled())

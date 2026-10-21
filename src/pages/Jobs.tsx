@@ -4,6 +4,8 @@
 // src/pages/Jobs.tsx
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { useJobs } from "@/lib/jobs";
+import { useQuotes } from "@/lib/quotes";
+import { jobSpecificationFields } from "@/lib/jobSpecification";
 import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
 import { exportJobCardPDF } from "@/lib/pdf/jobCardPdf";
@@ -236,6 +238,7 @@ function normalizeJob(job: Job, catalogSettings?: any) {
 
 export default function JobsPage() {
   const jobsStore = useJobs() as any;
+  const { quotes } = useQuotes();
   const { customers } = useCustomers();
   const { catalog } = useCatalog();
   const { add: toast } = useToast();
@@ -843,6 +846,7 @@ export default function JobsPage() {
 
   const selectedStatus = String(selected?.status || "").toLowerCase();
   const selectedIsCompleted = selectedStatus === "completed";
+  const sourceQuote = quotes.find(quote => quote.id === selected?.__raw.quoteId);
 
   const importLegacyJobs = async () => {
     const count = jobsStore.getLegacyLocalJobCount?.() || 0;
@@ -1085,7 +1089,7 @@ export default function JobsPage() {
                           isSel
                             ? "border-slate-900 bg-slate-50 shadow-sm"
                             : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-                        } ${selectedJobIds.has(view.id) ? "ring-2 ring-blue-500" : ""}`}
+                        } ${selectedJobIds.has(view.id) ? "ring-2 ring-inset ring-blue-500" : ""}`}
                         onClick={() => setSelectedId(view.id)}
                       >
                         <div className="flex items-start gap-2 mb-2">
@@ -1190,7 +1194,14 @@ export default function JobsPage() {
                   <div>
                     <h2 className="text-lg font-semibold">Details</h2>
                     <div className="flex gap-3 text-sm text-emerald-700">
-                      {selected.__raw.quoteId && <a href={`#/quotes?id=${encodeURIComponent(selected.__raw.quoteId)}`}>Source Quote</a>}
+                      {selected.__raw.quoteId && (
+                        <a
+                          className="underline underline-offset-2 hover:text-emerald-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 rounded-sm"
+                          href={`#/quotes?id=${encodeURIComponent(selected.__raw.quoteId)}`}
+                        >
+                          {sourceQuote?.number ? `Source Quote: ${sourceQuote.number} →` : "View source quote →"}
+                        </a>
+                      )}
                       {selected.__raw.invoiceId && <a href={`#/invoices?id=${encodeURIComponent(selected.__raw.invoiceId)}`}>View Invoice</a>}
                     </div>
                     <div className="text-xs text-slate-500 flex items-center gap-2">
@@ -1331,6 +1342,18 @@ export default function JobsPage() {
                       </div>
                     </div>
                   </div>
+                </section>
+
+                <section aria-labelledby="job-framing-specification" className="rounded-xl border border-slate-200 p-4">
+                  <h3 id="job-framing-specification" className="text-sm font-semibold text-slate-900 mb-3">Framing specification</h3>
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                    {jobSpecificationFields(selected.__raw).map(field => (
+                      <div key={field.label}>
+                        <dt className="text-xs text-slate-500">{field.label}</dt>
+                        <dd className="text-slate-900 break-words">{field.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
                 </section>
 
                 {/* Checklist */}

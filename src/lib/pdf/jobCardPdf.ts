@@ -1,5 +1,6 @@
 // src/lib/pdf/jobCardPdf.ts
 import jsPDF from "jspdf";
+import { jobSpecificationFields } from "@/lib/jobSpecification";
 
 type AnyRecord = Record<string, any>;
 
@@ -278,6 +279,17 @@ export async function exportJobCardPDF({
     doc.text(line, margin, y);
     y += 12;
   });
+
+  jobSpecificationFields(job)
+    .filter(field => ["Mat 1", "Additional mats", "Printing", "Foam/backer"].includes(field.label))
+    .forEach(field => {
+      const lines: string[] = doc.splitTextToSize(`${field.label}: ${field.value}`, pageWidth - margin * 2);
+      lines.forEach(line => {
+        if (y > 700) { doc.addPage(); y = margin; }
+        doc.text(line, margin, y);
+        y += 12;
+      });
+    });
 
   y += 6;
 
