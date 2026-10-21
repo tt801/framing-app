@@ -136,7 +136,7 @@ type TabId =
 
 export default function AdminPage() {
   // ✅ Match the pattern used in Stock.tsx so catalog + updates are consistent
-  const { catalog, setCatalog, saveSettings, importLegacySettings, legacySettingsPreview, legacyCatalogPreview, importLegacyCatalog } = useCatalog() as any;
+  const { catalog, setCatalog, saveSettings, importLegacySettings, legacySettingsPreview, legacyCatalogPreview, importLegacyCatalog, loading, error, settingsLoading, settingsError } = useCatalog() as any;
   const safeCatalog = catalog || {};
 
   const saveCatalog = async (partial: any) => {
@@ -222,10 +222,17 @@ export default function AdminPage() {
           )}
 
           {activeTab === "settings" && (
-            <SettingsPanel
-              settings={settings}
-              onSave={(next) => saveCatalog({ settings: { ...settings, ...next } })}
-            />
+            // Mount the draft after both sources load; resyncing on rerenders would discard edits.
+            settingsError || error ? (
+              <p role="alert">Could not load settings: {settingsError || error}</p>
+            ) : settingsLoading || loading ? (
+              <p role="status">Loading settings…</p>
+            ) : (
+              <SettingsPanel
+                settings={settings}
+                onSave={(next) => saveCatalog({ settings: { ...settings, ...next } })}
+              />
+            )
           )}
 
           {activeTab === "frames" && (
