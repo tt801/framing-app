@@ -616,33 +616,6 @@ export default function CustomersPage() {
     setShowImportMenu(false);
   }
 
-  async function handleImportLegacyLocalCustomers() {
-    setShowImportMenu(false);
-    const count = custStore.getLegacyLocalCustomerCount();
-    if (count === 0) {
-      toast("No saved browser customers were found to import.", "info");
-      return;
-    }
-
-    const destination = custStore.companyName || "this company";
-    const confirmed = window.confirm(
-      `Import ${count} customer${count === 1 ? "" : "s"} previously saved in this browser into "${destination}"?\n\n` +
-        "The original browser data is kept as-is, and re-running this is safe (already-imported records are skipped)."
-    );
-    if (!confirmed) return;
-
-    const result = await custStore.importLegacyLocalCustomers();
-    if (result.ok === false) {
-      toast(result.error || "Failed to import saved browser customers", "error");
-      return;
-    }
-
-    const parts = [`${result.imported} imported`];
-    if (result.skipped > 0) parts.push(`${result.skipped} already imported`);
-    if (result.conflicts > 0) parts.push(`${result.conflicts} skipped (id used by another company)`);
-    toast(parts.join(", "), result.imported > 0 ? "success" : "info");
-  }
-
   return (
     <div className="p-6 space-y-6">
       <header className="pb-6 border-b border-slate-200">
@@ -793,13 +766,6 @@ export default function CustomersPage() {
                         className="w-full text-left px-3 py-2 hover:bg-slate-50"
                       >
                         Import from Outlook
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleImportLegacyLocalCustomers}
-                        className="w-full text-left px-3 py-2 hover:bg-slate-50 border-t border-slate-100"
-                      >
-                        Import saved browser customers
                       </button>
                     </div>
                   )}

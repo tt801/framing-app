@@ -186,7 +186,6 @@ export default function InvoicesPage() {
   const [paymentPending, setPaymentPending] = useState(false);
   const inv = useInvoices() as any;
   const { jobs: relatedJobs } = useJobs();
-  const billingCompanyName = inv?.companyName;
   const c = useCustomers() as any;
   const { add: toast } = useToast();
   const { add: addToHistory, canUndo, undo } = useHistory();
@@ -728,25 +727,6 @@ Thank you.
     toast("Invoice deleted successfully", "success");
   };
 
-  const importLegacyInvoices = async () => {
-    const count = inv.getLegacyLocalInvoiceCount?.() || 0;
-    if (!count) {
-      toast("No saved local invoices to import", "info");
-      return;
-    }
-    const companyName = billingCompanyName || "this company";
-    if (!window.confirm(`Import ${count} saved invoices into "${companyName}"? The original browser data will be kept as-is.`)) return;
-    const result = await inv.importLegacyLocalInvoices?.();
-    if (!result?.ok) {
-      toast(result?.error || "Could not import invoices", "error");
-      return;
-    }
-    const failureText = result.failures?.length
-      ? `, failed: ${result.failures.map((failure: any) => `${failure.id} (${failure.reason})`).join("; ")}`
-      : "";
-    toast(`${result.imported} imported, ${result.skipped} already imported, ${result.collisions} number/ID collisions, ${result.unresolvedCustomers + result.unresolvedQuotes} unresolved references${failureText}`, result.imported ? "success" : "info");
-  };
-
   /* ===================================================================
      RENDER
      =================================================================== */
@@ -755,9 +735,6 @@ Thank you.
       <header className="pb-6 border-b border-slate-200">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-bold text-slate-900 mb-1">🧾 Invoices</h1>
-          <button type="button" onClick={() => void importLegacyInvoices()} className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
-            Import saved invoices
-          </button>
         </div>
         <p className="text-sm text-slate-600">
           Track outstanding balances, payments, and invoice status at a glance.

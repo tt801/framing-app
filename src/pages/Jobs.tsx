@@ -822,17 +822,6 @@ export default function JobsPage() {
   const selectedIsCompleted = selectedStatus === "completed";
   const sourceQuote = quotes.find(quote => quote.id === selected?.__raw.quoteId);
 
-  const importLegacyJobs = async () => {
-    const count = jobsStore.getLegacyLocalJobCount?.() || 0;
-    if (!count) { toast("No saved local jobs to import", "info"); return; }
-    const companyName = jobsStore.companyName || "this company";
-    if (!window.confirm(`Import ${count} saved jobs into "${companyName}"? The original browser data will be kept as-is.`)) return;
-    const result = await jobsStore.importLegacyLocalJobs?.();
-    if (!result?.ok) { toast(result?.error || "Could not import jobs", "error"); return; }
-    const failures = result.failures?.length ? `, failed: ${result.failures.map((failure: any) => `${failure.id} (${failure.reason})`).join("; ")}` : "";
-    toast(`${result.imported} imported, ${result.skipped} already imported, ${result.collisions} reference collisions, ${result.unresolved} unresolved references${failures}`, result.imported ? "success" : "info");
-  };
-
   return (
     <div className="min-h-screen bg-slate-50">
       {editor && editor.companyId === jobsStore.companyAccountId && <JobDetailsForm
@@ -855,7 +844,6 @@ export default function JobsPage() {
               </p>
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={() => void importLegacyJobs()} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50">Import saved jobs</button>
               <button type="button" disabled={detailsUnavailable} onClick={handleNewJob} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50 disabled:opacity-50">New job</button>
             </div>
           </div>

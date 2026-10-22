@@ -408,33 +408,6 @@ export default function QuotesPage() {
     toast("New quote created. Fill in customer details and line items.", "success");
   }, [qStore, settingsCurrencyCode, settingsCurrencySymbol, settings.taxRatePct, settings.taxRate, settings.taxLabel, toast]);
 
-  const handleImportLegacyLocalQuotes = React.useCallback(async () => {
-    const count = qStore?.getLegacyLocalQuoteCount?.() ?? 0;
-    if (count === 0) {
-      toast("No saved browser quotes were found to import.", "info");
-      return;
-    }
-
-    const destination = qStore?.companyName || "this company";
-    const confirmed = window.confirm(
-      `Import ${count} quote${count === 1 ? "" : "s"} previously saved in this browser into "${destination}"?\n\n` +
-        "The original browser data is kept as-is, and re-running this is safe (already-imported records are skipped)."
-    );
-    if (!confirmed) return;
-
-    const result = await qStore?.importLegacyLocalQuotes?.();
-    if (!result || result.ok === false) {
-      toast(result?.error || "Failed to import saved browser quotes", "error");
-      return;
-    }
-
-    const parts = [`${result.imported} imported`];
-    if (result.skipped > 0) parts.push(`${result.skipped} already imported`);
-    if (result.conflicts > 0) parts.push(`${result.conflicts} skipped (id used by another company)`);
-    if (result.unresolvedCustomers > 0) parts.push(`${result.unresolvedCustomers} with an unresolved customer reference`);
-    toast(parts.join(", "), result.imported > 0 ? "success" : "info");
-  }, [qStore, toast]);
-
   React.useEffect(() => {
     const onGlobalNew = (event: Event) => {
       const detail = (event as CustomEvent).detail as { type?: string };
@@ -990,12 +963,6 @@ export default function QuotesPage() {
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold">Quotes</h2>
             <div className="flex gap-2">
-              <button
-                onClick={handleImportLegacyLocalQuotes}
-                className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50"
-              >
-                Import saved quotes
-              </button>
               <button
                 onClick={handleNewQuote}
                 className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs md:text-sm hover:bg-slate-50"

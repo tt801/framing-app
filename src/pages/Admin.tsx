@@ -128,7 +128,7 @@ type TabId =
 
 export default function AdminPage() {
   // ✅ Match the pattern used in Stock.tsx so catalog + updates are consistent
-  const { catalog, setCatalog, saveSettings, importLegacySettings, legacySettingsPreview, legacyCatalogPreview, importLegacyCatalog, loading, error, settingsLoading, settingsError } = useCatalog() as any;
+  const { catalog, setCatalog, saveSettings, loading, error, settingsLoading, settingsError } = useCatalog() as any;
   const safeCatalog = catalog || {};
 
   const saveCatalog = async (partial: any) => {
@@ -164,9 +164,6 @@ export default function AdminPage() {
               Manage company settings, catalog data, and system integrations.
             </p>
           </div>
-          {legacyCatalogPreview?.frameCount > 0 && (
-            <button type="button" onClick={() => { if (window.confirm(`Import ${legacyCatalogPreview.frameCount} frames, ${legacyCatalogPreview.matCount} mats, ${legacyCatalogPreview.glazingCount} glazing products and ${legacyCatalogPreview.stockCount} stock rows into ${settings.companyName || "this company"}? Original browser data will be preserved.`)) void importLegacyCatalog().then((result: any) => { if (result?.ok === false) window.alert(result.error); }); }} className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50">Import legacy catalog</button>
-          )}
         </header>
 
     <section className="grid gap-4 lg:grid-cols-[200px_minmax(0,1fr)]">
@@ -208,8 +205,6 @@ export default function AdminPage() {
             <CompanyPanel
               settings={settings}
               onChange={(partial) => saveCatalog({ settings: { ...settings, ...partial } })}
-              onImport={importLegacySettings}
-              legacyPreview={legacySettingsPreview}
             />
           )}
 
@@ -314,13 +309,9 @@ export default function AdminPage() {
 function CompanyPanel({
   settings,
   onChange,
-  onImport,
-  legacyPreview,
 }: {
   settings: any;
   onChange: (partial: any) => Promise<any>;
-  onImport?: () => Promise<any>;
-  legacyPreview?: { company: any; catalogSettings: any; conflicts: string[] };
 }) {
   const [draft, setDraft] = useState(() => ({
     companyName: settings.companyName || "",
@@ -453,12 +444,6 @@ function CompanyPanel({
       >
         Save company settings
       </button>
-      {legacyPreview?.company && Object.keys(legacyPreview.company).length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-          <strong>Legacy browser settings found.</strong> Preview: {legacyPreview.company.companyName || "Unnamed company"}. Conflicts: {legacyPreview.conflicts.length || "none"}.
-          <button type="button" onClick={() => { if (window.confirm("Import the previewed legacy settings into this company? The original browser data will be preserved.")) void onImport?.(); }} className="ml-2 underline">Import preview</button>
-        </div>
-      )}
     </div>
   );
 }

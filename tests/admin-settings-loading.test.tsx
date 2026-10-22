@@ -134,3 +134,23 @@ it('initializes sibling draft fields from both loaded sources rather than tempor
     nextInvoiceNumber: 4321, invoiceFooterNote: 'Loaded footer', foamBackerEnabled: true,
   })
 })
+
+it('does not expose browser migration or write when legacy settings/catalogue exist during normal navigation', async () => {
+  const company = '{"companyName":"Legacy company"}'
+  const catalog = '{"frames":[{"id":"legacy-frame","name":"Legacy frame"}],"settings":{"companyName":"Legacy company"}}'
+  localStorage.setItem('frameit.company', company)
+  localStorage.setItem('framing_app_catalog_v1', catalog)
+  const saved = structuredClone(state.settings)
+  render(<Admin />, { wrapper: Wrapper })
+  await finishLoading()
+  for (const tab of ['Company', 'Frames', 'Settings']) {
+    fireEvent.click(screen.getByRole('button', { name: tab }))
+    expect(screen.queryAllByRole('button', { name: /import legacy catalog|import preview/i })).toHaveLength(0)
+    expect(screen.queryByText('Legacy browser settings found.')).toBeNull()
+  }
+  expect(state.saves).not.toHaveBeenCalled()
+  expect(state.settings).toEqual(saved)
+  expect(state.catalog).toBeNull()
+  expect(localStorage.getItem('frameit.company')).toBe(company)
+  expect(localStorage.getItem('framing_app_catalog_v1')).toBe(catalog)
+})

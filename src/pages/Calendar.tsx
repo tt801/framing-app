@@ -92,7 +92,7 @@ function toDate(value: string | undefined, fallback: Date): Date {
 }
 
 export default function CalendarPage() {
-  const { events: manualEvents, addEvent, updateEvent, deleteEvent, importLegacy, getLegacyCalendarEventCount, companyName } = useCalendar();
+  const { events: manualEvents, addEvent, updateEvent, deleteEvent } = useCalendar();
   const { customers } = useCustomers() as any;
   const { jobs } = useJobs() as any;
   const { invoices } = useInvoices();
@@ -319,15 +319,6 @@ export default function CalendarPage() {
     setStaffFilter((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
-  async function handleImportLegacy() {
-    const count = getLegacyCalendarEventCount();
-    if (!count || !window.confirm(`Import ${count} legacy calendar events into ${companyName || 'this company'}? Original browser data will be preserved.`)) return;
-    const result = await importLegacy();
-    if (!result.ok) { toast(result.error || 'Could not import calendar events', 'error'); return; }
-    const detail = result.failures.length ? ` ${result.failures.length} failed.` : '';
-    toast(`${result.imported} imported, ${result.skipped} already imported.${detail}`, result.failures.length ? 'error' : 'success');
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-emerald-50/40 to-slate-50">
       {/* UNDO BAR */}
@@ -353,8 +344,6 @@ export default function CalendarPage() {
               <div>
                 <h1 className="text-lg font-semibold text-slate-900">Calendar</h1>
               </div>
-
-              {getLegacyCalendarEventCount() > 0 && <button type="button" onClick={handleImportLegacy} className="text-xs px-2 py-1 border rounded">Import legacy events</button>}
 
               {/* Search bar */}
               <input

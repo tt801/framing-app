@@ -943,7 +943,6 @@ export default function MarketingPage() {
             Turn quotes, jobs, and customers into repeat business and referrals.
           </p>
         </div>
-        {marketing.legacyCount > 0 && <button type="button" onClick={() => void marketingActions.importLegacy("marketing data")} className="text-xs text-emerald-700 hover:underline">Import legacy marketing data</button>}
       </header>
 
       {/* UNDO BAR */}
