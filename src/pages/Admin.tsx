@@ -1,5 +1,6 @@
 // src/pages/Admin.tsx
 import React, { useMemo, useState } from "react";
+import { useCatalogEditor } from "@/lib/catalogEditor";
 import { DEFAULT_JOB_CHECKLIST } from "@/lib/jobChecklist";
 import {
   useCatalog,
@@ -128,15 +129,14 @@ type TabId =
 
 export default function AdminPage() {
   // ✅ Match the pattern used in Stock.tsx so catalog + updates are consistent
-  const { catalog, setCatalog, saveSettings, loading, error, settingsLoading, settingsError } = useCatalog() as any;
-  const safeCatalog = catalog || {};
+  const source = useCatalog();
+  const { saveSettings, loading, error, settingsLoading, settingsError } = source;
+  const editor = useCatalogEditor(source);
+  const safeCatalog: any = editor.catalog || {};
 
   const saveCatalog = async (partial: any) => {
     if (partial.settings && typeof saveSettings === "function") return saveSettings(partial.settings);
-    setCatalog((prev: any) => ({
-      ...(prev || {}),
-      ...partial,
-    }));
+    editor.update(partial);
   };
 
   const [activeTab, setActiveTab] = useState<TabId>("settings");
@@ -201,6 +201,15 @@ export default function AdminPage() {
 
         {/* Panel */}
         <section className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4 md:p-6 space-y-4">
+          {editor.error ? (
+            <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+              <p>Catalogue changes are not saved. Your latest draft is still shown. {editor.error}</p>
+              <button type="button" disabled={editor.saving} onClick={() => void editor.retry()}
+                className="mt-2 rounded-lg border border-rose-300 px-3 py-1 disabled:opacity-50">
+                Retry catalogue save
+              </button>
+            </div>
+          ) : editor.pending ? <p role="status" className="text-xs text-slate-500">Saving catalogue…</p> : null}
           {activeTab === "company" && (
             <CompanyPanel
               settings={settings}

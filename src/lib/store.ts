@@ -1,5 +1,5 @@
 // src/lib/store.ts
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBillingWriteGuard } from "@/lib/billingAccess";
 import { useCompany } from "@/lib/company";
 import { supabase } from "@/lib/supabase";
@@ -342,17 +342,30 @@ export function useCatalog() {
   const [revision, setRevision] = useState(1);
   const [hasServerCatalog, setHasServerCatalog] = useState(false);
   const requestId = useRef(0);
+  const activeCompany = useRef(companyAccountId);
+  activeCompany.current = companyAccountId;
 
-  useEffect(() => {
+  const refreshCatalog = useCallback(async () => {
     const request = ++requestId.current;
-    if (!supabase || !companyAccountId) { _setCatalog(emptyCatalog); setCatalogCompanyId(null); setCatalogLoading(false); return; }
-    setCatalogLoading(true); _setCatalog(emptyCatalog); setCatalogCompanyId(null);
-    void supabase.from('company_catalog').select('catalog, revision').eq('company_account_id', companyAccountId).maybeSingle().then(({ data, error }) => {
-      if (requestId.current !== request) return;
-      if (error) { setCatalogError(error.message); setCatalogLoading(false); return; }
-      _setCatalog(data?.catalog ? migrateCatalog(data.catalog) : emptyCatalog); setCatalogCompanyId(companyAccountId); setRevision(data?.revision || 1); setHasServerCatalog(Boolean(data)); setCatalogError(null); setCatalogLoading(false);
-    });
+    if (!supabase || !companyAccountId) { _setCatalog(emptyCatalog); setCatalogCompanyId(null); setCatalogLoading(false); return { ok: false, error: 'No active company account' }; }
+    setCatalogLoading(true);
+    try {
+      const { data, error } = await supabase.from('company_catalog').select('catalog, revision').eq('company_account_id', companyAccountId).maybeSingle();
+      if (requestId.current !== request || activeCompany.current !== companyAccountId) return { ok: false, error: 'Workspace changed' };
+      if (error) throw error;
+      const loaded = data?.catalog ? migrateCatalog(data.catalog) : emptyCatalog;
+      _setCatalog(loaded); setCatalogCompanyId(companyAccountId); setRevision(data?.revision || 1); setHasServerCatalog(Boolean(data)); setCatalogError(null); setCatalogLoading(false);
+      return { ok: true, catalog: loaded };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : (error as { message?: string })?.message || 'Could not load catalog';
+      if (requestId.current === request && activeCompany.current === companyAccountId) { setCatalogError(message); setCatalogLoading(false); }
+      return { ok: false, error: message };
+    }
   }, [companyAccountId]);
+  useEffect(() => {
+    _setCatalog(emptyCatalog); setCatalogCompanyId(null);
+    void refreshCatalog();
+  }, [refreshCatalog]);
 
   const scopedCatalog = catalogCompanyId === companyAccountId ? catalog : emptyCatalog;
   const setCatalog = async (updater: Catalog | ((prev: Catalog) => Catalog)) => {
@@ -360,16 +373,19 @@ export function useCatalog() {
     if (!supabase || !companyAccountId) return { ok: false, error: "No active company account" };
     const previous = scopedCatalog;
     const nextCatalog = migrateCatalog(typeof updater === "function" ? (updater as any)(previous) : updater);
-    if (JSON.stringify(nextCatalog) === JSON.stringify(previous)) return { ok: true, unchanged: true };
+    if (JSON.stringify(nextCatalog) === JSON.stringify(previous)) return { ok: true, unchanged: true, catalog: previous };
+    const request = requestId.current;
     const { data, error } = hasServerCatalog && catalogCompanyId === companyAccountId
       ? await supabase.rpc('update_company_catalog', { p_company_account_id: companyAccountId, p_catalog: nextCatalog, p_revision: revision })
       : await supabase.from('company_catalog').insert({ company_account_id: companyAccountId, catalog: nextCatalog, revision: 1 }).select('catalog, revision').single();
+    if (requestId.current !== request || activeCompany.current !== companyAccountId) return { ok: false, error: 'Workspace changed' };
     if (error || !data) {
       const conflict = !hasServerCatalog && error?.code === '23505';
       const message = conflict ? 'Catalog already contains products or stock. Resolve conflicts before importing.' : (error?.message || 'Could not save catalog');
       setCatalogError(message); return { ok: false, error: message };
     }
-    _setCatalog(migrateCatalog(data.catalog)); setCatalogCompanyId(companyAccountId); setRevision(data.revision); setHasServerCatalog(true); return { ok: true };
+    const saved = migrateCatalog(data.catalog);
+    _setCatalog(saved); setCatalogCompanyId(companyAccountId); setRevision(data.revision); setHasServerCatalog(true); setCatalogError(null); return { ok: true, catalog: saved };
   };
 
   const exportJSON = () => {
@@ -437,7 +453,7 @@ export function useCatalog() {
     if (hasExisting) return { ok: false, error: 'Catalog already contains products or stock. Resolve conflicts before importing.' };
     return setCatalog(legacy);
   };
-  return { catalog: effectiveCatalog, setCatalog, saveSettings: company.save, importLegacySettings: company.importLegacy, legacySettingsPreview: company.getLegacyCompanyPreview(), legacyCatalogPreview, importLegacyCatalog, exportJSON, importJSON, resetCatalog, maps, loading: catalogLoading, error: catalogError, settingsLoading: company.loading, settingsError: company.error };
+  return { catalog: effectiveCatalog, setCatalog, refreshCatalog, companyAccountId, saveSettings: company.save, importLegacySettings: company.importLegacy, legacySettingsPreview: company.getLegacyCompanyPreview(), legacyCatalogPreview, importLegacyCatalog, exportJSON, importJSON, resetCatalog, maps, loading: catalogLoading, error: catalogError, settingsLoading: company.loading, settingsError: company.error };
 }
 
 export function newFrame(partial?: Partial<Frame>): Frame {
