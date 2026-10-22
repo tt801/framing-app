@@ -10,6 +10,7 @@ import StatusBadge from "@/components/StatusBadge";
 import InvoicePaymentForm from "@/components/InvoicePaymentForm";
 import { createManualDraft, editManualDraft, invoiceBalance, type CommercialItem } from "@/lib/commercialDocuments";
 import { effectiveTaxRatePct } from "@/lib/pricing";
+import { customerSearchFields, matchesCommercialSearch, referenceSearchFields } from "@/lib/commercialSearch";
 
 import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
 
@@ -389,12 +390,13 @@ export default function InvoicesPage() {
     if (searchTerm.trim()) {
       const sLower = searchTerm.toLowerCase();
       rows = rows.filter((r: any) => {
-        const customerName = resolveCustomerName(r, customersList);
-        const idText = String(r?.id ?? r?.number ?? "");
-        return (
-          customerName.toLowerCase().includes(sLower) ||
-          idText.toLowerCase().includes(sLower)
-        );
+        const currentCustomer = customersList.find((customer: any) => customer.id === r.customerId);
+        return matchesCommercialSearch(sLower, [
+          ...referenceSearchFields(r.number),
+          ...customerSearchFields(currentCustomer, r.customerSnapshot, r.customer, r.details?.customer),
+          r.customerName,
+          r.customerEmail,
+        ]);
       });
     }
 
@@ -857,7 +859,7 @@ Thank you.
                 <input
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search by customer, invoice no, id..."
+                  placeholder="Search by customer, invoice number…"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
                 />
                 {searchInput && (

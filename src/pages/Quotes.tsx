@@ -15,6 +15,7 @@ import { effectiveTaxRatePct } from "@/lib/pricing";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import StatusBadge from "@/components/StatusBadge";
+import { customerSearchFields, matchesCommercialSearch, referenceSearchFields } from "@/lib/commercialSearch";
 
 // -------------------- Types (loose to avoid breaking) --------------------
 type Quote = any;
@@ -474,19 +475,18 @@ export default function QuotesPage() {
     }
 
     if (needle) {
+      // Keep saved identity aliases without indexing resolved display fallbacks (which can be customer IDs).
+      const originalById = new Map<string, Quote>(storeQuotes.map((quote: any) => [safeRowId(quote), quote]));
       arr = arr.filter((r) => {
-        const blob = [
-          r.customerName,
-          r.customerEmail,
-          r.id,
-          displayQuoteNumber(r, settings),
-          r.reference,
-          r.ref,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return blob.includes(needle);
+        const original = originalById.get(r.id);
+        const customerId = r.customerId ?? r.customer?.id ?? r.customerSnapshot?.id;
+        const currentCustomer = customersList.find((customer: any) => customer.id === customerId);
+        return matchesCommercialSearch(needle, [
+          ...referenceSearchFields(displayQuoteNumber(r, settings)),
+          ...customerSearchFields(currentCustomer, r.customerSnapshot, r.customer, r.details?.customer),
+          original?.customerName,
+          original?.customerEmail,
+        ]);
       });
     }
 
@@ -503,7 +503,7 @@ export default function QuotesPage() {
     });
 
     return arr;
-  }, [rows, statusFilter, search, sortBy, statusOverride, settings]);
+  }, [rows, storeQuotes, customersList, statusFilter, search, sortBy, statusOverride, settings]);
 
   const selected =
     selectedId ? rows.find((r: any) => safeRowId(r) === selectedId) ?? null : filtered[0] ?? null;

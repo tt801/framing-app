@@ -9,6 +9,7 @@ import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import { useFavorites } from "@/lib/favorites";
 import StatusBadge from "@/components/StatusBadge";
+import { customerSearchFields, matchesCommercialSearch } from "@/lib/commercialSearch";
 
 type ConfirmModal = {
   isOpen: boolean;
@@ -272,22 +273,16 @@ export default function CustomersPage() {
 
     if (needle) {
       arr = arr.filter((c: any) => {
-        const hay = [
-          c.firstName,
-          c.lastName,
-          c.email,
-          c.company,
+        return matchesCommercialSearch(needle, [
+          ...customerSearchFields(c),
+          c.phone,
           c.address1,
           c.address2,
           c.city,
           c.postcode,
           c.postalCode,
           c.country,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return hay.includes(needle);
+        ]);
       });
     }
 

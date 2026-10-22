@@ -15,6 +15,7 @@ import { useFavorites } from "@/lib/favorites";
 import StatusBadge from "@/components/StatusBadge";
 import JobDetailsForm from "@/components/JobDetailsForm";
 import { savedJobDetails } from "@/lib/jobEditing";
+import { customerSearchFields, matchesCommercialSearch, referenceSearchFields } from "@/lib/commercialSearch";
 
 type Job = any;
 
@@ -135,6 +136,9 @@ function parseDetails(job: Job) {
 
 function normalizeJob(job: Job, catalogSettings?: any) {
   const d = parseDetails(job);
+  const refNo = job?.refNo;
+  const referenceLabel = (typeof refNo === "number" && Number.isFinite(refNo)) || (typeof refNo === "string" && refNo.trim())
+    ? `Job ${refNo}` : "Job — reference unavailable";
 
   // currency fallbacks
   const currencyCode =
@@ -214,6 +218,8 @@ function normalizeJob(job: Job, catalogSettings?: any) {
 
   return {
     id: job?.id,
+    refNo,
+    referenceLabel,
     status: job?.status ?? "new",
     createdAt: job?.createdAt,
     title: job?.description || `Framing job — ${frameName}`,
@@ -601,19 +607,21 @@ export default function JobsPage() {
     // Search filter
     if (needle) {
       arr = arr.filter((v) => {
-        const hay = [
+        const currentCustomer = (customers ?? []).find((customer: any) => customer.id === v.__raw.customerId);
+        return matchesCommercialSearch(needle, [
+          ...referenceSearchFields(v.refNo),
+          v.referenceLabel,
+          ...customerSearchFields(currentCustomer, v.customer, v.__raw.customer, v.__raw.customerSnapshot, v.__raw.details?.customer),
           v.title,
+          v.__raw.workInstructions,
           v.customerName,
+          v.__raw.customerName,
+          v.__raw.customerEmail,
           v.customer?.email,
           v.customer?.phone,
           v.frameName,
           v.glazingName,
-          v.id,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return hay.includes(needle);
+        ]);
       });
     }
 
@@ -640,7 +648,7 @@ export default function JobsPage() {
     });
 
     return arr;
-  }, [allViews, statusFilter, searchTerm, sortBy, isFavorited]);
+  }, [allViews, customers, statusFilter, searchTerm, sortBy, isFavorited]);
 
   // Phase 3.4: CSV export for filtered views
   const handleExportCSV = useCallback(() => {
@@ -936,7 +944,7 @@ export default function JobsPage() {
                   <input
                     value={searchInput}
                     onChange={(e) => setSearchInput(e.target.value)}
-                    placeholder="Search by customer, job ID…"
+                    placeholder="Search by customer, job reference…"
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
                   />
                   {searchInput && (
@@ -1082,8 +1090,9 @@ export default function JobsPage() {
                             >
                               {isFav ? "⭐" : "☆"}
                             </button>
-                            <div className="text-sm font-medium truncate">
-                              {view.customerName}
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold truncate">{view.referenceLabel}</div>
+                              <div className="text-sm truncate">{view.customerName}</div>
                             </div>
                           </div>
                           <StatusBadge status={status} />
@@ -1164,7 +1173,7 @@ export default function JobsPage() {
               <div className="space-y-5">
                 <header className="flex items-start justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold">Details</h2>
+                    <h2 className="text-lg font-semibold">{selected.referenceLabel}</h2>
                     <div className="flex gap-3 text-sm text-emerald-700">
                       {selected.__raw.quoteId && (
                         <a
