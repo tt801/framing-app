@@ -208,3 +208,56 @@ it('Quotes preserves its status filter and value sorting while changing and clea
   expect(cards(view.container, 'Quotes')).toHaveLength(2)
   expect(state.write).not.toHaveBeenCalled()
 })
+
+it('Invoices makes number primary while retaining customer, amount, status, QB badge and card selection', async () => {
+  state.invoices = [
+    { ...state.invoices[0], total: 202.11, status: 'Paid', integrations: { quickbooks: { remoteId: 'qb-fixture' } } },
+    { ...state.invoices[0], id: 'second-invoice', number: 'INV-1001', status: 'Sent', total: 50 },
+  ]
+  const before = snapshot(); const view = render(<Invoices />)
+  const list = cards(view.container, 'Invoices')
+  const number = within(list[0]).getByText('INV-1000')
+  expect(number.classList.contains('font-semibold')).toBe(true)
+  expect(list[0].firstElementChild).toBe(number)
+  expect(within(list[0]).getByText(/Ada\s+Lovelace/)).toBeTruthy()
+  expect(within(list[0]).getByText('£202.11')).toBeTruthy()
+  expect(within(list[0]).getByText('Paid')).toBeTruthy()
+  expect(within(list[0]).getByText('QB')).toBeTruthy()
+  expect(list[0].textContent).not.toContain('#INV-1000')
+  fireEvent.click(list[1])
+  expect(screen.getByText('Invoice: INV-1001')).toBeTruthy()
+  expect(list[1].classList.contains('border-slate-900')).toBe(true)
+  expect(list[0].classList.contains('border-slate-900')).toBe(false)
+  await search(view.container, '1000')
+  expect(cards(view.container, 'Invoices')).toHaveLength(1)
+  expect(cards(view.container, 'Invoices')[0].firstElementChild!.textContent).toBe('INV-1000')
+  expect(snapshot()).toBe(before); expect(state.write).not.toHaveBeenCalled()
+})
+
+it('Invoices keeps card buttons disabled during a pending manual payment', async () => {
+  state.invoices = [{ ...state.invoices[0], status: 'Sent', total: 202.11, payments: [] }]
+  let release!: (result: any) => void
+  state.write.mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+  const view = render(<Invoices />)
+  fireEvent.change(screen.getByLabelText('Payment amount'), { target: { value: '50' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Record payment' }))
+  expect((cards(view.container, 'Invoices')[0] as HTMLButtonElement).disabled).toBe(true)
+  expect(state.write).toHaveBeenCalledTimes(1)
+  await act(async () => { release({ ok: true, invoice: { ...state.invoices[0], payments: [{ id: 'payment', amount: 50 }] } }) })
+  expect((cards(view.container, 'Invoices')[0] as HTMLButtonElement).disabled).toBe(false)
+})
+
+it.each(['Draft', 'Sent', 'Paid', 'Overdue', 'Void'])('Invoices visibly retains the %s card status', status => {
+  state.invoices = [{ ...state.invoices[0], status }]
+  const view = render(<Invoices />)
+  const badge = within(cards(view.container, 'Invoices')[0]).getByText(status)
+  expect(badge.classList.contains('rounded-full')).toBe(true)
+  expect(state.write).not.toHaveBeenCalled()
+})
+
+it('Invoices retains the existing missing-number identifier fallback', () => {
+  state.invoices = [{ ...state.invoices[0], number: undefined }]
+  const view = render(<Invoices />)
+  expect(cards(view.container, 'Invoices')[0].firstElementChild!.textContent).toBe(state.invoices[0].id)
+  expect(state.write).not.toHaveBeenCalled()
+})

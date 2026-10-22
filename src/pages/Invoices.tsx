@@ -6,7 +6,6 @@ import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
-import StatusBadge from "@/components/StatusBadge";
 import InvoicePaymentForm from "@/components/InvoicePaymentForm";
 import { createManualDraft, editManualDraft, invoiceBalance, type CommercialItem } from "@/lib/commercialDocuments";
 import { effectiveTaxRatePct } from "@/lib/pricing";
@@ -926,6 +925,7 @@ Thank you.
                 const st =
                   statusOverride[row.id] ?? (row?.status ?? "Draft");
                 const synced = isInvoiceSyncedToQuickBooks(row);
+                const cardStatus = statusSpec.find(({ key }) => key === st) ?? statusSpec[0];
 
                 return (
                   <button
@@ -939,22 +939,18 @@ Thank you.
                     }`}
                     title={`View ${row.number ?? row.id ?? ""}`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-medium truncate">
-                        {cName || "No customer"}
-                      </div>
+                    <div className="text-sm font-semibold break-words">{row.number ?? row.id ?? "—"}</div>
+                    <div className="text-sm truncate mt-0.5">{cName || "No customer"}</div>
+                    <div className="flex items-center justify-between gap-2 mt-1">
+                      <span className="text-sm font-medium tabular-nums">{amount}</span>
                       <div className="flex items-center gap-1">
                         {synced && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                             QB
                           </span>
                         )}
-                        <StatusBadge status={st} />
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${cardStatus.cls}`}>{st}</span>
                       </div>
-                    </div>
-                    <div className="text-xs text-slate-500 mt-0.5 flex justify-between gap-2">
-                      <span className="tabular-nums">{amount}</span>
-                      <span className="text-slate-400">#{row.number ?? row.id ?? "—"}</span>
                     </div>
                   </button>
                 );
