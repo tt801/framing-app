@@ -831,7 +831,7 @@ export default function JobsPage() {
   const sourceQuote = quotes.find(quote => quote.id === selected?.__raw.quoteId);
 
   return (
-    <div className="min-h-screen bg-slate-50 lg:h-full lg:min-h-0">
+    <div className="min-h-screen bg-slate-50 md:h-full md:min-h-0">
       {editor && editor.companyId === jobsStore.companyAccountId && <JobDetailsForm
         job={editor.job} customers={customers ?? []} checklistTemplate={(catalog?.settings as any)?.jobChecklistTemplate}
         disabled={detailsUnavailable} onCancel={() => setEditor(null)}
@@ -842,8 +842,8 @@ export default function JobsPage() {
           setEditor(null); setSearchInput(""); setSearchTerm(""); setStatusFilter("all"); setSortBy("recent");
           setSelectedId(job.id); toast(editor.job ? "Job details saved" : `Job ${job.refNo ?? job.id} created`, "success");
         }} />}
-      <main className="w-full p-6 space-y-6 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
-        <header className="pb-6 border-b border-slate-200 lg:shrink-0">
+      <main className="w-full p-6 space-y-6 md:flex md:h-full md:min-h-0 md:flex-col">
+        <header className="pb-6 border-b border-slate-200 md:shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div>
               <h1 className="text-3xl font-bold text-slate-900 mb-1">💼 Jobs</h1>
@@ -864,7 +864,7 @@ export default function JobsPage() {
         )}
         {(customersError || settingsError) && <p role="alert" className="text-sm text-rose-700">Job intake is unavailable until customer and company settings load successfully.</p>}
         {/* OVERVIEW SECTION – matches Quotes style */}
-        <section className="rounded-2xl ring-1 ring-slate-200 bg-white p-4 md:p-5 lg:shrink-0">
+        <section className="rounded-2xl ring-1 ring-slate-200 bg-white p-4 md:p-5 md:shrink-0">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-base md:text-lg font-semibold">
               Job overview
@@ -927,18 +927,18 @@ export default function JobsPage() {
         </section>
 
         {/* MAIN GRID: Jobs list + Detail - responsive for mobile */}
-        <div className="grid gap-4 grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] lg:flex-1 lg:min-h-0 lg:grid-rows-1">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-[320px_minmax(0,1fr)] md:flex-1 md:min-h-0 md:grid-rows-1">
           {/* LEFT: Jobs list */}
-          <aside className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4 lg:flex lg:min-h-0 lg:flex-col">
-            <div className="flex items-center justify-between mb-3 lg:shrink-0">
+          <aside className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4 md:flex md:min-h-0 md:flex-col">
+            <div className="flex items-center justify-between mb-3 md:shrink-0">
               <h2 className="text-lg font-semibold">Jobs</h2>
               <span className="text-xs text-slate-500">
                 {filterCounts.all} total
               </span>
             </div>
 
-            <div className="relative max-h-[calc(100vh-270px)] overflow-auto pr-1 space-y-2 lg:flex-1 lg:min-h-0 lg:max-h-none lg:overflow-y-auto lg:overscroll-y-contain">
-              <div className="sticky top-0 z-10 bg-white pb-2 space-y-2 lg:static">
+            <div className="relative max-h-[calc(100vh-270px)] overflow-auto pr-1 space-y-2 md:flex-1 md:min-h-0 md:max-h-none md:overflow-y-auto md:overscroll-y-contain">
+              <div className="sticky top-0 z-10 bg-white pb-2 space-y-2 md:static">
                 {/* Search */}
                 <div className="relative">
                   <input
@@ -1021,7 +1021,7 @@ export default function JobsPage() {
               <div className="grid gap-2">
               {/* Select all checkbox (visible only if there are jobs) */}
               {!views || views.length === 0 ? null : (
-                <div className="flex items-center gap-2 px-2 py-1.5 border-b sticky top-0 bg-white z-10 lg:static">
+                <div className="flex items-center gap-2 px-2 py-1.5 border-b sticky top-0 bg-white z-10 md:static">
                   <input
                     type="checkbox"
                     checked={selectedJobIds.size > 0 && selectedJobIds.size === views.length}
@@ -1164,7 +1164,7 @@ export default function JobsPage() {
           </aside>
 
           {/* RIGHT: Detail pane - hidden on mobile when sidebar visible */}
-          <main className="hidden lg:block bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4 min-h-[60vh] lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain">
+          <main className="hidden md:block bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4 min-h-[60vh] md:min-h-0 md:overflow-y-auto md:overscroll-y-contain">
             {!selected ? (
               <div className="text-sm text-slate-500">
                 Select a job to view details.

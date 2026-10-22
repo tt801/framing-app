@@ -36,44 +36,46 @@ import App from '@/App'
 beforeEach(() => { state.layoutMode = 'fixed'; state.banner = false; vi.clearAllMocks(); localStorage.clear(); window.location.hash = '#/jobs' })
 afterEach(cleanup)
 
-it.each([['fixed', false], ['fixed', true], ['full', false], ['full', true]] as const)('bounds the Jobs height chain only on desktop in %s mode, banner=%s', async (mode, banner) => {
+it.each([['fixed', false], ['fixed', true], ['full', false], ['full', true]] as const)('bounds the complete Jobs height chain from md in %s mode, banner=%s', async (mode, banner) => {
   state.layoutMode = mode; state.banner = banner
   const view = render(<App />)
   await screen.findByRole('heading', { name: 'Job 1001' })
   const shell = view.container.querySelector('.app-shell')!
-  for (const token of ['lg:h-dvh', 'lg:flex', 'lg:flex-col', 'lg:overflow-hidden']) expect(shell.classList.contains(token), token).toBe(true)
+  for (const token of ['md:h-dvh', 'md:flex', 'md:flex-col', 'md:overflow-hidden']) expect(shell.classList.contains(token), token).toBe(true)
   expect(shell.classList.contains('h-dvh')).toBe(false)
   expect(shell.classList.contains('overflow-hidden')).toBe(false)
   const main = shell.querySelector(':scope > main')!
-  expect(main.classList.contains('lg:flex-1')).toBe(true)
-  expect(main.classList.contains('lg:min-h-0')).toBe(true)
+  expect(main.classList.contains('md:flex-1')).toBe(true)
+  expect(main.classList.contains('md:min-h-0')).toBe(true)
   const wrapper = main.firstElementChild!
-  expect(wrapper.classList.contains('lg:h-full')).toBe(true)
-  expect(wrapper.classList.contains('lg:min-h-0')).toBe(true)
+  expect(wrapper.classList.contains('md:h-full')).toBe(true)
+  expect(wrapper.classList.contains('md:min-h-0')).toBe(true)
   expect(wrapper.classList.contains('max-w-[1440px]')).toBe(mode === 'fixed')
   const page = wrapper.firstElementChild!
-  expect(page.classList.contains('lg:min-h-0')).toBe(true)
-  expect(page.classList.contains('lg:h-full')).toBe(true)
+  expect(page.classList.contains('md:min-h-0')).toBe(true)
+  expect(page.classList.contains('md:h-full')).toBe(true)
   const pageMain = page.querySelector(':scope > main')!
-  for (const token of ['lg:flex', 'lg:flex-col', 'lg:min-h-0', 'lg:h-full']) expect(pageMain.classList.contains(token), token).toBe(true)
+  for (const token of ['md:flex', 'md:flex-col', 'md:min-h-0', 'md:h-full']) expect(pageMain.classList.contains(token), token).toBe(true)
   expect(Boolean(screen.queryByText(/7 days left for Layout fixture/))).toBe(banner)
   expect(state.write).not.toHaveBeenCalled()
 })
 
-it('gives sidebar and detail independent desktop overflow and preserves selection and final detail content', async () => {
+it('switches two columns, both scroll panes and sticky overrides together at md while preserving selection', async () => {
   const view = render(<App />)
   await screen.findByRole('heading', { name: 'Job 1001' })
   const aside = view.container.querySelector('aside')!
   const grid = aside.parentElement!
-  expect(grid.classList.contains('lg:flex-1')).toBe(true)
-  expect(grid.classList.contains('lg:min-h-0')).toBe(true)
-  expect(aside.classList.contains('lg:min-h-0')).toBe(true)
-  expect(aside.classList.contains('lg:flex-col')).toBe(true)
+  for (const token of ['md:grid-cols-[320px_minmax(0,1fr)]', 'md:flex-1', 'md:min-h-0', 'md:grid-rows-1']) expect(grid.classList.contains(token), token).toBe(true)
+  expect(grid.classList.contains('lg:grid-cols-[320px_minmax(0,1fr)]')).toBe(false)
+  expect(aside.classList.contains('md:min-h-0')).toBe(true)
+  expect(aside.classList.contains('md:flex-col')).toBe(true)
   const scroll = aside.children[1]
-  for (const token of ['lg:flex-1', 'lg:min-h-0', 'lg:overflow-y-auto', 'lg:max-h-none']) expect(scroll.classList.contains(token), token).toBe(true)
-  expect(scroll.firstElementChild!.classList.contains('lg:static')).toBe(true)
+  for (const token of ['md:flex-1', 'md:min-h-0', 'md:overflow-y-auto', 'md:max-h-none']) expect(scroll.classList.contains(token), token).toBe(true)
+  expect(scroll.firstElementChild!.classList.contains('md:static')).toBe(true)
+  expect(aside.querySelector('input[title="Select all visible jobs"]')!.parentElement!.classList.contains('md:static')).toBe(true)
   const detail = grid.querySelector(':scope > main')!
-  for (const token of ['lg:min-h-0', 'lg:overflow-y-auto', 'hidden', 'lg:block']) expect(detail.classList.contains(token), token).toBe(true)
+  for (const token of ['md:min-h-0', 'md:overflow-y-auto', 'hidden', 'md:block']) expect(detail.classList.contains(token), token).toBe(true)
+  expect(detail.classList.contains('lg:block')).toBe(false)
   const cards = within(aside).getAllByRole('listitem')
   expect(cards[0].textContent).toContain('Customer Job')
   fireEvent.click(cards[1])
@@ -92,9 +94,9 @@ it.each(['customers', 'quotes', 'invoices'])('does not constrain the %s route wo
   const view = render(<App />)
   await screen.findByText(`${route[0].toUpperCase()}${route.slice(1)} route`)
   const shell = view.container.querySelector('.app-shell')!
-  expect(shell.classList.contains('lg:h-dvh')).toBe(false)
-  expect(shell.classList.contains('lg:overflow-hidden')).toBe(false)
+  expect(shell.classList.contains('md:h-dvh')).toBe(false)
+  expect(shell.classList.contains('md:overflow-hidden')).toBe(false)
   const main = shell.querySelector(':scope > main')!
-  expect(main.classList.contains('lg:flex-1')).toBe(false)
-  expect(main.firstElementChild!.classList.contains('lg:h-full')).toBe(false)
+  expect(main.classList.contains('md:flex-1')).toBe(false)
+  expect(main.firstElementChild!.classList.contains('md:h-full')).toBe(false)
 })

@@ -548,7 +548,7 @@ function App() {
   return (
     <BillingAccessProvider value={billingAccess}>
       <div
-        className={`app-shell min-h-dvh w-full ${isJobs ? "lg:flex lg:h-dvh lg:flex-col lg:overflow-hidden lg:[&>div]:shrink-0" : ""} ${
+        className={`app-shell min-h-dvh w-full ${isJobs ? "md:flex md:h-dvh md:flex-col md:overflow-hidden md:[&>div]:shrink-0" : ""} ${
           themeMode === "dark"
             ? "app-theme-dark bg-slate-950 text-slate-100"
             : "bg-neutral-50 text-neutral-900"
@@ -567,7 +567,7 @@ function App() {
         ) : null}
         {/* ---------- Header ---------- */}
         <header
-          className={`sticky top-0 z-40 w-full border-b backdrop-blur ${isJobs ? "lg:shrink-0" : ""} ${
+          className={`sticky top-0 z-40 w-full border-b backdrop-blur ${isJobs ? "md:shrink-0" : ""} ${
             themeMode === "dark"
               ? "border-slate-800 bg-slate-950/85"
               : "border-neutral-200 bg-white/80"
@@ -691,13 +691,13 @@ function App() {
         </header>
 
       {/* ---------- Main Body ---------- */}
-      <main className={`w-full ${isJobs ? "lg:flex-1 lg:min-h-0 lg:overflow-hidden" : ""}`}>
+      <main className={`w-full ${isJobs ? "md:flex-1 md:min-h-0 md:overflow-hidden" : ""}`}>
         <ErrorBoundary>
           {/* Wrapper:
               - Dashboard: no outer padding, it owns its dark full-bleed background.
               - Other pages: use layoutMode to choose fixed vs full width. */}
           <div
-            className={`${isJobs ? "lg:h-full lg:min-h-0" : ""} ${
+            className={`${isJobs ? "md:h-full md:min-h-0" : ""} ${
               isDashboard
                 ? ""
                 : layoutMode === "fixed"
