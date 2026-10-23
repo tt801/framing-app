@@ -1,7 +1,7 @@
 import React from 'react'
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); window.location.hash = '' })
 import VisualizerApp from '@/VisualizerApp'
 import type { CommercialSnapshot } from '@/lib/pricing'
 
@@ -25,7 +25,7 @@ vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: {
 } }) }))
 vi.mock('@/lib/quotes', () => ({ useQuotes: () => ({ quotes: [], add: async (payload: Saved) => { captured.quotes.push(payload); return { ok: true, quote: payload } } }) }))
 vi.mock('@/lib/jobs', () => ({ useJobs: () => ({ add: async (payload: Saved) => { captured.jobs.push(payload); return { ok: true, job: payload } } }) }))
-vi.mock('@/lib/invoices', () => ({ useInvoices: () => ({ addInvoice: async (payload: Saved) => { const invoice = { ...payload, number: 'INV-1' }; captured.invoices.push(invoice); return { ok: true, invoice } } }) }))
+vi.mock('@/lib/invoices', () => ({ useInvoices: () => ({ addInvoice: async (payload: Saved) => { const invoice = { ...payload, id: 'invoice-1', number: 'INV-1' }; captured.invoices.push(invoice); return { ok: true, invoice } } }) }))
 vi.mock('@/lib/customers', async importOriginal => ({
   ...await importOriginal<typeof import('@/lib/customers')>(),
   useCustomers: () => ({ customers: captured.customers, add: async () => ({ ok: false }) }),
@@ -43,6 +43,17 @@ vi.mock('@/lib/effectiveSupplierAccess', () => ({ useEffectiveCompanyCatalogue: 
 const money = (n: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'GBP' }).format(n)
 
 describe('Visualiser persistence uses its displayed commercial result', () => {
+  it('creates the combined Quote, Job and Invoice once each, then opens the invoice without PDF output', async () => {
+    captured.quotes.length = 0; captured.jobs.length = 0; captured.invoices.length = 0; captured.pdfs.length = 0
+    captured.customers = [{ id: 'pricing-customer', firstName: 'Pricing', lastName: 'Customer', email: 'pricing@example.test' }]
+    vi.spyOn(window, 'alert').mockImplementation(() => {})
+    render(<VisualizerApp />)
+    fireEvent.change(screen.getByText('Existing customer').parentElement!.querySelector('select')!, { target: { value: 'pricing-customer' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create Quote + Invoice + Job' }))
+    await waitFor(() => expect(window.location.hash).toBe('#/invoices?id=invoice-1'))
+    expect(captured.quotes).toHaveLength(1); expect(captured.jobs).toHaveLength(1); expect(captured.invoices).toHaveLength(1)
+    expect(captured.pdfs).toHaveLength(0)
+  })
   it('leaves new job references to the existing company-scoped database allocator', async () => {
     captured.jobs.length = 0
     vi.spyOn(window, 'alert').mockImplementation(() => {})
@@ -69,7 +80,7 @@ describe('Visualiser persistence uses its displayed commercial result', () => {
     expect(captured.invoices).toHaveLength(0)
     alert.mockRestore()
   })
-  it('writes identical pricing snapshots for Quote, Job and direct Invoice, and hands selling lines to PDF', async () => {
+  it('writes identical pricing snapshots without automatically exporting the direct Invoice', async () => {
     captured.quotes.length = 0; captured.jobs.length = 0; captured.invoices.length = 0; captured.pdfs.length = 0
     captured.customers = [{ id: 'pricing-customer', firstName: 'Pricing', lastName: 'Customer', email: 'pricing@example.test' }]
     vi.spyOn(window, 'alert').mockImplementation(() => {})
@@ -78,7 +89,9 @@ describe('Visualiser persistence uses its displayed commercial result', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add to Quotes' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add to Jobs' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add to Invoices' }))
-    await waitFor(() => expect(captured.pdfs).toHaveLength(1))
+    await waitFor(() => expect(captured.invoices).toHaveLength(1))
+    await waitFor(() => expect(window.location.hash).toBe('#/invoices?id=invoice-1'))
+    expect(captured.pdfs).toHaveLength(0)
     const [quote] = captured.quotes, [job] = captured.jobs, [invoice] = captured.invoices
     expect(quote.pricingSnapshot).toEqual(job.pricingSnapshot)
     expect(quote.pricingSnapshot).toEqual(invoice.pricingSnapshot)
@@ -88,7 +101,7 @@ describe('Visualiser persistence uses its displayed commercial result', () => {
     expect(quote.items.reduce((sum, line) => sum + line.total, 0)).toBe(quote.subtotal)
     expect(invoice.items.reduce((sum, line) => sum + line.unitPrice * line.qty, 0)).toBe(invoice.subtotal)
     expect(invoice.subtotal + invoice.tax).toBe(invoice.total)
-    expect(captured.pdfs[0].invoice.items).toEqual(invoice.items)
+    expect(captured.invoices).toHaveLength(1)
     expect(screen.getByText(money(quote.total))).toBeTruthy()
   })
 })

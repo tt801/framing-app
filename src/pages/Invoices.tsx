@@ -77,6 +77,24 @@ const buildWhatsAppLink = (phoneE164: string, text: string) =>
   )}?text=${encodeURIComponent(text)}`;
 
 /* ---------------- Customer helpers ---------------- */
+type InvoiceCustomerFields = {
+  id?: string; name?: string; firstName?: string; lastName?: string;
+  company?: string; email?: string; phone?: string;
+};
+const editableCustomerDetails = (row: Invoice, customersList: InvoiceCustomerFields[]) => {
+  // A saved customer representation is historical: do not fill its missing
+  // fields from today's CRM record. Explicit invoice edits (including blanks) win.
+  const customer = row?.customerSnapshot ?? row?.customer ?? row?.details?.customer ??
+    customersList.find(customer => customer.id === row?.customerId);
+  const nameOf = (customer: InvoiceCustomerFields | string | undefined) => typeof customer === 'string' ? customer :
+    customer?.name ?? ([customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || customer?.company);
+  return {
+    name: row?.customerName ?? nameOf(customer) ?? '',
+    email: row?.customerEmail ?? customer?.email ?? '',
+    phone: row?.customerPhone ?? customer?.phone ?? '',
+  };
+};
+
 const resolveCustomerName = (row: any, customersList: any[] | undefined) => {
   const fromId =
     row?.customerId && customersList
@@ -184,6 +202,8 @@ const isInvoiceSyncedToQuickBooks = (row: any) => {
    ======================================================================= */
 export default function InvoicesPage() {
   const [paymentPending, setPaymentPending] = useState(false);
+  const settlementPendingRef = React.useRef(false);
+  const [settlementPending, setSettlementPending] = useState(false);
   const inv = useInvoices() as any;
   const { jobs: relatedJobs } = useJobs();
   const c = useCustomers() as any;
@@ -521,6 +541,8 @@ export default function InvoicesPage() {
   const selStatus =
     (selected && (statusOverride[selected.id] ?? selected.status)) ||
     "Draft";
+  const alreadyPaid = selStatus === 'Paid' || Boolean(selected && Number(selected.total) > 0 && invoiceBalance(selected) <= 0);
+  const customerDetails = editableCustomerDetails(selected, customersList);
   const [invoiceDraftItems, setInvoiceDraftItems] = useState<CommercialItem[]>([]);
   React.useEffect(() => {
     setInvoiceDraftItems(Array.isArray(selected?.items) ? selected.items.map((item: any) => ({
@@ -619,6 +641,7 @@ Thank you.
     status: "Draft" | "Sent" | "Paid" | "Overdue" | "Void"
   ) => {
     if (!selected || paymentPending) return;
+    if (status === 'Paid' && (alreadyPaid || settlementPendingRef.current)) return;
     if (invoiceDraftDirty) { toast('Save the Draft invoice before changing its status', 'error'); return; }
 
     const id = selected.id;
@@ -655,13 +678,20 @@ Thank you.
       patch.voidAt = now;
     }
 
-    const result = await saveInvoice(id, patch);
-    if (!result?.ok) {
-      toast(result?.error || "Could not update invoice", "error");
-      return;
+    if (status === 'Paid') { settlementPendingRef.current = true; setSettlementPending(true); }
+    try {
+      const result = await saveInvoice(id, patch);
+      if (!result?.ok) {
+        toast(result?.error || "Could not update invoice", "error");
+        return;
+      }
+      setStatusOverride((m) => ({ ...m, [id]: status }));
+      toast(`Invoice marked ${status.toLowerCase()}`, "success");
+    } catch {
+      toast("Could not update invoice", "error");
+    } finally {
+      if (status === 'Paid') { settlementPendingRef.current = false; setSettlementPending(false); }
     }
-    setStatusOverride((m) => ({ ...m, [id]: status }));
-    toast(`Invoice marked ${status.toLowerCase()}`, "success");
   };
 
   const onExportPDF = async () => {
@@ -1080,7 +1110,7 @@ Thank you.
                       <input
                         type="text"
                         placeholder="Name"
-                        value={selected?.customerName || ""}
+                        value={customerDetails.name}
                         onChange={(e) =>
                           saveInvoice(selected.id, {
                             customerName: e.target.value,
@@ -1093,7 +1123,7 @@ Thank you.
                       <input
                         type="email"
                         placeholder="Email"
-                        value={selected?.customerEmail || ""}
+                        value={customerDetails.email}
                         onChange={(e) =>
                           saveInvoice(selected.id, {
                             customerEmail: e.target.value,
@@ -1106,7 +1136,7 @@ Thank you.
                       <input
                         type="tel"
                         placeholder="Phone"
-                        value={selected?.customerPhone || ""}
+                        value={customerDetails.phone}
                         onChange={(e) =>
                           saveInvoice(selected.id, {
                             customerPhone: e.target.value,
@@ -1230,13 +1260,13 @@ Thank you.
                       >
                         Mark Sent
                       </button>
-                      <button
+                      {alreadyPaid ? <span className="rounded-xl border border-green-300 text-green-700 px-3 py-1.5 text-sm">Paid</span> : <button
                         onClick={() => markStatus("Paid")}
-                        disabled={paymentPending}
+                        disabled={paymentPending || settlementPending}
                         className="rounded-xl border border-green-300 text-green-700 px-3 py-1.5 text-sm hover:bg-green-50"
                       >
                         Mark Paid
-                      </button>
+                      </button>}
                       <button
                         onClick={() => markStatus("Void")}
                         className="rounded-xl border border-rose-300 text-rose-700 px-3 py-1.5 text-sm hover:bg-rose-50"
@@ -1326,7 +1356,7 @@ Thank you.
 
               <InvoicePaymentForm key={selected.id}
                 balance={invoiceBalance(selected)}
-                disabled={Boolean(inv.readOnly || invoiceDraftDirty || selStatus === 'Paid' || selStatus === 'Void')}
+                disabled={Boolean(inv.readOnly || invoiceDraftDirty || settlementPending || selStatus === 'Paid' || selStatus === 'Void')}
                 onPendingChange={setPaymentPending}
                 onRecord={async payment => {
                   const result = await inv.addPayment(selected.id, payment);

@@ -9,7 +9,6 @@ import { useCatalog } from "@/lib/store";
 import { exportQuotePDF } from "@/lib/pdf/quotePdf";
 import { useInvoices } from "@/lib/invoices";
 import { useJobs } from "@/lib/jobs";
-import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
 import { createManualDraft, editManualDraft, invoiceFromQuote, type CommercialItem } from "@/lib/commercialDocuments";
 import { effectiveTaxRatePct } from "@/lib/pricing";
 import { useToast } from "@/lib/toast";
@@ -716,8 +715,6 @@ export default function QuotesPage() {
     }
     const todayISO = new Date().toISOString();
     const agreement = invoiceFromQuote({ ...selected, items: selectedItems });
-    const currencyCode = agreement.currencyCode;
-    const currencySymbolLocal = agreement.currencySymbol || symbolFor(currencyCode);
     const invoiceObj = {
       ...agreement,
       status: 'Draft',
@@ -745,54 +742,8 @@ export default function QuotesPage() {
         }
         if (existingJobInvoice) { toast(`Invoice ${result.invoice.number} linked to Job ${link.job.refNo ?? link.job.id}`, 'success'); return; }
       }
-      const customer =
-        (selected as any).customerSnapshot ||
-        customersList.find((cx: any) => cx.id === invoiceObj.customerId) ||
-        (selected as any).customer ||
-        undefined;
-
-      const sendNow = window.confirm(
-        `Invoice ${result.invoice.number} has been created. Would you like to send it now?`
-      );
-
-      if (sendNow) {
-        await exportInvoicePDF?.({
-          invoice: result.invoice,
-          customer: customer
-            ? {
-                id: customer.id,
-                firstName: customer.firstName,
-                lastName: customer.lastName,
-                email: customer.email,
-                phone: customer.phone,
-                company: customer.company,
-                address1: customer.address1,
-                address2: customer.address2,
-                city: customer.city,
-                postcode: customer.postcode || customer.postalCode,
-                country: customer.country,
-              }
-            : undefined,
-          settings: {
-            companyName: settings.companyName,
-            companyEmail: settings.companyEmail,
-            companyPhone: settings.companyPhone,
-            companyAddress: settings.companyAddress,
-            logoDataUrl: (settings as any).companyLogoDataUrl,
-            currencySymbol: currencySymbolLocal,
-            currencyCode,
-            themeColor: settings.themeColor,
-            bankDetails: (settings as any).bankDetails,
-            taxNumber: (settings as any).taxNumber,
-            invoiceFooterNote: (settings as any).invoiceFooterNote,
-          },
-        } as any);
-      } else {
-        alert(
-          `Invoice ${result.invoice.number} has been created. You can send or edit it from the Invoices page.`
-        );
-      }
       toast(`Invoice ${result.invoice.number} created`, "success");
+      window.location.hash = `#/invoices?id=${encodeURIComponent(result.invoice.id)}`;
     } catch (e) {
       console.error("Failed to create invoice from quote", e);
       alert("Could not create invoice. Please check console for details.");

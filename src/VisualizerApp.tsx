@@ -21,9 +21,6 @@ declare global {
 
 window.__FRAMEIT = { useCatalog };
 
-// PDF
-import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
-
 // COMPONENTS
 import RoomMockup from "@/components/RoomMockup";
 import { Tabs } from "@/components/Tabs";
@@ -1253,9 +1250,6 @@ export default function VisualizerApp() {
   async function invoiceNow() {
     if (!guardSupplierSelection()) return;
     const customerId = await ensureCustomerId();
-    const customerObj = customerId
-      ? (customers || []).find((c: any) => c.id === customerId)
-      : undefined;
 
     const todayISO = new Date().toISOString();
 
@@ -1289,40 +1283,11 @@ export default function VisualizerApp() {
         return;
       }
 
-      // Still generate the PDF, but stay on the Visualizer
-      await exportInvoicePDF?.({
-        invoice: result.invoice,
-        customer: customerObj
-          ? {
-              id: customerObj.id,
-              firstName: customerObj.firstName,
-              lastName: customerObj.lastName,
-              email: customerObj.email,
-              phone: customerObj.phone,
-              company: customerObj.company,
-            }
-          : undefined,
-        settings: {
-          companyName: settings?.companyName,
-          companyEmail: settings?.companyEmail,
-          companyPhone: settings?.companyPhone,
-          companyAddress: settings?.companyAddress,
-          logoDataUrl: (settings as any)?.companyLogoDataUrl,
-          currencySymbol,
-          currencyCode,
-          themeColor: settings?.themeColor,
-          bankDetails: (settings as any)?.bankDetails,
-          taxNumber: (settings as any)?.taxNumber,
-          invoiceFooterNote: (settings as any)?.invoiceFooterNote,
-        },
-      } as any);
-
-      alert(`Invoice ${result.invoice.number} created and added to Invoices.`);
-      // ⬆️ No navigation: we stay on the Visualizer
+      window.location.hash = `#/invoices?id=${encodeURIComponent(result.invoice.id)}`;
     } catch (err) {
       console.error(err);
       alert(
-        "Invoice creation or PDF export failed. See console for details."
+        "Invoice creation failed. See console for details."
       );
     }
   }

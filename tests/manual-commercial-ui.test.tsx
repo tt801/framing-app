@@ -32,7 +32,7 @@ vi.mock('@/lib/pdf/quotePdf', () => ({ exportQuotePDF: async (args: Record<strin
 vi.mock('@/lib/pdf/invoicePdf', () => ({ exportInvoicePDF: async (args: Record<string, unknown>) => { state.invoicePdf.push(args) } }))
 
 function reset() { state.quotes = []; state.invoices = []; state.quotePdf = []; state.invoicePdf = []; state.taxRatePct = 20 }
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); window.location.hash = '' })
 
 describe('manual commercial UI', () => {
   it('creates, edits, saves and reopens a Quote, then converts its saved agreement', async () => {
@@ -58,6 +58,9 @@ describe('manual commercial UI', () => {
     await waitFor(() => expect(state.invoices[0]?.total).toBe(240))
     expect(state.invoices[0].tax).toBe(40)
     expect(state.invoices[0].quoteId).toBe('quote-1')
+    expect(state.invoices).toHaveLength(1)
+    expect(state.invoicePdf).toHaveLength(0)
+    expect(window.location.hash).toBe('#/invoices?id=invoice-1')
     fireEvent.click(screen.getByRole('button', { name: 'Mark Sent' }))
     await waitFor(() => expect(state.quotes[0].status).toBe('Sent'))
     expect(screen.queryByRole('button', { name: /Add line item/i })).toBeNull()

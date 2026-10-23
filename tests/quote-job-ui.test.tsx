@@ -77,11 +77,19 @@ it('does not substitute a different quote for a stale relationship URL', () => {
 
 it('creates the saved quote invoice and links its existing job, preserving the customer snapshot', async () => {
   state.jobs = [{ id: 'job1', quoteId: 'q1', refNo: 1001 }]
-  render(<Quotes />)
+  vi.mocked(window.confirm).mockReturnValue(true)
+  const view = render(<Quotes />)
   fireEvent.click(screen.getByRole('button', { name: 'Create Invoice' }))
   await waitFor(() => expect(state.link).toHaveBeenCalledExactlyOnceWith('q1', 'i1'))
   expect(state.addInvoice.mock.calls[0][0]).toMatchObject({ quoteId: 'q1', customerId: 'c1', total: 202.11, tax: 26.36,
     currencyCode: 'GBP', customerSnapshot: { firstName: 'Saved' } })
+  await waitFor(() => expect(window.location.hash).toBe('#/invoices?id=i1'))
+  expect(state.addInvoice).toHaveBeenCalledTimes(1)
+  expect(state.invoicePdf).not.toHaveBeenCalled()
+  expect(window.confirm).not.toHaveBeenCalled()
+  view.unmount(); render(<Invoices />)
+  expect((screen.getByPlaceholderText('Name') as HTMLInputElement).value).toBe('Saved Customer')
+  expect(screen.getByRole('link', { name: 'Source Quote' }).getAttribute('href')).toBe('#/quotes?id=q1')
 })
 
 it('retries an invoice link failure without creating a second invoice', async () => {
