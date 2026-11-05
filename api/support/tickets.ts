@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { getSupportNotificationRecipients, sendSupportEmail } from '../lib/notifications.js'
+import { renderSupportEmail } from '../lib/emailTemplates.js'
 import { requireSupportContext, supportDb, SupportHttpError, supportError } from '../../server/supportContext.js'
 
 const ticketFields = 'id,ticket_number,subject,message,category,status,priority,created_at,updated_at'
@@ -43,15 +44,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await sendSupportEmail({
           to: getSupportNotificationRecipients(),
           subject: `[Support] New ticket ${data.ticket_number}: ${data.subject}`,
-          text: [
-            'A new support ticket was created.', '',
-            `Ticket: ${data.ticket_number}`,
-            `Subject: ${data.subject}`,
-            `Priority: ${data.priority}`,
-            `Category: ${data.category}`,
-            `Requester: ${user.email || 'no-email'}`,
-            'Source: customer_app', '', data.message,
-          ].join('\n'),
+          ...renderSupportEmail({ heading: 'New support ticket', reference: data.ticket_number, subject: data.subject,
+            context: [`Priority: ${data.priority}`, `Category: ${data.category}`, `Requester: ${user.email || 'Not recorded'}`],
+            message: data.message }),
         })
       } catch {
         // Ticket creation succeeded; notification delivery is best-effort. Do not log user content.

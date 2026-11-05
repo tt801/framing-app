@@ -8,6 +8,7 @@ import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
 import { exportQuotePDF } from "@/lib/pdf/quotePdf";
 import { usePdfCompanySettings } from '@/lib/pdf/usePdfCompanySettings';
+import { documentDraft } from '@/lib/customerMessages';
 import { useInvoices } from "@/lib/invoices";
 import { useJobs } from "@/lib/jobs";
 import { createManualDraft, editManualDraft, invoiceFromQuote, type CommercialItem } from "@/lib/commercialDocuments";
@@ -77,14 +78,6 @@ const safeRowId = (row: any): string =>
       row?._id ??
       Math.random().toString(36).slice(2)
   );
-
-const safeDecode = (value: string): string => {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-};
 
 // Simple random id for invoices / items
 const rid = () => Math.random().toString(36).slice(2, 9);
@@ -742,32 +735,15 @@ export default function QuotesPage() {
     } finally { setCreatingInvoice(false); }
   };
 
-  const companyName = settings.companyName || "Our workshop";
-
   const displayName = selected ? resolveCustomerName(selected, customersList) : "—";
   const email = selected ? resolveCustomerEmail(selected, customersList) : "";
   const phone = selected
     ? resolveCustomerPhone(selected, customersList) || settings.companyWhatsAppTo || ""
     : "";
 
-  const notifyBody =
-    `Hi ${displayName},%0D%0A%0D%0A` +
-    `Please find your quote ${
-      selected ? displayQuoteNumber(selected, settings) : ""
-    }: ` +
-    `${
-      selected
-        ? fmt(
-            selected.total,
-            selected.currency || overviewCurrencyCode,
-            overviewCurrencySymbol
-          )
-        : ""
-    }.%0D%0A%0D%0A` +
-    `If you have any questions or would like to proceed, just reply to this email.%0D%0A%0D%0A` +
-    `Best regards,%0D%0A${companyName}`;
-
-  const whatsappText = safeDecode(notifyBody);
+  const messageDraft = documentDraft('quote', selected ? { ...selected, number: displayQuoteNumber(selected, settings) } : {}, displayName, pdfSettings);
+  const notifyBody = messageDraft.body;
+  const whatsappText = messageDraft.body;
 
   /* ---------- STATUS CHIP METADATA ---------- */
   const statusSpec: {
@@ -1241,7 +1217,7 @@ export default function QuotesPage() {
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-sm font-medium">Send to customer</div>
                   <div className="text-xs text-slate-500">
-                    Uses customer contact or company fallback (Admin → Settings).
+                    Opens your own app. Attach the downloaded PDF manually if needed; delivery is not confirmed here.
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1250,8 +1226,8 @@ export default function QuotesPage() {
                       email
                         ? buildMailto(
                             email,
-                            `Your quote ${displayQuoteNumber(selected, settings)}`,
-                            decodeURIComponent(notifyBody)
+                            messageDraft.subject,
+                            notifyBody
                           )
                         : "#"
                     }
@@ -1264,7 +1240,7 @@ export default function QuotesPage() {
                         : "border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed"
                     }`}
                   >
-                    Send email
+                    Open email draft
                   </a>
                   <a
                     href={phone ? buildWhatsAppLink(phone, whatsappText) : "#"}
@@ -1279,7 +1255,7 @@ export default function QuotesPage() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    WhatsApp
+                    Open WhatsApp draft
                   </a>
                 </div>
               </div>

@@ -505,7 +505,7 @@ export default function MarketingPage() {
     {
       id: "template-6",
       name: "Repeat Customer - Cross-sell",
-      content: "Hi [Name], remember we also offer [glazing/moulding type]? Perfect for [relevant occasion]. Quote attached.",
+      content: "Hi [Name], remember we also offer [glazing/moulding type]? Perfect for [relevant occasion]. Please contact us if you would like a quote.",
       category: "Repeat Customers",
       color: "blue",
     },

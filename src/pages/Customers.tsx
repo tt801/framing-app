@@ -5,6 +5,7 @@ import { useCustomers } from "../lib/customers";
 import { useInvoices } from "../lib/invoices";
 import { exportInvoicePDF } from "../lib/pdf/invoicePdf";
 import { usePdfCompanySettings } from '@/lib/pdf/usePdfCompanySettings';
+import { accountUpdateDraft, mailtoDraft, whatsAppDraft } from '@/lib/customerMessages';
 import { customersToCSV, downloadCSV } from "../lib/customers";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
@@ -95,7 +96,6 @@ export default function CustomersPage() {
 
   const settings = catalog.settings || {};
   const pdfSettings = usePdfCompanySettings(settings);
-  const companyName: string = settings.companyName || "Our workshop";
   const fallbackWhatsAppTo: string = (settings as any).companyWhatsAppTo || "";
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -881,7 +881,7 @@ export default function CustomersPage() {
               onSave={onSaveCustomer}
               onExportInvoice={onExportInvoice}
               onDelete={handleDeleteCustomer}
-              companyName={companyName}
+              messageSettings={pdfSettings}
               fallbackWhatsAppTo={fallbackWhatsAppTo}
               commLog={commLog}
               onAddCommLogEntry={addCommLogEntry}
@@ -931,7 +931,7 @@ function CustomerDetails({
   onSave,
   onExportInvoice,
   onDelete,
-  companyName,
+  messageSettings,
   fallbackWhatsAppTo,
   commLog,
   onAddCommLogEntry,
@@ -943,7 +943,7 @@ function CustomerDetails({
   onSave: (c: any) => void;
   onExportInvoice: (inv: any, cust: any) => Promise<void>;
   onDelete: (id: string) => void;
-  companyName: string;
+  messageSettings: Record<string, unknown>;
   fallbackWhatsAppTo: string;
   commLog: Record<string, any[]>;
   onAddCommLogEntry: (customerId: string, type: "email" | "call" | "message" | "note", message: string) => void;
@@ -1060,30 +1060,9 @@ function CustomerDetails({
   const phoneRaw = edit.phone || customer.phone || fallbackWhatsAppTo || "";
   const phoneDigits = phoneRaw.replace(/\D/g, "");
 
-  const notifyBody =
-    `Hi ${contactName},\n\n` +
-    `Just a quick update from ${companyName}. ` +
-    (stats.outstanding > 0
-      ? `Our records show a current outstanding balance of ${money(
-          stats.outstanding
-        )} on your account. `
-      : `Thank you for your business. `) +
-    `If you have any questions or need anything framed, just reply to this message.\n\n` +
-    `Best regards,\n${companyName}`;
-
-  const whatsappText = notifyBody;
-
-  const mailtoHref = emailTo
-    ? `mailto:${encodeURIComponent(emailTo)}?subject=${encodeURIComponent(
-        `Update from ${companyName}`
-      )}&body=${encodeURIComponent(notifyBody)}`
-    : "#";
-
-  const whatsappHref = phoneDigits
-    ? `https://wa.me/${encodeURIComponent(phoneDigits)}?text=${encodeURIComponent(
-        whatsappText
-      )}`
-    : "#";
+  const messageDraft = accountUpdateDraft(contactName, invoices, messageSettings);
+  const mailtoHref = emailTo ? mailtoDraft(emailTo, messageDraft) : '#';
+  const whatsappHref = phoneDigits ? whatsAppDraft(phoneDigits, messageDraft.body) : '#';
 
   return (
     <section className="grid gap-4">
@@ -1252,7 +1231,7 @@ function CustomerDetails({
                 : "border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed"
             }`}
           >
-            Email customer
+            Open email draft
           </a>
           <a
             href={whatsappHref}
@@ -1267,7 +1246,7 @@ function CustomerDetails({
             target="_blank"
             rel="noreferrer"
           >
-            WhatsApp
+            Open WhatsApp draft
           </a>
         </div>
       </div>

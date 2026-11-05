@@ -13,6 +13,7 @@ import { customerSearchFields, matchesCommercialSearch, referenceSearchFields } 
 
 import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
 import { usePdfCompanySettings } from '@/lib/pdf/usePdfCompanySettings';
+import { documentDraft } from '@/lib/customerMessages';
 
 type Invoice = any;
 
@@ -568,33 +569,10 @@ export default function InvoicesPage() {
     } catch (error) { toast(error instanceof Error ? error.message : 'Invalid invoice item', 'error'); }
   };
 
-  const companyName = settings.companyName || "Our workshop";
-
-  const notifySubject = selected
-    ? `Invoice ${selected.number ?? selected.id ?? ""} from ${companyName}`
-    : `Invoice from ${companyName}`;
-
-  const notifyBody = selected
-    ? `Hi ${displayName},
-
-Your invoice ${
-        selected.number ?? selected.id ?? ""
-      } is ${selectedMoney(selected.total)}.
-
-Thank you.
-— ${companyName}`
-    : `Hi,
-
-Please find your invoice attached.
-
-Thank you.
-— ${companyName}`;
-
-  const whatsappText = selected
-    ? `Hi ${displayName}, your invoice ${
-        selected.number ?? selected.id ?? ""
-      } is ${selectedMoney(selected.total)}. Reply here with any questions. — ${companyName}`
-    : `Hi, please see your invoice. — ${companyName}`;
+  const messageDraft = documentDraft('invoice', selected, displayName, pdfSettings);
+  const notifySubject = messageDraft.subject;
+  const notifyBody = messageDraft.body;
+  const whatsappText = messageDraft.body;
 
   /* ---------- Overview chips ---------- */
   const pct = (val: number, denom: number) =>
@@ -1378,8 +1356,7 @@ Thank you.
                     Send to customer
                   </div>
                   <div className="text-xs text-slate-500">
-                    Uses customer contact or company fallback (Admin →
-                    Settings).
+                    Opens your own app. Attach the downloaded PDF manually if needed; delivery is not confirmed here.
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1402,7 +1379,7 @@ Thank you.
                         : "border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed"
                     }`}
                   >
-                    Send email
+                    Open email draft
                   </a>
                   <a
                     href={
@@ -1421,7 +1398,7 @@ Thank you.
                     target="_blank"
                     rel="noreferrer"
                   >
-                    WhatsApp
+                    Open WhatsApp draft
                   </a>
                 </div>
               </div>

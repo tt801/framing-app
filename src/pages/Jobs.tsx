@@ -10,6 +10,7 @@ import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
 import { exportJobCardPDF } from "@/lib/pdf/jobCardPdf";
 import { usePdfCompanySettings } from '@/lib/pdf/usePdfCompanySettings';
+import { jobReadyDraft, mailtoDraft, whatsAppDraft } from '@/lib/customerMessages';
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import { useFavorites } from "@/lib/favorites";
@@ -706,40 +707,8 @@ export default function JobsPage() {
       c.company ||
       "Customer";
 
-    const orderNo = String(jobView?.id ?? rid()).slice(0, 6).toUpperCase();
-    const companyName =
-      catalog?.settings?.companyName ?? "Our Framing Studio";
-    const companyEmail = catalog?.settings?.companyEmail ?? "";
-    const companyPhone = catalog?.settings?.companyPhone ?? "";
-    const companyAddress = catalog?.settings?.companyAddress ?? "";
-    const bankDetails = (catalog?.settings as any)?.bankDetails ?? "";
-    const taxNumber = (catalog?.settings as any)?.taxNumber ?? "";
-
-    const totalStr = fmt(jobView?.costs?.total, currencyCode, currencySymbol);
-
-    const lines = [
-      `Hi ${custName},`,
-      ``,
-      `Great news — your framing order (Ref ${orderNo}) is ready for collection.`,
-      ``,
-      `Total due: ${totalStr}`,
-      ``,
-      bankDetails ? `Bank details:\n${bankDetails}\n` : ``,
-      companyAddress ? `Collection address:\n${companyAddress}\n` : ``,
-      `If you have any questions, just reply to this message.`,
-      ``,
-      `Kind regards,`,
-      companyName,
-      companyPhone ? `Tel: ${companyPhone}` : ``,
-      companyEmail ? `Email: ${companyEmail}` : ``,
-      taxNumber ? `Tax/VAT: ${taxNumber}` : ``,
-    ].filter(Boolean);
-
-    if (asPlain) return lines.join("\n");
-
-    const subject = `Your framing order is ready for collection — Ref ${orderNo}`;
-    const body = lines.join("\n");
-    return { subject, body };
+    const draft = jobReadyDraft(jobView?.__raw || jobView, custName, pdfSettings);
+    return asPlain ? draft.body : draft;
   }
 
   function buildMailto(jobView: any) {
@@ -748,10 +717,7 @@ export default function JobsPage() {
       subject: string;
       body: string;
     };
-    const to = encodeURIComponent(c?.email ?? "");
-    const subject = encodeURIComponent(msg.subject);
-    const body = encodeURIComponent(msg.body);
-    return `mailto:${to}?subject=${subject}&body=${body}`;
+    return mailtoDraft(c?.email ?? '', msg);
   }
 
   function buildWhatsAppLink(jobView: any) {
@@ -761,10 +727,7 @@ export default function JobsPage() {
       (catalog?.settings as any)?.companyWhatsAppTo ?? ""
     );
     const phone = phoneFromCustomer || phoneFromSettings || "";
-    const text = encodeURIComponent(buildReadyMessage(jobView, true));
-    return phone
-      ? `https://wa.me/${phone}?text=${text}`
-      : `https://wa.me/?text=${text}`;
+    return whatsAppDraft(phone, buildReadyMessage(jobView, true) as string);
   }
 
   // ------- Checklist helpers (persist toggle & bulk ops) -------
@@ -1445,8 +1408,7 @@ export default function JobsPage() {
                           Notify customer
                         </div>
                         <div className="text-xs text-slate-600">
-                          Send a pre-filled message that the order is ready
-                          for collection.
+                          Opens a draft in your own app. Review the message before sending; delivery is not confirmed here.
                         </div>
                       </div>
                     </div>
@@ -1456,7 +1418,7 @@ export default function JobsPage() {
                         href={buildMailto(selected)}
                         className="inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-medium border border-transparent bg-slate-900 text-white hover:bg-slate-800"
                       >
-                        Email customer
+                        Open email draft
                       </a>
                       <a
                         href={buildWhatsAppLink(selected)}
@@ -1465,7 +1427,7 @@ export default function JobsPage() {
                         className="inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-medium border border-transparent bg-emerald-500 text-white hover:bg-emerald-600"
                         title="Opens WhatsApp Desktop/Web/App with a pre-filled message"
                       >
-                        WhatsApp
+                        Open WhatsApp draft
                       </a>
                     </div>
                   </section>

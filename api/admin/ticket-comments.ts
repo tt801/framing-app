@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { getSupportNotificationRecipients, sendSupportEmail } from "../lib/notifications.js";
+import { customerSupportUrl, renderSupportEmail } from "../lib/emailTemplates.js";
 
 type AppUserRole = "owner" | "manager" | "sales" | "workshop" | "staff";
 
@@ -77,7 +78,7 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
 
   const { data: ticket, error: ticketError } = await supabase
     .from("support_tickets")
-    .select("id")
+    .select("id, ticket_number, subject, requester_email")
     .eq("id", ticketId)
     .eq("company_account_id", accountId)
     .maybeSingle();
@@ -99,26 +100,20 @@ async function handleCreate(req: VercelRequest, res: VercelResponse) {
 
   try {
     const recipients = new Set<string>(getSupportNotificationRecipients());
-    if (visibility === "customer" && ticket.requester_email) {
+    if (data.visibility === "customer" && ticket.requester_email) {
       recipients.add(ticket.requester_email);
     }
 
     await sendSupportEmail({
       to: Array.from(recipients),
       subject: `[Support] Comment on ${ticket.ticket_number}: ${ticket.subject}`,
-      text: [
-        `A comment was added to a support ticket.`,
-        ``,
-        `Ticket: ${ticket.ticket_number}`,
-        `Subject: ${ticket.subject}`,
-        `Visibility: ${data.visibility}`,
-        `Author: ${data.author_name || data.author_email || "Support"}`,
-        ``,
-        `${data.body}`,
-      ].join("\n"),
+      ...renderSupportEmail({ heading: data.visibility === 'customer' ? 'Support ticket update' : 'Internal support comment',
+        reference: ticket.ticket_number, subject: ticket.subject,
+        context: [`Visibility: ${data.visibility}`, `Author: ${data.author_name || data.author_email || 'Support'}`],
+        message: data.body, ticketUrl: data.visibility === 'customer' ? customerSupportUrl() : undefined }),
     });
-  } catch (notifyError) {
-    console.error("[admin-ticket-comments] Notification error:", notifyError);
+  } catch {
+    console.warn("[admin-ticket-comments] Notification submission failed");
   }
 
   return res.status(200).json({ comment: data });

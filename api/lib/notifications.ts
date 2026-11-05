@@ -32,27 +32,26 @@ export async function sendSupportEmail(payload: EmailPayload) {
     return { skipped: true };
   }
 
-  const to = Array.isArray(payload.to) ? payload.to : [payload.to];
-
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${resendApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: fromEmail,
-      to,
-      subject: payload.subject,
-      text: payload.text,
-      ...(payload.html ? { html: payload.html } : {}),
-    }),
-  });
-
-  if (!response.ok) {
-    const raw = await response.text();
-    throw new Error(`Email send failed: ${raw}`);
-  }
-
-  return response.json().catch(() => ({}));
+  // Keep the existing recipient set, but never disclose support/customer addresses to each other.
+  const recipients = [...new Set((Array.isArray(payload.to) ? payload.to : [payload.to]).map(value => value.trim()).filter(Boolean))];
+  const outcomes = await Promise.allSettled(recipients.map(async recipient => {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: [recipient],
+        subject: payload.subject,
+        text: payload.text,
+        ...(payload.html ? { html: payload.html } : {}),
+      }),
+    });
+    if (!response.ok) throw new Error('Support email could not be submitted');
+    return response.json().catch(() => ({}));
+  }));
+  if (outcomes.some(outcome => outcome.status === 'rejected')) throw new Error('Support email could not be submitted');
+  return { submitted: outcomes.length };
 }
