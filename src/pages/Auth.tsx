@@ -67,19 +67,29 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
     return () => { subscription.unsubscribe(); };
   }, []);
 
+  // AuthCallback sets both markers after the existing invitation acceptance check.
+  // They select copy only; the SDK session still gates password updates.
+  const passwordSetupParams = new URLSearchParams(window.location.hash.split("?")[1] || "");
+  const isInvitationFlow = isRecoveryFlow &&
+    passwordSetupParams.get("reset") === "1" && passwordSetupParams.get("invite") === "1";
+
   const title = useMemo(
-    () => (mode === "signup" ? "Start your free trial" : "Welcome back"),
-    [mode]
+    () => isRecoveryFlow
+      ? isInvitationFlow ? "Welcome to FramersApp" : "Reset your password"
+      : mode === "signup" ? "Start your free trial" : "Welcome back",
+    [isRecoveryFlow, isInvitationFlow, mode]
   );
 
   const subtitle = useMemo(
     () =>
       isRecoveryFlow
-        ? "Set a new password to restore access to your account."
+        ? isInvitationFlow
+          ? "Create a password to join your workspace."
+          : "Choose a new password for your account."
         : mode === "signup"
         ? "Create your Framers App account and we will set up your 14-day free trial automatically."
         : "Sign in to continue managing your framing business.",
-    [isRecoveryFlow, mode]
+    [isRecoveryFlow, isInvitationFlow, mode]
   );
 
   const handleForgotPassword = async () => {
@@ -276,6 +286,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
             <p className="mt-4 max-w-xl text-base leading-7 text-slate-200/90 sm:text-lg">
               {subtitle}
             </p>
+            {!isRecoveryFlow && (
             <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
               <p className="text-sm font-semibold text-white">What happens after signup</p>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-200/90">
@@ -284,6 +295,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
                 <li>You can add your own integrations and team details later.</li>
               </ul>
             </div>
+            )}
           </section>
 
           <section className="rounded-[1.75rem] border border-white/15 bg-slate-950/65 p-6 shadow-2xl backdrop-blur sm:p-8">
@@ -344,7 +356,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
 
               {isRecoveryFlow && !recoverySessionReady && (
                 <div className="rounded-xl border border-cyan-300/20 bg-cyan-300/5 px-4 py-3 text-sm text-cyan-200">
-                  Verifying your reset link… please wait.
+                  {isInvitationFlow ? "Verifying your invitation… please wait." : "Verifying your reset link… please wait."}
                 </div>
               )}
 
@@ -444,7 +456,7 @@ export default function AuthPage({ defaultMode = "login" }: AuthPageProps) {
                 {loading
                   ? "Please wait..."
                   : isRecoveryFlow
-                  ? "Update password"
+                  ? isInvitationFlow ? "Create Password" : "Update Password"
                   : mode === "signup"
                   ? "Create account"
                   : "Sign in"}
