@@ -2,8 +2,8 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ session: vi.fn(), reset: vi.fn(), update: vi.fn(), database: vi.fn() }))
-vi.mock('@/lib/theme', () => ({ useTheme: () => ({ themeMode: 'light' }) }))
+const mocks = vi.hoisted(() => ({ session: vi.fn(), reset: vi.fn(), update: vi.fn(), database: vi.fn(), themeMode: 'light' }))
+vi.mock('@/lib/theme', () => ({ useTheme: () => ({ themeMode: mocks.themeMode }) }))
 vi.mock('@/lib/supabase', () => ({ supabase: {
   auth: { getSession: mocks.session, resetPasswordForEmail: mocks.reset, updateUser: mocks.update, onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
   from: mocks.database, rpc: mocks.database,
@@ -11,6 +11,7 @@ vi.mock('@/lib/supabase', () => ({ supabase: {
 import Auth from '@/pages/Auth'
 beforeEach(() => {
   window.history.replaceState(null, '', '/#/login')
+  mocks.themeMode = 'light'
   mocks.session.mockReset(); mocks.session.mockResolvedValue({ data: { session: null } })
   mocks.reset.mockReset(); mocks.reset.mockResolvedValue({ error: null })
   mocks.update.mockReset(); mocks.update.mockResolvedValue({ error: null })
@@ -18,6 +19,14 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers() })
 describe('Block 2 password recovery application responsibilities', () => {
+  it.each(['light', 'dark'])('keeps the logo white on the fixed dark auth background in %s theme', theme => {
+    mocks.themeMode = theme
+    render(<Auth />)
+    expect(screen.getByRole('img', { name: 'Framers App' }).getAttribute('src')).toBe('/FramersApp%20Logo%20white.png')
+    cleanup()
+    render(<Auth defaultMode="signup" />)
+    expect(screen.getByRole('img', { name: 'Framers App' }).getAttribute('src')).toBe('/FramersApp%20Logo%20white.png')
+  })
   it.each([
     ['#/login?reset=1&invite=1', 'Welcome to FramersApp', 'Create a password to join your workspace.', 'Create Password'],
     ['#/login?reset=1', 'Reset your password', 'Choose a new password for your account.', 'Update Password'],

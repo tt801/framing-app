@@ -5,8 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   exchange: vi.fn(), session: vi.fn(), user: vi.fn(), rpc: vi.fn(), membership: vi.fn(),
   event: null as ((event: string) => void) | null,
+  themeMode: 'light',
 }))
-vi.mock('@/lib/theme', () => ({ useTheme: () => ({ themeMode: 'light' }) }))
+vi.mock('@/lib/theme', () => ({ useTheme: () => ({ themeMode: mocks.themeMode }) }))
 vi.mock('@/lib/supabase', () => ({ supabase: {
   auth: {
     exchangeCodeForSession: mocks.exchange, getSession: mocks.session, getUser: mocks.user,
@@ -19,6 +20,7 @@ import AuthCallback from '@/pages/AuthCallback'
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
+  mocks.themeMode = 'light'
   window.history.replaceState(null, '', '/auth/callback?code=local-code')
   mocks.exchange.mockReset(); mocks.exchange.mockResolvedValue({ error: null })
   mocks.session.mockReset(); mocks.session.mockResolvedValue({ data: { session: null } })
@@ -28,6 +30,11 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.clearAllTimers(); vi.useRealTimers() })
 describe('Block 2 Auth callback application boundary (not hosted Auth certification)', () => {
+  it.each(['light', 'dark'])('keeps the callback logo white on the fixed dark background in %s theme', theme => {
+    mocks.themeMode = theme
+    render(<AuthCallback />)
+    expect(screen.getByRole('img', { name: 'Framers App' }).getAttribute('src')).toBe('/FramersApp%20Logo%20white.png')
+  })
   it('surfaces invalid/expired callback code without accepting membership', async () => {
     mocks.exchange.mockResolvedValue({ error: new Error('Invalid or expired code') })
     render(<AuthCallback />)
