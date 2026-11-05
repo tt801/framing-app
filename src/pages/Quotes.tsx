@@ -16,6 +16,7 @@ import { effectiveTaxRatePct } from "@/lib/pricing";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import StatusBadge from "@/components/StatusBadge";
+import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { customerSearchFields, matchesCommercialSearch, referenceSearchFields } from "@/lib/commercialSearch";
 
 // -------------------- Types (loose to avoid breaking) --------------------
@@ -331,7 +332,7 @@ export default function QuotesPage() {
   const jobsStore = useJobs();
   const [creatingJob, setCreatingJob] = useState(false);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
-  const { add: toast } = useToast();
+  const { add: toast, remove: dismissToast } = useToast();
   const { add: addToHistory } = useHistory();
 
   const settings = s?.catalog?.settings || s?.settings || {};
@@ -506,6 +507,30 @@ export default function QuotesPage() {
   const quoteInvoices = linkedJob ? (invoicesStore.invoices ?? []).filter((invoice: any) => invoice.quoteId === selected?.id) : [];
   const existingJobInvoice = quoteInvoices.length === 1 ? quoteInvoices[0] : undefined;
 
+  // UI completions belong to the record/company/route that started the action.
+  const actionRecordId = selectedId ?? selected?.id;
+  const actionContext = useMemo(() => ({ quoteId: actionRecordId, companyId: jobsStore.companyAccountId }), [actionRecordId, jobsStore.companyAccountId]);
+  const activeContext = React.useRef(actionContext);
+  activeContext.current = actionContext;
+  const mounted = React.useRef(false);
+  React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const captureContext = () => {
+    const route = window.location.hash;
+    return () => mounted.current && activeContext.current === actionContext && window.location.hash === route;
+  };
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; number: string; context: typeof actionContext } | null>(null);
+  const invoiceRequest = React.useRef<typeof actionContext | null>(null);
+  const partialWarning = React.useRef<string | null>(null);
+  const clearPartialWarning = () => {
+    if (partialWarning.current) dismissToast?.(partialWarning.current);
+    partialWarning.current = null;
+  };
+  React.useEffect(() => {
+    setDeleteTarget(null);
+    setCreatingInvoice(false);
+    return clearPartialWarning;
+  }, [actionContext]);
+
   const handleCreateJobFromQuote = async () => {
     if (!selected || creatingJob) return;
     setCreatingJob(true);
@@ -630,6 +655,7 @@ export default function QuotesPage() {
   const onExportPDF = async () => {
     if (!selected) return;
     if (quoteDraftDirty) { toast('Save the Draft quote before exporting its PDF', 'error'); return; }
+    const isCurrent = captureContext();
 
     const items = extractItems(selected);
     const customer =
@@ -666,33 +692,32 @@ export default function QuotesPage() {
       });
     } catch (err) {
       console.error("Failed to export quote PDF", err);
-      alert("Could not generate quote PDF. See console for details.");
+      if (isCurrent()) toast("Could not generate quote PDF. Please try again.", "error");
     }
   };
 
-  const onDelete = async () => {
+  const onDelete = () => {
     if (!selected) return;
-    const id = safeRowId(selected);
-    const ok = window.confirm(
-      `Delete quote ${displayQuoteNumber(selected, settings)}?`
-    );
-    if (!ok) return;
-
-    const result = await deleteQuoteFromStore(qStore, id);
-    if (!result || result.ok === false) {
-      toast(result?.error || "Failed to delete quote", "error");
-      return;
-    }
-
-    const idx = filtered.findIndex((r: any) => safeRowId(r) === id);
+    // Pin the intended selection so removing its row does not look like navigation.
+    setSelectedId(safeRowId(selected));
+    setDeleteTarget({ id: safeRowId(selected), number: displayQuoteNumber(selected, settings), context: actionContext });
+  };
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleteTarget.context !== actionContext) return;
+    const isCurrent = captureContext();
+    const result = await deleteQuoteFromStore(qStore, deleteTarget.id);
+    if (!isCurrent()) return;
+    if (!result || result.ok === false) return result?.error || "Failed to delete quote. Please try again.";
+    const idx = filtered.findIndex((r: any) => safeRowId(r) === deleteTarget.id);
     const next = filtered[idx + 1] || filtered[idx - 1] || null;
+    setDeleteTarget(null);
     setSelectedId(next ? safeRowId(next) : null);
     toast("Quote deleted", "success");
   };
 
   // Invoices: add helper
   const handleCreateInvoiceFromQuote = async () => {
-    if (!selected || creatingInvoice || jobsStore.loading) return;
+    if (!selected || creatingInvoice || invoiceRequest.current === actionContext || jobsStore.loading) return;
 
     if (quoteDraftDirty) { toast('Save the Draft quote before creating an invoice', 'error'); return; }
     if (linkedJobs.length > 1 || (linkedJob && quoteInvoices.length > 1)) {
@@ -711,28 +736,44 @@ export default function QuotesPage() {
         tax: agreement.tax, total: agreement.total, currency: agreement.currency } },
     };
 
+    const isCurrent = captureContext();
+    let savedInvoice: any;
+    const warnPartialSuccess = (reason: string) => {
+      clearPartialWarning();
+      partialWarning.current = toast(`Invoice ${savedInvoice.number} is already saved. Its job link failed: ${reason}. Use Link Invoice to Job to retry.`, 'warning', 0);
+    };
+    invoiceRequest.current = actionContext;
     setCreatingInvoice(true);
     try {
       const result = existingJobInvoice ? { ok: true, invoice: existingJobInvoice } : await invoicesStore?.addInvoice?.(invoiceObj);
+      if (!isCurrent()) return;
       if (!result?.ok) {
         toast(result?.error || "Could not save invoice", "error");
         return;
       }
+      savedInvoice = result.invoice;
 
       if (linkedJob) {
         const link = await jobsStore.linkInvoiceFromQuote(selected.id, result.invoice.id);
+        if (!isCurrent()) return;
         if (link.ok === false) {
-          toast(`Invoice ${result.invoice.number} is already saved. Its job link failed: ${link.error}. Use Link Invoice to Job to retry.`, 'error');
+          warnPartialSuccess(link.error);
           return;
         }
+        clearPartialWarning();
         if (existingJobInvoice) { toast(`Invoice ${result.invoice.number} linked to Job ${link.job.refNo ?? link.job.id}`, 'success'); return; }
       }
       toast(`Invoice ${result.invoice.number} created`, "success");
       window.location.hash = `#/invoices?id=${encodeURIComponent(result.invoice.id)}`;
     } catch (e) {
       console.error("Failed to create invoice from quote", e);
-      alert("Could not create invoice. Please check console for details.");
-    } finally { setCreatingInvoice(false); }
+      if (!isCurrent()) return;
+      if (savedInvoice && linkedJob) warnPartialSuccess('the link result could not be confirmed');
+      else toast("Could not create invoice. Please try again.", "error");
+    } finally {
+      if (invoiceRequest.current === actionContext) invoiceRequest.current = null;
+      if (isCurrent()) setCreatingInvoice(false);
+    }
   };
 
   const displayName = selected ? resolveCustomerName(selected, customersList) : "—";
@@ -1288,6 +1329,11 @@ export default function QuotesPage() {
           )}
         </main>
       </div>
+      {deleteTarget?.context === actionContext && (
+        <ConfirmationDialog title="Delete quote?" description="This permanently deletes the quote and cannot be undone."
+          recordIdentity={deleteTarget.number} confirmLabel="Delete quote"
+          onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />
+      )}
     </div>
   );
 }
