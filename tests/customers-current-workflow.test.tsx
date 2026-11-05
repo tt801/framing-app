@@ -32,6 +32,7 @@ vi.mock('@/lib/supabase', () => ({ supabase: {
   },
 } }))
 vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: { settings: { companyName: 'Company A', currencyCode: 'GBP', currencySymbol: '£' } } }) }))
+vi.mock('@/lib/company', () => ({ useCompany: () => ({ profile: {} }) }))
 vi.mock('@/lib/invoices', () => ({ useInvoices: () => ({ invoices: [] }) }))
 vi.mock('@/lib/history', () => ({ useHistory: () => ({ add: vi.fn(), canUndo: () => false, undo: vi.fn() }) }))
 import Customers from '@/pages/Customers'

@@ -7,6 +7,7 @@ import { useQuotes } from "@/lib/quotes";
 import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
 import { exportQuotePDF } from "@/lib/pdf/quotePdf";
+import { usePdfCompanySettings } from '@/lib/pdf/usePdfCompanySettings';
 import { useInvoices } from "@/lib/invoices";
 import { useJobs } from "@/lib/jobs";
 import { createManualDraft, editManualDraft, invoiceFromQuote, type CommercialItem } from "@/lib/commercialDocuments";
@@ -341,6 +342,7 @@ export default function QuotesPage() {
   const { add: addToHistory } = useHistory();
 
   const settings = s?.catalog?.settings || s?.settings || {};
+  const pdfSettings = usePdfCompanySettings(settings);
   const settingsCurrencyCode: string =
     settings.currencyCode ||
     (typeof settings.currency === "string" ? settings.currency : undefined) ||
@@ -651,33 +653,23 @@ export default function QuotesPage() {
         quote: {
           id: selected.id,
           number: displayQuoteNumber(selected, settings),
-          dateISO: selected.createdAt || selected.dateISO || new Date().toISOString(),
+          dateISO: selected.dateISO || selected.createdAt || '',
           status: normaliseStatus(selected),
           items,
           subtotal: selected.subtotal ?? items.reduce((sum, it) => sum + it.total, 0),
           total: selected.total ?? selected.grandTotal ?? 0,
-          notes:
-            selected.notes ??
-            selected.internalNotes ??
-            selected.details?.notes ??
-            "",
+          // Only explicitly customer-facing notes; never fall back to internalNotes.
+          notes: selected.notes ?? '',
           currency: selected.currency || overviewCurrencyCode,
+          currencyCode: selected.currencyCode,
+          currencySymbol: selected.currencySymbol,
+          tax: selected.tax,
+          taxRate: selected.taxRate,
+          taxLabel: selected.taxLabel,
           pricingSnapshot: (selected as any).pricingSnapshot,
         },
         customer,
-        settings: {
-          companyName: settings.companyName,
-          companyEmail: settings.companyEmail,
-          companyPhone: settings.companyPhone,
-          companyAddress: settings.companyAddress,
-          logoDataUrl: (settings as any).companyLogoDataUrl,
-          currencySymbol: overviewCurrencySymbol,
-          currencyCode: overviewCurrencyCode,
-          themeColor: settings.themeColor,
-          bankDetails: (settings as any).bankDetails,
-          taxNumber: (settings as any).taxNumber,
-          quoteFooterNote: (settings as any).quoteFooterNote,
-        },
+        settings: pdfSettings,
       });
     } catch (err) {
       console.error("Failed to export quote PDF", err);

@@ -9,6 +9,7 @@ import { jobSpecificationFields } from "@/lib/jobSpecification";
 import { useCustomers } from "@/lib/customers";
 import { useCatalog } from "@/lib/store";
 import { exportJobCardPDF } from "@/lib/pdf/jobCardPdf";
+import { usePdfCompanySettings } from '@/lib/pdf/usePdfCompanySettings';
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import { useFavorites } from "@/lib/favorites";
@@ -242,6 +243,7 @@ export default function JobsPage() {
   const { quotes } = useQuotes();
   const { customers, loading: customersLoading, error: customersError } = useCustomers();
   const { catalog, settingsLoading, settingsError } = useCatalog();
+  const pdfSettings = usePdfCompanySettings(catalog?.settings);
   const { add: toast } = useToast();
   const { add: addToHistory } = useHistory();
   const { isFavorited, toggle: toggleFavorite } = useFavorites();
@@ -525,19 +527,7 @@ export default function JobsPage() {
       await exportJobCardPDF({
         job,
         customer,
-        settings: {
-          companyName: catalog?.settings?.companyName,
-          companyEmail: catalog?.settings?.companyEmail,
-          companyPhone: catalog?.settings?.companyPhone,
-          companyAddress: catalog?.settings?.companyAddress,
-          logoDataUrl: (catalog?.settings as any)?.companyLogoDataUrl,
-          currencySymbol: catalog?.settings?.currencySymbol,
-          currencyCode: catalog?.settings?.currencyCode,
-          themeColor: catalog?.settings?.themeColor,
-          bankDetails: (catalog?.settings as any)?.bankDetails,
-          taxNumber: (catalog?.settings as any)?.taxNumber,
-          jobCardFooterNote: (catalog?.settings as any)?.jobCardFooterNote,
-        },
+        settings: pdfSettings,
       });
     } catch (e) {
       console.error("[Jobs] Job card PDF export failed", e);

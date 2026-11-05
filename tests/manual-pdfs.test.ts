@@ -8,7 +8,7 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js'
 async function textOf(doc: { output: (mode: 'arraybuffer') => ArrayBuffer }) {
   const parsed = await pdfjsLib.getDocument({ data: new Uint8Array(doc.output('arraybuffer')) }).promise
   const page = await parsed.getPage(1)
-  return (await page.getTextContent()).items.map(item => 'str' in item ? item.str : '').join(' ')
+  return (await page.getTextContent()).items.map(item => 'str' in item ? item.str : '').join(' ').replace(/\s+/g, ' ')
 }
 
 const oldSettings = { currencyCode: 'GBP', currencySymbol: '£', taxRatePct: 20, taxLabel: 'VAT' }

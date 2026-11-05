@@ -24,7 +24,7 @@ async function pdfText(job: Record<string, unknown>) {
     text += content.items.map(item => 'str' in item ? item.str : '').join(' ') + ' '
   }
   await pdf.destroy()
-  return text
+  return text.replace(/\s+/g, ' ')
 }
 
 it.each(['details', 'detailsJson'])('exports the frozen workshop information from %s without saving a PDF or altering pricing', async shape => {

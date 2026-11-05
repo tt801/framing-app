@@ -24,6 +24,7 @@ vi.mock('@/lib/marketingData', () => ({ useCompanyMarketingData: () => ({ campai
 vi.mock('@/lib/store', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/store')>(), useCatalog: () => ({ catalog: state.catalog, setCatalog: state.write, saveSettings: state.write, legacyCatalogPreview: { frameCount: 2 }, legacySettingsPreview: { company: { companyName: 'Legacy company' }, catalogSettings: {}, conflicts: [] }, importLegacyCatalog: state.migrate, importLegacySettings: state.migrate }) }))
 vi.mock('@/lib/billingAccess', () => ({ useBillingAccess: () => ({ companyAccountId: 'company-a', companyName: 'Current company', readOnly: state.readOnly }) }))
 vi.mock('@/lib/supabase', () => ({ supabase: null, getAccessToken: vi.fn() }))
+vi.mock('@/lib/company', () => ({ useCompany: () => ({ profile: {} }) }))
 vi.mock('@/lib/toast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 vi.mock('@/lib/history', () => ({ useHistory: () => ({ add: vi.fn(), canUndo: () => false, undo: vi.fn() }) }))
 vi.mock('react-big-calendar', () => ({ Calendar: ({ events }: any) => <div>{events.map((event: any) => <div key={event.id}>{event.title}</div>)}</div>, Views: { WEEK: 'week', MONTH: 'month', DAY: 'day' }, dateFnsLocalizer: () => ({}) }))

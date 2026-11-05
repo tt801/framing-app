@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({ invoices: [] as Invoice[], rpc: vi.fn(), updat
 const customers = [{ id: 'c1', firstName: 'Current', lastName: 'Customer', email: 'current@example.test', phone: '0123456789' }]
 vi.mock('@/lib/billingAccess', () => ({ useBillingAccess: () => ({ companyAccountId: 'company-a', readOnly: false }), useBillingWriteGuard: () => () => true }))
 vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: { settings: { currencyCode: 'GBP', currencySymbol: '£', invoicePrefix: 'INV-', invoiceStartNumber: 1000 } } }) }))
+vi.mock('@/lib/company', () => ({ useCompany: () => ({ profile: {} }) }))
 vi.mock('@/lib/jobs', () => ({ useJobs: () => ({ jobs: state.jobs, loading: false, linkInvoiceFromQuote: state.link }) }))
 vi.mock('@/lib/quotes', () => ({ useQuotes: () => ({ quotes: state.quotes }) }))
 vi.mock('@/lib/customers', () => ({ useCustomers: () => ({ customers }) }))

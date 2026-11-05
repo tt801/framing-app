@@ -4,6 +4,7 @@ import { useCatalog } from "../lib/store";
 import { useCustomers } from "../lib/customers";
 import { useInvoices } from "../lib/invoices";
 import { exportInvoicePDF } from "../lib/pdf/invoicePdf";
+import { usePdfCompanySettings } from '@/lib/pdf/usePdfCompanySettings';
 import { customersToCSV, downloadCSV } from "../lib/customers";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
@@ -93,6 +94,7 @@ export default function CustomersPage() {
   };
 
   const settings = catalog.settings || {};
+  const pdfSettings = usePdfCompanySettings(settings);
   const companyName: string = settings.companyName || "Our workshop";
   const fallbackWhatsAppTo: string = (settings as any).companyWhatsAppTo || "";
 
@@ -324,46 +326,10 @@ export default function CustomersPage() {
   // -------- actions --------
   async function onExportInvoice(inv: any, cust: any) {
     await exportInvoicePDF({
-      invoice: {
-        id: inv.id,
-        number: inv.number || inv.id,
-        dateISO: inv.createdAt || inv.dateISO || new Date().toISOString(),
-        dueDateISO: inv.dueDateISO,
-        items: inv.items || [],
-        subtotal:
-          inv.subtotal ??
-          (inv.items || []).reduce(
-            (s: number, it: any) => s + (it.unitPrice || 0) * (it.qty || 1),
-            0
-          ),
-        total: inv.total ?? inv.subtotal ?? 0,
-        notes: inv.notes || "",
-        payments: inv.payments || [],
-      },
-      customer: {
-        id: cust.id,
-        firstName: cust.firstName,
-        lastName: cust.lastName,
-        email: cust.email,
-        phone: cust.phone,
-        company: cust.company,
-        address1: cust.address1,
-        address2: cust.address2,
-        city: cust.city,
-        postalCode: cust.postalCode || cust.postcode,
-        country: cust.country,
-      },
-      settings: {
-        companyName: settings.companyName,
-        companyEmail: settings.companyEmail,
-        companyPhone: settings.companyPhone,
-        companyAddress: settings.companyAddress,
-        logoDataUrl: (settings as any).companyLogoDataUrl,
-        currencySymbol: settings.currencySymbol,
-        currencyCode: settings.currencyCode,
-        bankDetails: (settings as any).bankDetails,
-        invoiceFooter: (settings as any).invoiceFooterNote,
-      },
+      // Pass the complete saved document, exactly as the Invoices screen does.
+      invoice: inv,
+      customer: cust,
+      settings: pdfSettings,
     });
   }
 

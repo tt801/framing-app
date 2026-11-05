@@ -12,6 +12,7 @@ import { effectiveTaxRatePct } from "@/lib/pricing";
 import { customerSearchFields, matchesCommercialSearch, referenceSearchFields } from "@/lib/commercialSearch";
 
 import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
+import { usePdfCompanySettings } from '@/lib/pdf/usePdfCompanySettings';
 
 type Invoice = any;
 
@@ -283,6 +284,7 @@ export default function InvoicesPage() {
 
   // 🔑 Match Customers / Quotes: useCatalog returns an object with { catalog }
   const settings = catalog?.settings || {};
+  const pdfSettings = usePdfCompanySettings(settings);
 
   const currencyCode: string | undefined =
     settings.currencyCode ||
@@ -702,7 +704,7 @@ Thank you.
       const customer = selected.customerSnapshot || customersList.find(
         (cx: any) => cx.id === selected.customerId
       ) || selected.customer;
-      await exportInvoicePDF({ invoice: selected, customer, settings });
+      await exportInvoicePDF({ invoice: selected, customer, settings: pdfSettings });
     } catch (err) {
       console.error("exportInvoicePDF failed:", err);
       toast("Could not generate invoice PDF. See console for details.", "error");

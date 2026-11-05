@@ -40,6 +40,7 @@ vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: {
   settings: { currencyCode: 'GBP', currencySymbol: '£', marginMultiplier: 1.25, labourBase: 120, taxRatePct: 15, taxLabel: 'VAT' },
 } }) }))
 vi.mock('@/lib/jobs', () => ({ useJobs: () => ({ jobs: [], loading: false }) }))
+vi.mock('@/lib/company', () => ({ useCompany: () => ({ profile: {} }) }))
 vi.mock('@/lib/invoices', () => ({ useInvoices: () => ({ invoices: [], addInvoice: state.addInvoice }) }))
 vi.mock('@/lib/layout', () => ({ useLayout: () => ({ layoutMode: 'fixed' }) }))
 vi.mock('@/lib/history', () => ({ useHistory: () => ({ add: vi.fn() }) }))

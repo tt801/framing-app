@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({ invoice: {} as Invoice, failAfterAppend: false
   release: null as null | (() => void), rpc: vi.fn(), updates: vi.fn(), toast: vi.fn() }))
 vi.mock('@/lib/billingAccess', () => ({ useBillingAccess: () => ({ companyAccountId: 'company-a', readOnly: false }), useBillingWriteGuard: () => () => true }))
 vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: { settings: { currencyCode: 'GBP', currencySymbol: '£' } } }) }))
+vi.mock('@/lib/company', () => ({ useCompany: () => ({ profile: {} }) }))
 vi.mock('@/lib/jobs', () => ({ useJobs: () => ({ jobs: [] }) }))
 vi.mock('@/lib/customers', () => ({ useCustomers: () => ({ customers: [] }) }))
 vi.mock('@/lib/toast', () => ({ useToast: () => ({ add: state.toast }) }))
