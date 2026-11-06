@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PresetControls from '@/components/PresetControls'
 import { BillingAccessProvider, type BillingAccess } from '@/lib/billingAccess'
@@ -59,4 +59,38 @@ it('retains the existing hook list update and RPC payload on confirmed success',
   })
   expect(db.rpc.mock.calls[0][1].p_state).toBe(design)
   expect(useToast.getState().toasts[0]?.message).toBe('Preset saved.')
+})
+
+it('deletes only the confirmed ID and revision, updates the list, and focuses the stable panel action', async () => {
+  db.rows.set('company-a:customer-a', [row('Delete this'), row('Keep this')])
+  db.rpc.mockResolvedValue({ error: null })
+  render(view())
+  const selected = await screen.findByText('Delete this')
+  fireEvent.click(within(selected.closest('li')!).getByRole('button', { name: 'Delete' }))
+  expect(db.rpc).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Delete preset' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.queryByText('Delete this')).toBeNull()
+  expect(screen.getByText('Keep this')).toBeTruthy()
+  expect(db.rpc).toHaveBeenCalledExactlyOnceWith('delete_company_preset', { p_id: 'Delete this', p_company: 'company-a', p_revision: 1 })
+  expect(useToast.getState().toasts[0]?.message).toBe('Preset deleted.')
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save preset' }))
+})
+
+it.each(['customer', 'company'])('does not apply an old delete result to the new %s list', async change => {
+  let resolve!: (value: any) => void
+  db.rpc.mockReturnValue(new Promise(done => { resolve = done }))
+  db.rows.set('company-a:customer-a', [row('Delete this'), row('Keep this')])
+  db.rows.set(change === 'customer' ? 'company-a:customer-b' : 'company-b:customer-a', [row('Delete this'), row('New scope preset')])
+  const rendered = render(view())
+  const selected = await screen.findByText('Delete this')
+  fireEvent.click(within(selected.closest('li')!).getByRole('button', { name: 'Delete' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Delete preset' }))
+  rendered.rerender(change === 'customer' ? view('company-a', 'customer-b') : view('company-b'))
+  await screen.findByText('New scope preset')
+  await act(async () => resolve({ error: null }))
+  expect(screen.getByText('Delete this')).toBeTruthy()
+  expect(screen.getByText('New scope preset')).toBeTruthy()
+  expect(useToast.getState().toasts).toHaveLength(0)
+  expect(db.rpc).toHaveBeenCalledExactlyOnceWith('delete_company_preset', { p_id: 'Delete this', p_company: 'company-a', p_revision: 1 })
 })
