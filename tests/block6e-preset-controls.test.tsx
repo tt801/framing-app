@@ -7,7 +7,7 @@ import PresetControls from '@/components/PresetControls'
 import { useToast } from '@/lib/toast'
 const state={frame:{id:'frame-a'},art:{widthCm:40}}
 const base={companyName:'Company A',customerKey:'customer-a',hasSavedCustomer:true,ensureCustomerId:vi.fn(async()=> 'customer-a'),currentState:state,onApply:vi.fn()}
-const startSave=()=>{fireEvent.click(screen.getByRole('button',{name:'Save preset'}));fireEvent.click(screen.getAllByRole('button',{name:'Save preset'})[1])}
+const startSave=()=>{fireEvent.click(screen.getByRole('button',{name:'Save preset'}))}
 const openSave=async()=>{startSave();const input=await screen.findByRole('textbox',{name:'Preset name'});fireEvent.change(input,{target:{value:'Saved'}});fireEvent.submit(input.closest('form')!)}
 afterEach(()=>{cleanup();for(const toast of useToast.getState().toasts) useToast.getState().remove(toast.id);vi.unstubAllGlobals()})
 beforeEach(()=>{vi.clearAllMocks();hook.presets=[];hook.loading=false;hook.error=null;hook.legacyCount=0;hook.save.mockResolvedValue({ok:true,preset:{id:'saved',name:'Saved',state,createdAt:1,revision:1}});hook.remove.mockResolvedValue({ok:true});hook.importLegacy.mockResolvedValue({ok:true,imported:1,skipped:0,failures:[]});Object.defineProperty(HTMLDialogElement.prototype,'showModal',{configurable:true,value:function(this:HTMLDialogElement){this.setAttribute('open','')}});Object.defineProperty(HTMLDialogElement.prototype,'close',{configurable:true,value:function(this:HTMLDialogElement){this.removeAttribute('open')}});vi.stubGlobal('confirm',vi.fn(()=>true))})

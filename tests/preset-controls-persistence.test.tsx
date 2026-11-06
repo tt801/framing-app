@@ -24,7 +24,6 @@ const row = (name: string) => ({ id: name, name, state: design, created_at: '202
 const view = (company = 'company-a', customer = 'customer-a') => <BillingAccessProvider value={access(company)}><PresetControls companyName="Same name" customerKey={customer} hasSavedCustomer ensureCustomerId={async () => customer} currentState={design} onApply={vi.fn()} /></BillingAccessProvider>
 async function start() {
   fireEvent.click(screen.getByRole('button', { name: 'Save preset' }))
-  fireEvent.click(screen.getAllByRole('button', { name: 'Save preset' })[1])
   const input = await screen.findByRole('textbox', { name: 'Preset name' })
   fireEvent.change(input, { target: { value: '  Persisted design  ' } })
   fireEvent.submit(input.closest('form')!)

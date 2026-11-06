@@ -13,7 +13,6 @@ const base = { companyName: 'Company A', customerKey: 'customer-a', hasSavedCust
 const view = (props = {}) => <><PresetControls {...base} {...props} /><ToastContainer /></>
 async function openSave() {
   fireEvent.click(screen.getByRole('button', { name: 'Save preset' }))
-  fireEvent.click(screen.getAllByRole('button', { name: 'Save preset' })[1])
   return screen.findByRole('dialog', { name: 'Save design preset' })
 }
 const input = () => screen.getByRole('textbox', { name: 'Preset name' }) as HTMLInputElement
@@ -40,8 +39,35 @@ it('opens a labelled modal with the name field focused instead of a native promp
   expect(dialog.getAttribute('aria-labelledby')).toBeTruthy()
   expect(document.activeElement).toBe(input())
   expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeTruthy()
+  const backgroundButtons = screen.getAllByRole('button', { name: 'Save preset' }).filter(button => !button.closest('dialog'))
+  expect(backgroundButtons).toHaveLength(1)
+  expect(backgroundButtons[0].parentElement!.querySelector('.absolute')).toBeNull()
+  expect(base.ensureCustomerId).toHaveBeenCalledTimes(1)
+  fireEvent.click(backgroundButtons[0])
+  expect(base.ensureCustomerId).toHaveBeenCalledTimes(1)
   expect(hook.save).not.toHaveBeenCalled()
   expect(window.prompt).not.toHaveBeenCalled()
+})
+
+it.each([true, false])('locks rapid activations during customer preparation (already saved: %s)', async hasSavedCustomer => {
+  const request = deferred()
+  const ensureCustomerId = vi.fn(() => request.promise)
+  render(view({ hasSavedCustomer, ensureCustomerId }))
+  const trigger = screen.getByRole('button', { name: 'Save preset' }) as HTMLButtonElement
+  act(() => { fireEvent.click(trigger); fireEvent.click(trigger); fireEvent.click(trigger) })
+  expect(ensureCustomerId).toHaveBeenCalledTimes(1)
+  expect(trigger.disabled).toBe(true)
+  expect(screen.getAllByRole('button', { name: 'Save preset' })).toHaveLength(1)
+  expect(hook.save).not.toHaveBeenCalled()
+  await act(async () => request.resolve('customer-a'))
+  expect(trigger.disabled).toBe(false)
+  if (hasSavedCustomer) expect(screen.getByRole('dialog', { name: 'Save design preset' })).toBeTruthy()
+  else {
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByText('Customer saved. Save the preset again now that it is assigned to this customer.')).toBeTruthy()
+  }
+  expect(ensureCustomerId).toHaveBeenCalledTimes(1)
+  expect(hook.save).not.toHaveBeenCalled()
 })
 
 it.each(['Cancel', 'Escape', 'native cancel'])('closes on %s, restores the original trigger, and never saves', async method => {
@@ -136,7 +162,6 @@ it('keeps customer creation before name entry and requires a second explicit sav
   }
   render(<CustomerWorkflow />)
   fireEvent.click(screen.getByRole('button', { name: 'Save preset' }))
-  fireEvent.click(screen.getAllByRole('button', { name: 'Save preset' })[1])
   expect(await screen.findByText('Customer saved. Save the preset again now that it is assigned to this customer.')).toBeTruthy()
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(hook.save).not.toHaveBeenCalled()
@@ -150,7 +175,6 @@ it('keeps customer creation before name entry and requires a second explicit sav
 it('handles rejected customer saves before opening the dialog without claiming success', async () => {
   render(view({ ensureCustomerId: vi.fn().mockRejectedValue(new Error('Network')) }))
   fireEvent.click(screen.getByRole('button', { name: 'Save preset' }))
-  fireEvent.click(screen.getAllByRole('button', { name: 'Save preset' })[1])
   expect(await screen.findByText(/Check Customers before saving/)).toBeTruthy()
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(hook.save).not.toHaveBeenCalled()
@@ -193,7 +217,6 @@ it.each(['customer', 'company', 'unmount'])('suppresses late customer-preparatio
   const props = { hasSavedCustomer: false, ensureCustomerId: () => request.promise }
   const rendered = render(scopedView(props))
   fireEvent.click(screen.getByRole('button', { name: 'Save preset' }))
-  fireEvent.click(screen.getAllByRole('button', { name: 'Save preset' })[1])
   if (change === 'customer') rendered.rerender(scopedView({ ...props, customerKey: 'other' }))
   if (change === 'company') rendered.rerender(scopedView(props, { ...billing, companyAccountId: 'company-b' }))
   if (change === 'unmount') rendered.unmount()

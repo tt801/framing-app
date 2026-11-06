@@ -21,7 +21,6 @@ function PresetScope({ customerKey, children }: { customerKey: string; children:
 }
 
 export default function PresetControls({ companyName, customerKey, hasSavedCustomer, ensureCustomerId, currentState, onApply }: Props) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const { companyAccountId, userId } = useBillingAccess();
   const scopeRef = useRef({ companyAccountId, userId, companyName, customerKey, version: 0 });
   if (scopeRef.current.companyAccountId !== companyAccountId || scopeRef.current.userId !== userId ||
@@ -31,7 +30,6 @@ export default function PresetControls({ companyName, customerKey, hasSavedCusto
   const scope = scopeRef.current;
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  useEffect(() => { setMenuOpen(false); }, [scope]);
   const current = (value: typeof scope) => mounted.current && scopeRef.current === value;
   const [feedback, setFeedback] = useState<{ scope: typeof scope; message: string; createdCustomerId?: string } | null>(null);
   const followsCustomerCreation = (before: typeof scope, after: typeof scope, customerId: string) =>
@@ -98,7 +96,7 @@ export default function PresetControls({ companyName, customerKey, hasSavedCusto
   }
 
   return <PresetScope key={scope.version} customerKey={customerKey}>{({ presets, loading, error, save, remove }) => <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
-    <div className="flex items-center justify-between mb-3"><div><h3 className="font-semibold text-slate-900">Presets</h3><p className="text-xs text-slate-500">Save this exact setup for reuse.</p></div><div className="relative"><button ref={saveButton} type="button" disabled={checkingScope === scope} className="relative inline-flex items-center justify-between gap-1 rounded-lg px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm whitespace-nowrap disabled:opacity-50" onClick={() => setMenuOpen(open => !open)}>Save preset</button>{menuOpen && <div className="absolute right-0 mt-1 w-40 rounded-lg border bg-white shadow-lg z-20 text-xs"><button type="button" className="w-full text-left px-3 py-1.5 hover:bg-slate-100" onClick={() => { setMenuOpen(false); void savePreset(save); }}>Save preset</button></div>}</div></div>
+    <div className="flex items-center justify-between mb-3"><div><h3 className="font-semibold text-slate-900">Presets</h3><p className="text-xs text-slate-500">Save this exact setup for reuse.</p></div><div className="relative"><button ref={saveButton} type="button" disabled={checkingScope === scope} className="relative inline-flex items-center justify-between gap-1 rounded-lg px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm whitespace-nowrap disabled:opacity-50" onClick={() => { void savePreset(save); }}>Save preset</button></div></div>
     {nameDialog?.scope === scope && <PresetNameDialog key={scope.version} returnFocus={saveButton.current}
       onCancel={() => { dialogRef.current = null; setNameDialog(null); }}
       onSave={name => saveNamedPreset(nameDialog, name)} />}
