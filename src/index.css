@@ -32,6 +32,19 @@ body {
   color-scheme: dark;
 }
 
+/* Toast backgrounds are theme-adjusted below; keep their inherited text readable too. */
+.app-theme-dark .app-toast.text-emerald-950 {
+  color: #6ee7b7;
+}
+
+.app-theme-dark .app-toast.text-rose-950 {
+  color: #fda4af;
+}
+
+.app-theme-dark .app-toast.text-amber-950 {
+  color: #fcd34d;
+}
+
 .app-theme-dark .bg-white {
   background-color: #0f172a !important;
 }

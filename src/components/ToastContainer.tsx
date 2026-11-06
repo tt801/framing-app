@@ -23,7 +23,7 @@ export default function ToastContainer() {
           key={toast.id}
           role={toast.type === 'error' || toast.type === 'warning' ? 'alert' : 'status'}
           aria-atomic="true"
-          className={`pointer-events-auto rounded-xl border shadow-lg p-3 text-sm ${variant.style}`}
+          className={`app-toast pointer-events-auto rounded-xl border shadow-lg p-3 text-sm ${variant.style}`}
         >
           <div className="flex items-start gap-3">
             <Icon aria-hidden="true" className="mt-1 h-5 w-5 shrink-0" />

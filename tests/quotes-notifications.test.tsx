@@ -19,9 +19,13 @@ vi.mock('@/lib/invoices', () => ({ useInvoices: () => {
     return result
   } }
 } }))
-vi.mock('@/lib/toast', () => ({ useToast: () => ({ add: state.toast, remove: state.dismissToast }) }))
+vi.mock('@/lib/toast', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/toast')>()
+  return { useToast: () => ({ ...actual.useToast(), add: state.toast, remove: state.dismissToast }) }
+})
 vi.mock('@/lib/history', () => ({ useHistory: () => ({ add: vi.fn() }) }))
 import Quotes from '@/pages/Quotes'
+import ToastContainer from '@/components/ToastContainer'
 const deferred = <T,>() => { let resolve!: (value: T) => void; let reject!: (error: Error) => void; const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail }); return { promise, resolve, reject } }
 const openDelete = () => fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
 const confirmDelete = () => fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete quote' }))
@@ -39,7 +43,11 @@ beforeEach(() => {
   vi.spyOn(window, 'alert').mockImplementation(() => {})
   window.location.hash = '#/quotes?id=q1'
 })
-afterEach(() => { cleanup(); vi.restoreAllMocks(); window.location.hash = '' })
+afterEach(async () => {
+  cleanup(); vi.restoreAllMocks(); window.location.hash = ''
+  const { useToast } = await vi.importActual<typeof import('@/lib/toast')>('@/lib/toast')
+  for (const toast of useToast.getState().toasts) useToast.getState().remove(toast.id)
+})
 
 it('opens a record-specific confirmation and never deletes on Cancel or Escape', () => {
   render(<Quotes />)
@@ -166,4 +174,19 @@ it('reports deletion success even when the store removes the row before resolvin
   state.quotes = []; view.rerender(<Quotes />)
   await act(async () => request.resolve({ ok: true }))
   expect(state.toast).toHaveBeenCalledWith('Quote deleted', 'success')
+})
+
+it('renders the confirmed deletion message through the real toast store and container', async () => {
+  const { useToast } = await vi.importActual<typeof import('@/lib/toast')>('@/lib/toast')
+  state.toast.mockImplementation(useToast.getState().add)
+  const request = deferred<any>(); state.remove.mockReturnValue(request.promise)
+  const view = render(<><Quotes /><ToastContainer /></>)
+  openDelete(); confirmDelete()
+  expect(useToast.getState().toasts).toEqual([])
+  state.quotes = []; view.rerender(<><Quotes /><ToastContainer /></>)
+  await act(async () => request.resolve({ ok: true }))
+  expect(screen.getByRole('status').textContent).toBe('SuccessQuote deleted')
+  expect(useToast.getState().toasts[0]).toMatchObject({ message: 'Quote deleted', type: 'success', duration: 3000 })
+  expect(state.remove).toHaveBeenCalledExactlyOnceWith('q1')
+  expect(screen.queryByRole('dialog')).toBeNull()
 })
