@@ -1,7 +1,11 @@
 import React from 'react'
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-afterEach(() => { cleanup(); vi.restoreAllMocks(); window.location.hash = '' })
+import { useToast } from '@/lib/toast'
+afterEach(() => {
+  cleanup(); vi.restoreAllMocks(); window.location.hash = ''
+  for (const toast of useToast.getState().toasts) useToast.getState().remove(toast.id)
+})
 import VisualizerApp from '@/VisualizerApp'
 import type { CommercialSnapshot } from '@/lib/pricing'
 
@@ -74,7 +78,9 @@ describe('Visualiser persistence uses its displayed commercial result', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add to Quotes' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add to Jobs' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add to Invoices' }))
-    await waitFor(() => expect(alert).toHaveBeenCalled())
+    await waitFor(() => expect(useToast.getState().toasts).toHaveLength(3))
+    expect(useToast.getState().toasts.every(toast => toast.type === 'warning' && toast.message.includes('Choose a manual product'))).toBe(true)
+    expect(alert).not.toHaveBeenCalled()
     expect(captured.quotes).toHaveLength(0)
     expect(captured.jobs).toHaveLength(0)
     expect(captured.invoices).toHaveLength(0)

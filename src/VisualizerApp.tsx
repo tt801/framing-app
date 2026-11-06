@@ -46,6 +46,13 @@ type MatOpening = {
   imageUrl?: string;
 };
 
+type IndividualFeedback = {
+  isCurrent: () => boolean;
+  selectCustomer: (id: string) => void;
+  notify: (message: string, type: "success" | "error" | "warning") => void;
+  fail: (message: string) => void;
+};
+
 const CM_PER_IN = 2.54;
 const cmToIn = (cm: number) => cm / CM_PER_IN;
 const inToCm = (inch: number) => inch * CM_PER_IN;
@@ -348,9 +355,11 @@ export default function VisualizerApp() {
     selectedFrame, selectedMat1, selectedMat2, selectedMat3, selectedGlazingId,
     ...(includePrint ? [printMaterialId] : []),
   ]);
-  const guardSupplierSelection = () => {
+  const guardSupplierSelection = (feedback?: IndividualFeedback) => {
     if (!supplierSelectionIssue) return true;
-    alert(`${supplierSelectionIssue} Choose a manual product before creating a priced document.`);
+    const message = `${supplierSelectionIssue} Choose a manual product before creating a priced document.`;
+    if (feedback) feedback.notify(message, "warning");
+    else alert(message); // The combined workflow retains its existing feedback.
     return false;
   };
 
@@ -825,6 +834,53 @@ export default function VisualizerApp() {
   // ---------- Customer panel ----------
   const [selectedCustomerId, setSelectedCustomerId] =
     useState<string>("__new__");
+  // Only individual actions opt into these guards; the combined workflow is unchanged.
+  const feedbackScope = useRef({ companyId: billing.companyAccountId, userId: billing.userId, customerId: selectedCustomerId });
+  if (feedbackScope.current.companyId !== billing.companyAccountId ||
+      feedbackScope.current.userId !== billing.userId || feedbackScope.current.customerId !== selectedCustomerId) {
+    feedbackScope.current = { companyId: billing.companyAccountId, userId: billing.userId, customerId: selectedCustomerId };
+  }
+  const feedbackMounted = useRef(false);
+  useEffect(() => {
+    feedbackMounted.current = true;
+    return () => { feedbackMounted.current = false; };
+  }, []);
+  type IndividualAction = "crm" | "quote" | "job" | "invoice";
+  const pendingActionsRef = useRef(new Set<IndividualAction>());
+  const [pendingActions, setPendingActions] = useState<Partial<Record<IndividualAction, boolean>>>({});
+  const runIndividual = async (action: IndividualAction, work: (feedback: IndividualFeedback) => Promise<void>) => {
+    if (pendingActionsRef.current.has(action)) return;
+    pendingActionsRef.current.add(action);
+    setPendingActions(previous => ({ ...previous, [action]: true }));
+    let scope = feedbackScope.current;
+    const route = window.location.hash;
+    const isCurrent = () => feedbackMounted.current && feedbackScope.current === scope && window.location.hash === route;
+    const feedback: IndividualFeedback = {
+      isCurrent,
+      selectCustomer(id) {
+        if (!isCurrent()) return;
+        // Adopt our own confirmed customer selection, but invalidate other pending contexts.
+        if (scope.customerId !== id) {
+          scope = { ...scope, customerId: id };
+          feedbackScope.current = scope;
+        }
+        setSelectedCustomerId(id);
+      },
+      notify(message, type) { if (isCurrent()) toast(message, type); },
+      fail(message) {
+        const records = action === "crm" ? "Customers" : `Customers and ${action === "quote" ? "Quotes" : action === "job" ? "Jobs" : "Invoices"}`;
+        if (isCurrent()) toast(`${message} A record may already have been saved. Check ${records} before retrying.`, "error", 0);
+      },
+    };
+    try {
+      await work(feedback);
+    } catch (error) {
+      feedback.fail(error instanceof Error ? error.message : "Could not confirm the save outcome.");
+    } finally {
+      pendingActionsRef.current.delete(action);
+      if (feedbackMounted.current) setPendingActions(previous => ({ ...previous, [action]: false }));
+    }
+  };
   const [cust, setCust] = useState({
     firstName: "",
     lastName: "",
@@ -890,7 +946,7 @@ export default function VisualizerApp() {
     }
   }, [selectedCustomerId, sortedCustomers]);
 
-  async function ensureCustomerId(): Promise<string> {
+  async function ensureCustomerId(feedback?: IndividualFeedback): Promise<string> {
     if (selectedCustomerId && selectedCustomerId !== "__new__")
       return selectedCustomerId;
     const hasCore = !!(
@@ -901,7 +957,8 @@ export default function VisualizerApp() {
     if (!hasCore) return "";
     const result = await addCustomer?.({ ...cust, id: "" } as any);
     if (!result || result.ok === false) return "";
-    setSelectedCustomerId(result.customer.id);
+    if (feedback) feedback.selectCustomer(result.customer.id);
+    else setSelectedCustomerId(result.customer.id);
     return result.customer.id;
   }
 
@@ -936,37 +993,40 @@ export default function VisualizerApp() {
   }
 
   // ---------- Actions: CRM / Quotes / Jobs / Invoice ----------
-  async function saveToCRM() {
+  async function saveToCRM(feedback: IndividualFeedback) {
     if (!selectedCustomerId || selectedCustomerId === "__new__") {
       const result = await addCustomer?.({ ...cust, id: "" } as any);
-      if (!result || result.ok === false) {
-        alert(result && result.ok === false ? result.error : "Failed to save customer to CRM.");
+      if (result?.ok !== true || !result.customer?.id) {
+        feedback.fail(result?.ok === false ? result.error : "Could not confirm customer creation.");
         return;
       }
-      setSelectedCustomerId(result.customer.id);
-      alert("Saved to CRM (created).");
+      feedback.selectCustomer(result.customer.id);
+      feedback.notify("Saved to CRM (created).", "success");
     } else {
       const result = await updateCustomer?.({
         id: selectedCustomerId,
         ...cust,
       } as any);
-      if (!result || result.ok === false) {
-        alert(result && result.ok === false ? result.error : "Failed to update customer in CRM.");
+      if (result?.ok !== true || !result.customer?.id) {
+        feedback.fail(result?.ok === false ? result.error : "Could not confirm customer update.");
         return;
       }
-      alert("Saved to CRM (updated).");
+      feedback.notify("Saved to CRM (updated).", "success");
     }
   }
 
-  async function addQuoteNow() {
-    if (!guardSupplierSelection()) return;
+  async function addQuoteNow(feedback?: IndividualFeedback) {
+    if (!guardSupplierSelection(feedback)) return;
     let customerObj: Customer;
     try {
-      customerObj = await resolveQuoteCustomer();
+      customerObj = await resolveQuoteCustomer(feedback);
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not resolve the customer. No quote was created.", "error");
+      const message = error instanceof Error ? error.message : "Could not resolve the customer. No quote was created.";
+      if (feedback) feedback.fail(message);
+      else toast(message, "error");
       return;
     }
+    if (feedback && !feedback.isCurrent()) return;
     const customerId = customerObj.id;
 
     const commercial = toVisualiserQuote(pricingSnapshot);
@@ -1022,6 +1082,14 @@ export default function VisualizerApp() {
 
     const wroteStore = await qStore?.add?.(payload);
 
+    if (feedback) {
+      if (wroteStore?.ok !== true || !wroteStore.quote?.id) {
+        feedback.fail(wroteStore?.error || "Could not confirm quote creation.");
+      } else {
+        feedback.notify(`Quote ${payload.number} created.`, "success");
+      }
+      return;
+    }
     if (!wroteStore || wroteStore.ok === false) {
       alert(wroteStore?.error || "Could not save quote. See console for details.");
       return;
@@ -1033,7 +1101,7 @@ export default function VisualizerApp() {
     alert(`Quote ${payload.number} created.`);
   }
 
-  async function resolveQuoteCustomer(): Promise<Customer> {
+  async function resolveQuoteCustomer(feedback?: IndividualFeedback): Promise<Customer> {
     let customer: Customer;
     if (selectedCustomerId && selectedCustomerId !== "__new__") {
       const selected = customers.find((row) => row.id === selectedCustomerId);
@@ -1049,7 +1117,8 @@ export default function VisualizerApp() {
     if (!customer?.id?.trim() || customer.id === "__new__" || validateCustomer(customer).length) {
       throw new Error("Could not resolve valid saved customer details. No quote was created.");
     }
-    setSelectedCustomerId(customer.id);
+    if (feedback) feedback.selectCustomer(customer.id);
+    else setSelectedCustomerId(customer.id);
     return customer;
   }
 
@@ -1230,26 +1299,34 @@ export default function VisualizerApp() {
     return job;
   }
 
-  async function addJobNow() {
-    if (!guardSupplierSelection()) return;
-    const customerId = await ensureCustomerId();
+  async function addJobNow(feedback?: IndividualFeedback) {
+    if (!guardSupplierSelection(feedback)) return;
+    const customerId = await ensureCustomerId(feedback);
+    if (feedback && !feedback.isCurrent()) return;
     const job = jobForDesign(customerId);
     try {
       const result = await addJob(job as any);
+      if (feedback) {
+        if (result?.ok !== true || !result.job?.id) feedback.fail(result?.error || "Could not confirm job creation.");
+        else feedback.notify(`Job ${result.job.refNo ?? result.job.id} created and added to Jobs.`, "success");
+        return;
+      }
       if (!result?.ok) {
         alert(result?.error || "Job could not be saved.");
         return;
       }
       alert(`Job ${result.job.refNo ?? result.job.id} created and added to Jobs.`);
     } catch (err) {
+      if (feedback) throw err;
       console.error(err);
       alert("Failed to save job. See console for details.");
     }
   }
 
-  async function invoiceNow() {
-    if (!guardSupplierSelection()) return;
-    const customerId = await ensureCustomerId();
+  async function invoiceNow(feedback?: IndividualFeedback) {
+    if (!guardSupplierSelection(feedback)) return;
+    const customerId = await ensureCustomerId(feedback);
+    if (feedback && !feedback.isCurrent()) return;
 
     const todayISO = new Date().toISOString();
 
@@ -1278,6 +1355,11 @@ export default function VisualizerApp() {
 
     try {
       const result = await addInvoice(invoiceObj as any);
+      if (feedback) {
+        if (result?.ok !== true || !result.invoice?.id) feedback.fail(result?.error || "Could not confirm invoice creation.");
+        else if (feedback.isCurrent()) window.location.hash = `#/invoices?id=${encodeURIComponent(result.invoice.id)}`;
+        return;
+      }
       if (!result?.ok) {
         alert(result?.error || "Invoice could not be saved.");
         return;
@@ -1285,6 +1367,7 @@ export default function VisualizerApp() {
 
       window.location.hash = `#/invoices?id=${encodeURIComponent(result.invoice.id)}`;
     } catch (err) {
+      if (feedback) throw err;
       console.error(err);
       alert(
         "Invoice creation failed. See console for details."
@@ -1445,9 +1528,7 @@ export default function VisualizerApp() {
       );
     } catch (e) {
       console.error("Failed to apply preset", e);
-      alert(
-        "Could not apply this preset. It may be from an older version."
-      );
+      toast("Could not apply this preset. It may be from an older version.", "error");
     }
   }
 
@@ -2833,7 +2914,13 @@ export default function VisualizerApp() {
           />
 
           {/* Customer */}
-          <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
+          <div
+            className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4"
+            onChangeCapture={() => {
+              // Editing a draft is also a context change; hook-driven refreshes are not.
+              feedbackScope.current = { ...feedbackScope.current };
+            }}
+          >
             <div className="mb-3">
               <h2 className="text-base font-semibold text-slate-900">
                 Customer
@@ -3000,7 +3087,8 @@ export default function VisualizerApp() {
             <div className="grid grid-cols-2 gap-2 mt-3">
               {/* Save to CRM */}
               <button
-                onClick={saveToCRM}
+                onClick={() => void runIndividual("crm", saveToCRM)}
+                disabled={pendingActions.crm}
                 className="rounded-lg border border-emerald-300 px-3 py-2 text-sm bg-white 
                         hover:bg-emerald-600 hover:text-white transition"
               >
@@ -3009,7 +3097,8 @@ export default function VisualizerApp() {
 
               {/* Add to Quotes */}
               <button
-                onClick={addQuoteNow}
+                onClick={() => void runIndividual("quote", addQuoteNow)}
+                disabled={pendingActions.quote}
                 className="rounded-lg border border-indigo-300 px-3 py-2 text-sm bg-white 
                         hover:bg-indigo-600 hover:text-white transition"
               >
@@ -3022,8 +3111,9 @@ export default function VisualizerApp() {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  addJobNow();
+                  void runIndividual("job", addJobNow);
                 }}
+                disabled={pendingActions.job}
                 className="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-white 
                         hover:bg-blue-600 hover:text-white transition"
               >
@@ -3032,7 +3122,8 @@ export default function VisualizerApp() {
 
               {/* Add to Invoices */}
               <button
-                onClick={invoiceNow}
+                onClick={() => void runIndividual("invoice", invoiceNow)}
+                disabled={pendingActions.invoice}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white 
                         hover:bg-slate-700 hover:text-white transition"
               >

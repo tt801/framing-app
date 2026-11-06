@@ -159,7 +159,7 @@ it.each(['reported', 'thrown'])('does not save or show success after %s customer
   fireEvent.change(screen.getByPlaceholderText('Last name'), { target: { value: 'Customer' } })
   fireEvent.change(screen.getByPlaceholderText('Email'), { target: { value: 'new@example.test' } })
   addQuote()
-  await screen.findByText('Customer save failed')
+  await screen.findByText(/Customer save failed/)
   expect(state.createCustomer).toHaveBeenCalledTimes(1)
   expect(state.insert).not.toHaveBeenCalled()
   expect(state.rows).toHaveLength(0)
