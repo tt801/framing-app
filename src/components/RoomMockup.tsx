@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { getAiProvider } from '../lib/ai/provider'
 import { loadRoomPreview, saveRoomPreview } from '../lib/roomPreview'
 import type { RoomPreviewState } from '../lib/roomPreview'
+import { useToast } from '../lib/toast'
+import { useBillingAccess } from '../lib/billingAccess'
 
 type OpeningShape = 'rect' | 'oval' | 'circle'
 export type MatOpening = {
@@ -41,6 +43,20 @@ export default function RoomMockup({
 }: RoomMockupProps) {
   const [state, setState] = useState<RoomPreviewState>(() => loadRoomPreview())
   const [loading, setLoading] = useState(false)
+  const toast = useToast(s => s.add)
+  const { companyAccountId, userId } = useBillingAccess()
+  const exportScope = useRef({ companyAccountId, userId, artworkUrl, backdrop })
+  if (exportScope.current.companyAccountId !== companyAccountId || exportScope.current.userId !== userId ||
+      exportScope.current.artworkUrl !== artworkUrl || exportScope.current.backdrop !== backdrop) {
+    exportScope.current = { companyAccountId, userId, artworkUrl, backdrop }
+  }
+  const exportMounted = useRef(false)
+  useEffect(() => {
+    exportMounted.current = true
+    return () => { exportMounted.current = false }
+  }, [])
+  const exportLock = useRef(false)
+  const [exportPending, setExportPending] = useState(false)
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const bgRef = useRef<HTMLImageElement | null>(null)
@@ -670,12 +686,31 @@ export default function RoomMockup({
   }, [onOpeningsChange])
 
   function exportPng() {
-    const url = canvasRef.current?.toDataURL('image/png')
-    if (!url) return
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'room-preview.png'
-    a.click()
+    if (exportLock.current) return
+    exportLock.current = true
+    setExportPending(true)
+    const scope = exportScope.current
+    const route = window.location.hash
+    const isCurrent = () => exportMounted.current && exportScope.current === scope && window.location.hash === route
+    try {
+      const canvas = canvasRef.current
+      if (!canvas || canvas.width <= 0 || canvas.height <= 0 || !canvas.getContext('2d')) {
+        if (isCurrent()) toast('The room preview is not ready. Wait for the room canvas to appear, then try again.', 'error')
+        return
+      }
+      const url = canvas.toDataURL('image/png')
+      if (!url || url === 'data:,') throw new Error('Room canvas serialization unavailable')
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'room-preview.png'
+      a.click()
+      if (isCurrent()) toast("Room PNG download requested. Check your browser's downloads.", 'success')
+    } catch {
+      if (isCurrent()) toast("Could not prepare the room PNG. Check that the room preview has loaded, then try again. Check your browser's downloads before retrying.", 'error', 0)
+    } finally {
+      exportLock.current = false
+      if (exportMounted.current) setExportPending(false)
+    }
   }
 
   // ----------------- RENDER -----------------
@@ -728,9 +763,11 @@ export default function RoomMockup({
 
         <button
           onClick={exportPng}
-          className="inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs hover:bg-gray-50 whitespace-nowrap"
+          disabled={exportPending}
+          aria-busy={exportPending}
+          className="inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs hover:bg-gray-50 whitespace-nowrap disabled:opacity-50"
         >
-          Export PNG
+          {exportPending ? 'Preparing PNG…' : 'Export PNG'}
         </button>
       </div>
     </div>
