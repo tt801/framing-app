@@ -1535,6 +1535,33 @@ export default function VisualizerApp() {
   // ---------- Export menu ----------
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const exportPendingRef = useRef(false);
+  const [exportPending, setExportPending] = useState(false);
+
+  const runExport = async (format: "PNG" | "JPG" | "PDF") => {
+    setExportMenuOpen(false);
+    if (exportPendingRef.current) return;
+    const node = previewRef.current;
+    if (!node) {
+      toast("The preview is not ready. Wait for the preview and its images to load, then try again.", "error");
+      return;
+    }
+    exportPendingRef.current = true;
+    setExportPending(true);
+    const scope = feedbackScope.current;
+    const route = window.location.hash;
+    const isCurrent = () => feedbackMounted.current && feedbackScope.current === scope && window.location.hash === route;
+    try {
+      const exporter = format === "PNG" ? exportNodeAsPng : format === "JPG" ? exportNodeAsJpeg : exportNodeAsPdf;
+      await exporter(node);
+      if (isCurrent()) toast(`${format} download requested. Check your browser's downloads.`, "success");
+    } catch {
+      if (isCurrent()) toast(`Could not confirm the ${format} download request. Check that the preview and its images have loaded. Check your browser's downloads before retrying.`, "error", 0);
+    } finally {
+      exportPendingRef.current = false;
+      if (feedbackMounted.current) setExportPending(false);
+    }
+  };
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -2353,45 +2380,38 @@ export default function VisualizerApp() {
                 <div className="relative" ref={exportMenuRef}>
                   <button
                     type="button"
-                    className="rounded-lg px-3 py-1.5 text-xs bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                    disabled={exportPending}
+                    aria-busy={exportPending}
+                    className="rounded-lg px-3 py-1.5 text-xs bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm disabled:opacity-50"
                     onClick={() =>
                       setExportMenuOpen((o) => !o)
                     }
                   >
-                    Export image ▾
+                    {exportPending ? "Preparing export…" : "Export image ▾"}
                   </button>
                   {exportMenuOpen && (
                     <div className="absolute right-0 mt-1 w-32 rounded-lg border bg-white shadow-lg z-20 text-xs">
                       <button
                         type="button"
                         className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
-                        onClick={() => {
-                          setExportMenuOpen(false);
-                          if (previewRef.current)
-                            exportNodeAsPng(previewRef.current);
-                        }}
+                        disabled={exportPending}
+                        onClick={() => void runExport("PNG")}
                       >
                         PNG
                       </button>
                       <button
                         type="button"
                         className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
-                        onClick={() => {
-                          setExportMenuOpen(false);
-                          if (previewRef.current)
-                            exportNodeAsJpeg(previewRef.current);
-                        }}
+                        disabled={exportPending}
+                        onClick={() => void runExport("JPG")}
                       >
                         JPG
                       </button>
                       <button
                         type="button"
                         className="w-full text-left px-3 py-1.5 hover:bg-slate-100"
-                        onClick={() => {
-                          setExportMenuOpen(false);
-                          if (previewRef.current)
-                            exportNodeAsPdf(previewRef.current);
-                        }}
+                        disabled={exportPending}
+                        onClick={() => void runExport("PDF")}
                       >
                         PDF
                       </button>
