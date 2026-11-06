@@ -109,6 +109,7 @@ export default function RoomMockup({
   // ----------------- IMAGE LOADING -----------------
 
   useEffect(() => {
+    let cancelled = false
     if (!artworkUrl) {
       console.warn('[RoomMockup] No artworkUrl provided')
       artRef.current = null
@@ -135,6 +136,12 @@ export default function RoomMockup({
     img.crossOrigin = 'anonymous'
 
     img.onload = () => {
+      if (cancelled) return
+      if (!Number.isFinite(img.naturalWidth) || img.naturalWidth <= 0 ||
+          !Number.isFinite(img.naturalHeight) || img.naturalHeight <= 0) {
+        img.onerror?.(new Event('error'))
+        return
+      }
       console.log('[RoomMockup] Artwork image loaded OK', { url })
       artRef.current = img
       draw()
@@ -142,6 +149,7 @@ export default function RoomMockup({
     }
 
     img.onerror = (err) => {
+      if (cancelled) return
       console.error('[RoomMockup] Failed to load artwork image', { url, err })
       artRef.current = null
       draw()
@@ -151,10 +159,11 @@ export default function RoomMockup({
     img.src = url
 
     return () => {
+      cancelled = true
       if (revoke && url) URL.revokeObjectURL(url)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artworkUrl])
+  }, [artworkUrl, companyAccountId, userId])
 
   // hydrate background image from saved state.bgDataUrl
   useEffect(() => {
@@ -196,12 +205,14 @@ export default function RoomMockup({
       const img = new Image()
       img.crossOrigin = 'anonymous'
       img.onload = () => {
-        if (!cancelled) {
+        if (!cancelled && Number.isFinite(img.naturalWidth) && img.naturalWidth > 0 &&
+            Number.isFinite(img.naturalHeight) && img.naturalHeight > 0) {
           cache.set(url, img)
           draw()
         }
       }
       img.onerror = () => {
+        if (cancelled) return
         console.error('RoomMockup: failed to load opening image:', url)
       }
       img.src = url
@@ -209,7 +220,7 @@ export default function RoomMockup({
 
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openings.map(o => o.imageUrl).join('|')])
+  }, [openings.map(o => o.imageUrl).join('|'), companyAccountId, userId])
 
   // redraw on state or openings change
   useEffect(() => { draw() }, [state, openings])
