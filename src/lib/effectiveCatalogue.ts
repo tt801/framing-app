@@ -39,11 +39,13 @@ export type EffectiveLegacyProduct = {
   commerciallySelectable: true; legacyProduct: Frame | Mat | Glazing | PrintingMaterial | Backer
 }
 export type EffectiveSupplierProduct = {
+  companyAccountId: string
   source: 'supplier'; id: string; supplierId: string; supplierProductId: string; supplierName: string
   supplierSku: string | null; category: EffectiveCategory; name: string
+  colour: string | null; finish: string | null; material: string | null
   lifecycle: string; availability: string; replacementProductId: string | null
   visibleForNewSelection: boolean; commerciallySelectable: false
-  dimensions: { widthMm: number | null; depthMm: number | null; sheetWidthMm: number | null; sheetHeightMm: number | null }
+  dimensions: { widthMm: number | null; depthMm: number | null; rebateWidthMm: number | null; rebateDepthMm: number | null; sheetWidthMm: number | null; sheetHeightMm: number | null }
   asset: { sourceUrl: string | null; key: string | null; thumbnailKey: string | null; textureKey: string | null; rights: string | null; status: string | null }
 }
 export type EffectiveProduct = EffectiveLegacyProduct | EffectiveSupplierProduct
@@ -82,12 +84,15 @@ export function resolveEffectiveCatalogue(input: {
     const visibleForNewSelection = row.lifecycle === 'active' && row.availability === 'available' &&
       row.excluded_override !== true && row.active_override !== false
     const product: EffectiveSupplierProduct = {
+      companyAccountId,
       source: 'supplier', id, supplierId: row.supplier_id, supplierProductId: row.supplier_product_id,
       supplierName: row.supplier_name, supplierSku: row.supplier_sku, category: row.category as EffectiveCategory,
       name: row.description_override ?? row.display_description ?? row.supplier_description,
+      colour: row.colour ?? null, finish: row.finish ?? null, material: row.material ?? null,
       lifecycle: row.lifecycle, availability: row.availability, replacementProductId: row.replacement_product_id,
       visibleForNewSelection, commerciallySelectable: false,
       dimensions: { widthMm: row.width_mm ?? null, depthMm: row.depth_mm ?? null,
+        rebateWidthMm: row.rebate_width_mm ?? null, rebateDepthMm: row.rebate_depth_mm ?? null,
         sheetWidthMm: row.sheet_width_mm ?? null, sheetHeightMm: row.sheet_height_mm ?? null },
       // Block 2B defines no affirmative browser/Visualiser permitted-use vocabulary.
       // Do not trust even an injected projection row or an unapproved company override key.

@@ -14,6 +14,10 @@ const safeKeys = [
   'active_override','excluded_override','description_override',
 ] as const
 
+const appearanceTextKeys = ['colour', 'finish', 'material', 'supplier_sku', 'display_description', 'description_override'] as const
+const appearanceDimensionKeys = ['width_mm', 'depth_mm', 'rebate_width_mm', 'rebate_depth_mm'] as const
+const withheldAssetKeys = ['source_image_url', 'cached_asset_key', 'thumbnail_key', 'texture_key'] as const
+
 type ProjectionRpc = (name: string, args: { p_company_account_id: string }) =>
   Promise<{ data: unknown; error: { message: string } | null }>
 
@@ -31,6 +35,19 @@ export async function fetchSafeSupplierRows(companyAccountId: string, rpc: Proje
       source.supplier_enabled !== true || source.supplier_status !== 'active') throw new Error('Invalid supplier projection')
     const entry = Object.fromEntries(safeKeys.filter(key => Object.prototype.hasOwnProperty.call(source, key))
       .map(key => [key, source[key]])) as SafeSupplierRow
+    for (const key of appearanceTextKeys) {
+      const value = source[key]
+      entry[key] = typeof value === 'string' && value.length <= 2000 && value.trim() ? value.trim() : null
+    }
+    for (const key of appearanceDimensionKeys) {
+      const value = source[key]
+      entry[key] = typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+    }
+    for (const key of ['active_override', 'excluded_override'] as const) {
+      if (source[key] != null && typeof source[key] !== 'boolean') throw new Error('Invalid supplier projection')
+    }
+    // No affirmative browser-use vocabulary exists, even if the transport is hostile.
+    for (const key of withheldAssetKeys) entry[key] = null
     return entry
   })
 }

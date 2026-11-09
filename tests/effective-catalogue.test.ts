@@ -26,6 +26,18 @@ const row = (overrides: Partial<SafeSupplierRow> = {}): SafeSupplierRow => ({
 })
 
 describe('effective company catalogue', () => {
+  it('retains only authorised appearance metadata without mutating frozen source records', () => {
+    const source = Object.freeze(row({ colour: '#abc', finish: 'Satin', material: 'Oak', width_mm: 22,
+      depth_mm: 30, rebate_width_mm: 5, rebate_depth_mm: 12 }))
+    const result = resolveEffectiveCatalogue({ companyAccountId: company, legacyCompanyCatalog: legacy, supplierRows: [source] })
+    expect(result.supplierProducts[0]).toMatchObject({ companyAccountId: company,
+      colour: '#abc', finish: 'Satin', material: 'Oak',
+      dimensions: { widthMm: 22, depthMm: 30, rebateWidthMm: 5, rebateDepthMm: 12 },
+      commerciallySelectable: false })
+    expect(source.colour).toBe('#abc')
+    expect(result.legacyCatalog).toBe(legacy)
+    expect(result.selectionIssue([supplierEffectiveId(product)])).toMatch(/no longer selectable/i)
+  })
   it('preserves zero-supplier catalogue and settings without adding demo products', () => {
     const effective = resolveEffectiveCatalogue({ companyAccountId: company, legacyCompanyCatalog: legacy, supplierRows: [] })
     expect(effective.legacyCatalog).toBe(legacy)
