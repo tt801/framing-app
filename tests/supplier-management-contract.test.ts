@@ -21,13 +21,13 @@ describe('subscriber supplier projections', () => {
     expect(() => parseSubscriberSupplier({ ...privateSupplier, companyAccountId: null }, company)).toThrow()
     expect(() => parseSubscriberSupplier({ ...central, kind: 'supplier' }, company)).toThrow()
   })
-  it.each(['active', 'paused', 'retired'])('retains identifiable central state %s', status => {
+  it.each(['active', 'paused', 'retired', 'draft'])('retains identifiable central state %s', status => {
     expect(parseSubscriberSupplier({ ...central, status }, company).status).toBe(status)
   })
   it.each(['active', 'inactive'])('accepts private state %s', status => {
     expect(parseSubscriberSupplier({ ...privateSupplier, status }, company).status).toBe(status)
   })
-  it.each(['draft', 'inactive', null, true, {}, 'ACTIVE'])('rejects invalid subscriber central state %j', status => {
+  it.each(['inactive', null, true, {}, 'ACTIVE'])('rejects invalid subscriber central state %j', status => {
     expect(() => parseSubscriberSupplier({ ...central, status }, company)).toThrow()
   })
   it.each(['paused', 'retired', 'draft', null])('rejects invalid private state %j', status => {
@@ -55,7 +55,7 @@ describe('desired-state commands are not writes or rights grants', () => {
     expect(parseSupplierCommand(input, selection())).toEqual(input)
     expect(selection().enabled).toBe(false)
   })
-  it.each(['paused', 'retired'])('cannot enable %s central suppliers but can disable retained selections', status => {
+  it.each(['paused', 'retired', 'draft'])('cannot enable %s central suppliers but can disable retained selections', status => {
     const retained = selection({ ...central, status }, true)
     expect(() => parseSupplierCommand(command(true), retained)).toThrow()
     expect(parseSupplierCommand(command(false), retained).enabled).toBe(false)

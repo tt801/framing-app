@@ -4,14 +4,14 @@ import type { CountryCode } from './countries'
 /** Subscriber-safe projections, not central editing, product pricing or asset-use grants. */
 export type CentralSupplier = {
   readonly kind: 'central'; readonly id: string; readonly name: string
-  readonly status: 'active' | 'paused' | 'retired'; readonly countries: readonly CountryCode[] | null
+  readonly status: 'active' | 'paused' | 'retired' | 'draft'; readonly countries: readonly CountryCode[] | null
 }
 export type PrivateSupplier = {
   readonly kind: 'private'; readonly id: string; readonly companyAccountId: string
   readonly name: string; readonly status: 'active' | 'inactive'; readonly countryCode: CountryCode | null
 }
 export type SubscriberSupplier = CentralSupplier | PrivateSupplier
-export type SupplierAvailability = 'available' | 'disabled' | 'supplier-paused' | 'supplier-retired' | 'supplier-inactive'
+export type SupplierAvailability = 'available' | 'disabled' | 'supplier-paused' | 'supplier-retired' | 'supplier-draft' | 'supplier-inactive'
 export type CompanySupplierSelection = {
   readonly companyAccountId: string; readonly supplier: SubscriberSupplier
   readonly enabled: boolean; readonly revision: number | null
@@ -37,8 +37,25 @@ const uuid = (value: unknown): string => {
 }
 const name = (value: unknown): string => {
   if (typeof value !== 'string' || !value.trim() || value.length > 200 ||
-    [...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) return invalid()
+    [...value].some(character => character.charCodeAt(0) < 32 || (character.charCodeAt(0) >= 127 && character.charCodeAt(0) <= 159) ||
+      (character.length === 1 && character.charCodeAt(0) >= 0xd800 && character.charCodeAt(0) <= 0xdfff))) return invalid()
   return value.trim()
+}
+/** Display projection only. Never persist this label back to the platform supplier record.
+ * Match scv22_display_name: replace C0/DEL/C1 with spaces, retain a <=200 UTF-16-unit
+ * prefix without splitting a codepoint, trim ECMAScript whitespace, then use a fixed fallback.
+ * PostgreSQL UTF-8 cannot store lone surrogates; hostile JS input replaces them with U+FFFD.
+ */
+export function projectSubscriberSupplierName(value: string): string {
+  if (typeof value !== 'string') return invalid()
+  let result = ''
+  for (const character of value) {
+    const code = character.codePointAt(0)!
+    const safe = code < 32 || (code >= 127 && code <= 159) ? ' ' : code >= 0xd800 && code <= 0xdfff ? '\ufffd' : character
+    if (result.length + safe.length > 200) break
+    result += safe
+  }
+  return result.trim() || 'Unnamed supplier'
 }
 const revision = (value: unknown): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) return invalid()
@@ -49,7 +66,7 @@ export function parseSubscriberSupplier(value: unknown, companyAccountId: unknow
   const company = uuid(companyAccountId), source = record(value)
   const id = uuid(source.id), displayName = name(source.name)
   if (source.kind === 'central') {
-    if (!['active', 'paused', 'retired'].includes(source.status as string)) return invalid()
+    if (!['active', 'paused', 'retired', 'draft'].includes(source.status as string)) return invalid()
     return Object.freeze({ kind: 'central', id, name: displayName, status: source.status as CentralSupplier['status'],
       countries: normalizeSupplierCoverage(source.countries) })
   }
@@ -64,8 +81,9 @@ export function parseSupplierSelection(value: unknown, companyAccountId: unknown
   const supplier = parseSubscriberSupplier(source.supplier, company)
   const canEnable = supplier.kind === 'private' || supplier.status === 'active'
   const availability: SupplierAvailability = !source.enabled ? 'disabled' : supplier.status === 'active' ? 'available'
-    : supplier.status === 'paused' ? 'supplier-paused' : supplier.status === 'retired' ? 'supplier-retired' : 'supplier-inactive'
-  if (source.revision === null && (supplier.kind !== 'central' || source.enabled)) return invalid()
+    : supplier.status === 'paused' ? 'supplier-paused' : supplier.status === 'retired' ? 'supplier-retired'
+      : supplier.status === 'draft' ? 'supplier-draft' : 'supplier-inactive'
+  if (source.revision === null && (supplier.kind !== 'central' || supplier.status === 'draft' || source.enabled)) return invalid()
   return Object.freeze({ companyAccountId: company, supplier, enabled: source.enabled,
     revision: source.revision === null ? null : revision(source.revision), availability, canEnable })
 }
@@ -79,6 +97,18 @@ export type SupplierEnabledCommand = {
 }
 function exactKeys(source: Record<string, unknown>, keys: readonly string[]): void {
   if (Object.keys(source).length !== keys.length || keys.some(key => !Object.hasOwn(source, key))) return invalid()
+}
+export type CompanyOperatingCountry = {
+  readonly companyAccountId: string; readonly countryCode: CountryCode | null; readonly revision: number | null
+}
+/** Exact country RPC envelope; null revision denotes no stored preference row. */
+export function parseCompanyOperatingCountry(value: unknown, companyAccountId: unknown): CompanyOperatingCountry {
+  const source = record(value), company = uuid(companyAccountId)
+  exactKeys(source, ['companyAccountId', 'countryCode', 'revision'])
+  if (uuid(source.companyAccountId) !== company || (source.countryCode !== null && !isCountryCode(source.countryCode)) ||
+    (source.revision === null && source.countryCode !== null)) return invalid()
+  return Object.freeze({ companyAccountId: company, countryCode: source.countryCode as CountryCode | null,
+    revision: source.revision === null ? null : revision(source.revision) })
 }
 /** Pure desired-state validation. Future persistence MUST independently authorize and recheck state. */
 export function parseSupplierCommand(value: unknown, currentSelection: unknown): SupplierEnabledCommand {
