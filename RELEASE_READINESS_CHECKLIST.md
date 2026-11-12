@@ -1,5 +1,20 @@
 # Release Readiness Checklist
 
+## Current Release Documentation (November 2026)
+
+**Start here for current release preparation:**
+
+- [UAT Test Register](UAT_TEST_REGISTER.md) — historical test results, completed acceptance and retesting rules.
+- [Pre-Production Polish Register](PRE_PRODUCTION_POLISH.md) — completed improvements and remaining launch polish.
+- [Release Runbook](RELEASE_RUNBOOK.md) — deployment and migration procedures.
+- [Billing Verification](BILLING_VERIFICATION.md) — billing verification procedures.
+
+The September findings below are preserved as historical evidence.
+Consult the current registers before scheduling further testing.
+
+---
+
+
 Status: blocked from production approval; migration compatibility is verified on an isolated local Supabase instance. Preview still requires the manual gates below.
 
 ## Evidence Completed
