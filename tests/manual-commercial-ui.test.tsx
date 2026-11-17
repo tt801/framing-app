@@ -3,6 +3,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import QuotesPage from '@/pages/Quotes'
 import InvoicesPage from '@/pages/Invoices'
+import { priceVisualiser, toVisualiserQuote, toVisualiserInvoice } from '@/lib/pricing'
 
 const state = vi.hoisted(() => ({ quotes: [] as Record<string, unknown>[], invoices: [] as Record<string, unknown>[],
   quotePdf: [] as Record<string, unknown>[], invoicePdf: [] as Record<string, unknown>[], taxRatePct: 20 }))
@@ -35,6 +36,62 @@ function reset() { state.quotes = []; state.invoices = []; state.quotePdf = []; 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); window.location.hash = '' })
 
 describe('manual commercial UI', () => {
+  it.each(['quote', 'invoice'] as const)('preserves material units and exact rates through %s Draft editing and reopen', async kind => {
+    reset(); vi.spyOn(window, 'confirm').mockReturnValue(false); vi.spyOn(window, 'alert').mockImplementation(() => {})
+    const snapshot = priceVisualiser({ artWcm: 40, artHcm: 30, borderCm: 0,
+      frame: { id: 'frame-oak', name: 'Oak', pricePerMeter: 150 }, mats: [{ id: 'mat-white', name: 'White', pricePerSqM: 30 }],
+      glazing: { id: 'glass-clear', name: 'Glass', pricePerSqM: 50 }, backer: { id: 'backer-board', name: 'Backer', pricePerSqM: 20 },
+      print: { id: 'print-paper', name: 'Print', pricePerSqM: 80 }, labourBase: 10,
+      currencyCode: 'GBP', taxRatePct: 20, marginMultiplier: 1.234567 })
+    const saved = { ...(kind === 'quote' ? toVisualiserQuote(snapshot) : toVisualiserInvoice(snapshot)),
+      id: 'material', number: 'M-1', status: 'Draft', customerId: 'c1' }
+    if (kind === 'quote') state.quotes = [saved]; else state.invoices = [saved]
+    const Page = kind === 'quote' ? QuotesPage : InvoicesPage
+    const prefix = kind === 'quote' ? 'Quote' : 'Invoice'
+    const view = render(<Page />)
+    expect(screen.getByLabelText(`${prefix} quantity 1`).getAttribute('value')).toBe('1.4')
+    expect(screen.getByLabelText(`${prefix} unit price 1`).getAttribute('value')).toBe(String(snapshot.items[0].unitPrice))
+    expect(screen.getAllByText('/m').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('/m²').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
+    await waitFor(() => expect((kind === 'quote' ? state.quotes : state.invoices)[0].pricingSnapshot).toEqual(snapshot))
+    view.unmount(); const editView = render(<Page />)
+    fireEvent.change(screen.getByLabelText(`${prefix} quantity 1`), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
+    await waitFor(() => expect((kind === 'quote' ? state.quotes : state.invoices)[0].items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ qty: 2, unit: 'm', unitPrice: snapshot.items[0].unitPrice, total: 370.37 }),
+      expect.objectContaining({ qty: 0.12, unit: 'm²', unitPrice: snapshot.items[1].unitPrice }),
+    ])))
+    const edited = (kind === 'quote' ? state.quotes : state.invoices)[0] as typeof saved
+    expect(edited.items.map(line => line.productId)).toEqual(saved.items.map(line => line.productId))
+    expect(edited.pricingSnapshot.items.map(line => line.productId)).toEqual(snapshot.items.map(line => line.productId))
+    const agreement = JSON.parse(JSON.stringify(edited)) as typeof edited
+    editView.unmount(); const reopened = render(<Page />)
+    expect(screen.getByLabelText(`${prefix} quantity 1`).getAttribute('value')).toBe('2')
+    expect((kind === 'quote' ? state.quotes : state.invoices)[0]).toEqual(agreement)
+    if (kind === 'quote') {
+      fireEvent.click(screen.getByRole('button', { name: 'Create Invoice' }))
+      await waitFor(() => expect(state.invoices[0]?.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ qty: 2, unit: 'm', unitPrice: snapshot.items[0].unitPrice, total: 370.37 }),
+      ])))
+      expect(state.invoices[0].items).toMatchObject(agreement.items)
+      expect(state.invoices[0]).toMatchObject({ subtotal: agreement.subtotal, tax: agreement.tax,
+        total: agreement.total, pricingSnapshot: agreement.pricingSnapshot })
+      reopened.unmount(); render(<InvoicesPage />)
+      expect(screen.getByLabelText('Invoice quantity 1').getAttribute('value')).toBe('2')
+      expect(state.invoices[0].pricingSnapshot).toEqual(agreement.pricingSnapshot)
+    }
+  })
+  it.each(['quote', 'invoice'] as const)('displays material quantities, effective rates and explicit totals on a saved %s', kind => {
+    reset()
+    const snapshot = priceVisualiser({ artWcm: 40, artHcm: 30, borderCm: 0,
+      frame: { name: 'Oak', pricePerMeter: 150 }, mats: [{ name: 'White', pricePerSqM: 30 }],
+      labourBase: 0, currencyCode: 'GBP', taxRatePct: 0, marginMultiplier: 1 })
+    const document = { ...(kind === 'quote' ? toVisualiserQuote(snapshot) : toVisualiserInvoice(snapshot)), id: 'material', status: 'Sent' }
+    if (kind === 'quote') state.quotes = [document]; else state.invoices = [document]
+    render(kind === 'quote' ? <QuotesPage /> : <InvoicesPage />)
+    for (const text of ['1.4 m', '0.12 m²', '£150.00/m', '£30.00/m²', '£210.00']) expect(screen.getAllByText(text).length).toBeGreaterThan(0)
+  })
   it('creates, edits, saves and reopens a Quote, then converts its saved agreement', async () => {
     reset(); vi.spyOn(window, 'confirm').mockReturnValue(false); vi.spyOn(window, 'alert').mockImplementation(() => {})
     const view = render(<QuotesPage />)

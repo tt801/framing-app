@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import * as XLSX from '@e965/xlsx'
@@ -8,8 +8,8 @@ import { planFeed, type PlanningRow } from '../server/platform/supplierFeeds/pla
 import { validateCandidate } from '../server/platform/supplierFeeds/validation.js'
 import type { Candidate, CanonicalProduct, FeedContext } from '../server/platform/supplierFeeds/contracts.js'
 
-const artifactPath = '/opt/data/cache/scratch/wessex-block2f/WessexMouldings.xls'
-const summaryPath = '/opt/data/cache/scratch/wessex-block2f/phase3_successive_release_summary.json'
+// Preserve the genuine historical baseline; absence is explicitly reported as skipped.
+const artifactPath = process.env.WESSEX_HISTORICAL_ARTIFACT_PATH
 const sourceUrl = 'https://www.wessexpictures.com/res/WessexMouldings.xls'
 const baseLastModified = 'Thu, 08 Oct 2026 15:21:52 GMT'
 const basePublishedDate = '08/10/2026'
@@ -78,10 +78,11 @@ function withRow(rows: Array<[string, string, number, number]>, key: string, upd
   return copy
 }
 
-describe('Wessex successive release/update/disappearance behaviour (Phase 3)', () => {
+describe.skipIf(!artifactPath)('Wessex historical successive releases (requires WESSEX_HISTORICAL_ARTIFACT_PATH)', () => {
   it('exercises scenarios A-N through generic Block 2E planning only', () => {
-    const bytesA = readFileSync(artifactPath)
+    const bytesA = readFileSync(artifactPath!)
     const shaA = createHash('sha256').update(bytesA).digest('hex')
+    expect(shaA).toBe('f96d393af1847d30929b8be8a2e165404a48ed6c3e93f7bcc6c2b0fd0d0f7e80')
     const rawA = parseWessexMouldings(bytesA, {
       sourceUrl,
       originalFilename: 'WessexMouldings.xls',
@@ -319,8 +320,6 @@ describe('Wessex successive release/update/disappearance behaviour (Phase 3)', (
         },
       },
     }
-
-    writeFileSync(summaryPath, JSON.stringify(summary, null, 2))
 
     expect(releaseA.candidates.length).toBe(1194)
     expect(releaseA.rejected.length).toBe(0)

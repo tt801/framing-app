@@ -1,9 +1,9 @@
-import type { CommercialSnapshot } from '../pricing'
+import type { CommercialLine, CommercialSnapshot } from '../pricing'
 import { PdfLayout } from './pdfLayout'
 import { pdfCommercial, pdfCustomer, pdfDate } from './pdfDocumentData'
 import type { Customer, InvoicePdfSettings } from './invoicePdf'
 
-export interface QuotePdfItem { name: string; qty: number; unitPrice: number; total: number }
+export interface QuotePdfItem { name: string; qty: number; unitPrice: number; total: number; unit?: CommercialLine['unit']; roundingAdjustment?: number }
 export interface QuotePdfQuote {
   id: string; number: string; dateISO: string; status?: string; items: QuotePdfItem[]; subtotal: number; total: number
   notes?: string; currency?: string | { code?: string; symbol?: string }; currencyCode?: string; currencySymbol?: string
@@ -25,7 +25,8 @@ export async function exportQuotePDF({ quote, customer, settings, download = tru
   ])
   layout.block('Prepared for', pdfCustomer({}, customer).join('\n') || 'Customer not recorded')
   layout.table(['Description', 'Qty', 'Unit price', 'Amount'], values.items.map(item => [
-    item.description, String(item.qty), values.money(item.unitPrice), values.money(item.amount),
+    item.description + (item.roundingAdjustment ? `\nRounding adjustment: ${values.money(item.roundingAdjustment)}` : ''),
+    item.quantityLabel, item.rateLabel, values.money(item.amount),
   ]), true)
   layout.totals([
     ['Subtotal', values.money(values.subtotal)], [`${values.taxTitle}:`, values.money(values.tax)], ['Total', values.money(values.total), true],

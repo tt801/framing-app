@@ -36,6 +36,8 @@ export function jobSpecificationFields(value: unknown): { label: string; value: 
     return `${text(saved.name) ?? NOT_RECORDED} — ${measurement(saved.borderCm) ?? NOT_RECORDED} border`;
   };
   const state = (saved: SavedRecord) => saved.include === false ? "Off" : saved.include === true ? "On" : NOT_RECORDED;
+  const materialState = (saved: SavedRecord) => saved.include === true && text(saved.materialName)
+    ? `On — ${text(saved.materialName)}` : state(saved);
   const additionalMats = mats.hasMat2 === false && mats.hasMat3 === false
     ? "None"
     : mats.hasMat2 === undefined && mats.hasMat3 === undefined && !mats.mat2 && !mats.mat3
@@ -50,7 +52,7 @@ export function jobSpecificationFields(value: unknown): { label: string; value: 
     { label: "Mat 1", value: mat(1) },
     { label: "Additional mats", value: additionalMats },
     { label: "Glazing", value: text(glazing.name) ?? text(job.glazingName) ?? text(frame.glazing) ?? NOT_RECORDED },
-    { label: "Printing", value: state(printing) },
-    { label: "Foam/backer", value: state(backer) },
+    { label: "Printing", value: materialState(printing) },
+    { label: "Foam/backer", value: materialState(backer) },
   ];
 }

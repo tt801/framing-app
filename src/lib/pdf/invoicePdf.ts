@@ -1,8 +1,8 @@
-import type { CommercialSnapshot } from '../pricing'
+import type { CommercialLine, CommercialSnapshot } from '../pricing'
 import { PdfLayout } from './pdfLayout'
 import { invoicePdfStatus, pdfCommercial, pdfCustomer, pdfDate, text } from './pdfDocumentData'
 
-export type InvoiceItem = { id: string; description?: string; name?: string; qty: number; unitPrice: number; total?: number }
+export type InvoiceItem = { id: string; description?: string; name?: string; qty: number; unitPrice: number; total?: number; unit?: CommercialLine['unit']; roundingAdjustment?: number }
 export type InvoicePayment = { dateISO?: string; createdAt?: string; method?: string; notes?: string; amount: number }
 export type Customer = {
   id?: string; firstName?: string; lastName?: string; name?: string; email?: string; company?: string; phone?: string
@@ -36,7 +36,8 @@ export async function exportInvoicePDF(args: {
   layout.block('Bill to', pdfCustomer(invoice, customer).join('\n') || 'Customer not recorded')
   if (state.warning) layout.paragraph(state.warning, { size: 9 })
   layout.table(['Description', 'Qty', 'Unit price', 'Amount'], values.items.map(item => [
-    item.description, String(item.qty), values.money(item.unitPrice), values.money(item.amount),
+    item.description + (item.roundingAdjustment ? `\nRounding adjustment: ${values.money(item.roundingAdjustment)}` : ''),
+    item.quantityLabel, item.rateLabel, values.money(item.amount),
   ]), true)
   layout.totals([
     ['Subtotal', values.money(values.subtotal)], [values.taxTitle, values.money(values.tax)],

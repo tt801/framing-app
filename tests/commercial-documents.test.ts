@@ -30,7 +30,11 @@ describe('commercial document workflows', () => {
     expect(invoice).toMatchObject({ subtotal: 80, tax: 5, taxRate: 0.07, total: 85, currencyCode: 'GBP' })
     expect(invoice.pricingSnapshot).toBeUndefined()
     expect(() => editManualDraft({ ...legacy, status: 'Draft' }, legacy.items, 'quote')).not.toThrow()
-    expect(() => editManualDraft({ ...legacy, status: 'Draft', taxRate: undefined }, legacy.items, 'quote')).toThrow(/saved tax rate/)
+    // A no-op save preserves even an unknown historical tax agreement; repricing still requires a saved rate.
+    expect(editManualDraft({ ...legacy, status: 'Draft', taxRate: undefined }, legacy.items, 'quote'))
+      .toMatchObject({ subtotal: 80, tax: 5, total: 85 })
+    expect(() => editManualDraft({ ...legacy, status: 'Draft', taxRate: undefined },
+      legacy.items.map(item => ({ ...item, qty: 2 })), 'quote')).toThrow(/saved tax rate/)
   })
   it('edits a Draft Invoice, keeps payments and rejects a total below recorded payments', () => {
     const draft = { ...createManualDraft('invoice', settings), status: 'Draft', payments: [{ amount: 100 }] }

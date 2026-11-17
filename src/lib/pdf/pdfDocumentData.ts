@@ -1,5 +1,5 @@
 import type { CommercialSnapshot } from '../pricing'
-import { roundMoney } from '../pricing'
+import { roundMoney, sellingQuantityLabel, sellingRateLabel } from '../pricing'
 
 export type PdfRecord = Record<string, unknown>
 export const record = (value: unknown): PdfRecord => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as PdfRecord : {}
@@ -53,7 +53,9 @@ export function pdfCommercial(document: unknown, settings?: unknown) {
   const rawItems = snapshot?.items ?? (Array.isArray(d.items) ? d.items : [])
   const items = rawItems.map((value: unknown) => {
     const item = record(value), qty = number(item.qty) ?? 0, unitPrice = number(item.unitPrice) ?? 0
-    return { description: firstText(item.description, item.name) || 'Item', qty, unitPrice,
+    const unit = text(item.unit), roundingAdjustment = number(item.roundingAdjustment) ?? 0
+    return { description: firstText(item.description, item.name) || 'Item', qty, unitPrice, unit, roundingAdjustment,
+      quantityLabel: sellingQuantityLabel(qty, unit), rateLabel: sellingRateLabel(unitPrice, unit, currency, symbol),
       amount: number(item.lineTotal) ?? number(item.total) ?? round(qty * unitPrice) }
   })
   const subtotal = number(d.subtotal) ?? snapshot?.subtotal ?? round(items.reduce((sum, item) => sum + item.amount, 0))

@@ -3,14 +3,16 @@ import Stripe from "stripe";
 import { randomUUID } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2026-03-25.dahlia",
-});
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Called only after the explicit server-side checkout gate passes.
+function createCheckoutClients() {
+  return {
+    stripe: new Stripe(process.env.STRIPE_SECRET_KEY!, {
+      apiVersion: "2026-03-25.dahlia",
+    }),
+    supabase: createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!),
+  };
+}
+type CheckoutClients = ReturnType<typeof createCheckoutClients>;
 
 const founderPriceId = process.env.VITE_STRIPE_PRICE_FOUNDER || "";
 const allowedPriceIds = new Set(
@@ -24,7 +26,7 @@ const allowedPriceIds = new Set(
 const founderMaxPurchases = Number(process.env.FOUNDER_MAX_PURCHASES || 10);
 
 // ─ Verify auth and get user/company
-async function requireBillingUser(req: VercelRequest) {
+async function requireBillingUser(req: VercelRequest, supabase: CheckoutClients['supabase']) {
   const authHeader = req.headers.authorization || "";
   const authArray = Array.isArray(authHeader) ? authHeader[0] : authHeader;
   const auth = authArray.split(" ")[1];
@@ -62,7 +64,7 @@ function getBaseUrl(req: VercelRequest) {
   return "http://localhost:5173";
 }
 
-async function releaseExpiredFounderReservations() {
+async function releaseExpiredFounderReservations(supabase: CheckoutClients['supabase'], stripe: Stripe) {
   const { data: stale, error } = await supabase.from('stripe_checkout_attempts')
     .select('id,company_account_id,session_id,expires_at')
     .eq('founder_reserved', true).eq('status', 'pending')
@@ -84,10 +86,20 @@ async function releaseExpiredFounderReservations() {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).end();
+  // Fail closed: only this exact server-side opt-in enables payable checkout.
+  if (process.env.STRIPE_CHECKOUT_ENABLED !== "true") {
+    return res.status(403).json({
+      code: "CHECKOUT_DISABLED",
+      error: "Subscription checkout is unavailable during the controlled pilot.",
+    });
+  }
 
   let unreturnedFounderAttempt: { id: string; companyId: string } | null = null;
+  let cleanupSupabase: CheckoutClients['supabase'] | undefined;
   try {
-    const { user, account } = await requireBillingUser(req);
+    const { stripe, supabase } = createCheckoutClients();
+    cleanupSupabase = supabase;
+    const { user, account } = await requireBillingUser(req, supabase);
     const { priceId, isOneTime } = req.body;
 
     if (!priceId) throw new Error("priceId required");
@@ -113,13 +125,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (attemptError) throw attemptError;
     let checkoutAttempt = Array.isArray(attempt) ? attempt[0] : attempt;
     if (isFounderCheckout && checkoutAttempt?.reason === 'Founder plan is sold out') {
-      await releaseExpiredFounderReservations();
+      await releaseExpiredFounderReservations(supabase, stripe);
       ({ data: attempt, error: attemptError } = await beginAttempt());
       if (attemptError) throw attemptError;
       checkoutAttempt = Array.isArray(attempt) ? attempt[0] : attempt;
     }
     if (!checkoutAttempt?.allowed && isFounderCheckout && checkoutAttempt?.reason?.startsWith('Stripe session status must be confirmed') && !checkoutAttempt.existing_session_id) {
-      await releaseExpiredFounderReservations();
+      await releaseExpiredFounderReservations(supabase, stripe);
       ({ data: attempt, error: attemptError } = await beginAttempt());
       if (attemptError) throw attemptError;
       checkoutAttempt = Array.isArray(attempt) ? attempt[0] : attempt;
@@ -209,9 +221,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     unreturnedFounderAttempt = null;
     res.status(200).json({ sessionId: session.id, url: session.url });
   } catch (error) {
-    if (unreturnedFounderAttempt) {
+    if (unreturnedFounderAttempt && cleanupSupabase) {
       try {
-        const { data: released, error: releaseError } = await supabase.rpc('expire_stripe_checkout_attempt', {
+        const { data: released, error: releaseError } = await cleanupSupabase.rpc('expire_stripe_checkout_attempt', {
           p_attempt_id: unreturnedFounderAttempt.id, p_company_account_id: unreturnedFounderAttempt.companyId,
         });
         if (releaseError || released !== true) console.error('[create-checkout] Founder release failed:', releaseError || 'not released');

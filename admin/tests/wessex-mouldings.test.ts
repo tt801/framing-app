@@ -23,7 +23,83 @@ function acquire(bytes: Buffer) {
   }
 }
 
+function editedWorkbook(edit: (sheet: XLSX.WorkSheet, book: XLSX.WorkBook) => void): Buffer {
+  const book = XLSX.utils.book_new()
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...evidenceRows])
+  XLSX.utils.book_append_sheet(book, sheet, 'gen')
+  edit(sheet, book)
+  return XLSX.write(book, { type: 'buffer', bookType: 'biff8' }) as Buffer
+}
+
 describe('Wessex WPP4 moulding evidence parser', () => {
+  it('accepts the current A1:K1195 shape with only trailing blank cells (synthetic shape fixture)', () => {
+    const rows = Array.from({ length: 1194 }, (_, i) => [`SYNTH-${i}`, 'Synthetic shape-only profile', 3.22, 13])
+    const wb = XLSX.utils.book_new()
+    const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    sheet.K1195 = { t: 'z' }
+    sheet['!ref'] = 'A1:K1195'
+    XLSX.utils.book_append_sheet(wb, sheet, 'gen')
+    const bytes = XLSX.write(wb, { type: 'buffer', bookType: 'biff8' }) as Buffer
+    expect(XLSX.read(bytes, { type: 'buffer' }).Sheets.gen['!ref']).toBe('A1:K1195')
+    const result = parseWessexMouldings(bytes, acquire(bytes))
+    expect(result.observedRows).toBe(1194)
+    expect(result.rows[1193]).toMatchObject({ sourceProductKey: 'SYNTH-1193', item: { path: 'gen!A1195:D1195' } })
+  })
+
+  it.each(['E1', 'E2', 'K4'])('rejects any value in trailing cell %s, including falsy values', address => {
+    for (const cell of [
+      { t: 's', v: 'unexpected' }, { t: 's', v: '' }, { t: 's', v: ' ' },
+      { t: 'n', v: 0 }, { t: 'b', v: false }, { t: 'e', v: 7 },
+    ] as XLSX.CellObject[]) {
+      const bytes = editedWorkbook(sheet => { sheet[address] = cell; sheet['!ref'] = 'A1:K4' })
+      expect(() => parseWessexMouldings(bytes, acquire(bytes))).toThrow(/Trailing.*empty/)
+    }
+  })
+
+  it.each(['C2', 'E1', 'K4'])('rejects a real BIFF8 formula in %s rather than trusting its cached value', address => {
+    for (const cachedValue of [1, undefined]) {
+      const bytes = editedWorkbook(sheet => {
+        // BIFF8 parsed formula: three-byte PtgInt token for literal 1. The XLS writer
+        // requires bf; f alone would silently serialize only a cached numeric value.
+        sheet[address] = { t: 'n', v: cachedValue, f: '1', bf: [3, 0, 0x1e, 1, 0] } as XLSX.CellObject
+        sheet['!ref'] = 'A1:K4'
+      })
+      expect(XLSX.read(bytes, { type: 'buffer', cellFormula: true }).Sheets.gen[address].f).toBeDefined()
+      expect(() => parseWessexMouldings(bytes, acquire(bytes))).toThrow(/Formula cells/)
+    }
+  })
+
+  it('rejects blank expansion beyond K and the existing row bound', () => {
+    for (const range of ['A1:L4', 'A1:D50002']) {
+      const bytes = editedWorkbook(sheet => { sheet['!ref'] = range })
+      expect(() => parseWessexMouldings(bytes, acquire(bytes))).toThrow(/dimensions/)
+    }
+  })
+
+  it('rejects hidden/additional sheets and gaps in required product rows', () => {
+    for (const edit of [
+      (_sheet: XLSX.WorkSheet, book: XLSX.WorkBook) => XLSX.utils.book_set_sheet_visibility(book, 'gen', 1),
+      (_sheet: XLSX.WorkSheet, book: XLSX.WorkBook) => XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['extra']]), 'other'),
+      (sheet: XLSX.WorkSheet) => { delete sheet.A3 },
+    ]) {
+      const bytes = editedWorkbook(edit)
+      expect(() => parseWessexMouldings(bytes, acquire(bytes))).toThrow()
+    }
+  })
+
+  it('rejects malformed/truncated OLE, oversized bytes, embedded streams and non-BIFF8 workbook streams', () => {
+    for (const bytes of [Buffer.from('d0cf11e0a1b11ae1', 'hex'), Buffer.alloc(5_000_001)])
+      expect(() => parseWessexMouldings(bytes, acquire(bytes))).toThrow()
+    const cfb = XLSX.CFB.read(workbook(), { type: 'buffer' })
+    XLSX.CFB.utils.cfb_add(cfb, 'VBA', Buffer.from('not executable; rejection fixture'))
+    const embedded = Buffer.from(XLSX.CFB.write(cfb, { type: 'buffer' }))
+    expect(() => parseWessexMouldings(embedded, acquire(embedded))).toThrow(/OLE stream/)
+    XLSX.CFB.utils.cfb_del(cfb, 'VBA')
+    XLSX.CFB.utils.cfb_add(cfb, 'Workbook', Buffer.alloc(8))
+    const malformed = Buffer.from(XLSX.CFB.write(cfb, { type: 'buffer' }))
+    expect(() => parseWessexMouldings(malformed, acquire(malformed))).toThrow(/BIFF8/)
+  })
+
   it('preserves supplier reference and raw workbook evidence without producing a canonical candidate', () => {
     const bytes = workbook()
     const result = parseWessexMouldings(bytes, acquire(bytes))

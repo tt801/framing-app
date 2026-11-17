@@ -3,8 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBillingWriteGuard } from "@/lib/billingAccess";
 import { useCompany } from "@/lib/company";
 import { supabase } from "@/lib/supabase";
+import type { MaterialPricingMetadata } from './materialPricing';
 
-export type Frame = {
+export type Frame = MaterialPricingMetadata & {
   id: string;
   name: string;
   pricePerMeter: number;
@@ -12,27 +13,27 @@ export type Frame = {
   color?: string;
 };
 
-export type Mat = {
+export type Mat = MaterialPricingMetadata & {
   id: string;
   name: string;
   pricePerSqM: number;
   color?: string;
 };
 
-export type Glazing = {
+export type Glazing = MaterialPricingMetadata & {
   id: string;
   name: string;
   pricePerSqM: number;
 };
 
-export type PrintingMaterial = {
+export type PrintingMaterial = MaterialPricingMetadata & {
   id: string;
   name: string;
   pricePerSqM: number;
 };
 
 /** NEW: Backer boards stored in the shared catalog */
-export type Backer = {
+export type Backer = MaterialPricingMetadata & {
   id: string;
   name: string;
   pricePerSqM: number;
@@ -75,6 +76,8 @@ export type Settings = {
   marginMultiplier: number;
 
   foamBackerPerSqM?: number;
+  foamBackerAllowZeroPrice?: boolean;
+  printingAllowZeroPrice?: boolean;
 
   companyName?: string;
   companyEmail?: string;
@@ -256,32 +259,31 @@ function ensureMat0(mats: Mat[]): Mat[] {
 function migrateCatalog(oldCat: Partial<Catalog> | null): Catalog {
   if (!oldCat) return defaultCatalog;
 
+  // An explicit empty array is intentional, not a missing legacy category.
   const frames =
-    Array.isArray(oldCat.frames) && oldCat.frames.length
+    Array.isArray(oldCat.frames)
       ? oldCat.frames
       : defaultCatalog.frames;
 
   const mats = ensureMat0(
-    Array.isArray(oldCat.mats) && oldCat.mats.length
+    Array.isArray(oldCat.mats)
       ? oldCat.mats
       : defaultCatalog.mats
   );
 
   const glazing =
-    Array.isArray(oldCat.glazing) && oldCat.glazing.length
+    Array.isArray(oldCat.glazing)
       ? oldCat.glazing
       : defaultCatalog.glazing;
 
   const printingMaterials =
-    Array.isArray(oldCat.printingMaterials) &&
-    oldCat.printingMaterials.length
+    Array.isArray(oldCat.printingMaterials)
       ? oldCat.printingMaterials
       : defaultCatalog.printingMaterials;
 
   /** NEW: keep any existing backer boards instead of dropping them */
   const backers: Backer[] =
-    Array.isArray((oldCat as any).backers) &&
-    (oldCat as any).backers.length
+    Array.isArray((oldCat as any).backers)
       ? ((oldCat as any).backers as Backer[])
       : defaultCatalog.backers ?? [];
 
@@ -289,11 +291,12 @@ function migrateCatalog(oldCat: Partial<Catalog> | null): Catalog {
   const settings: Settings = {
     ...defaultCatalog.settings,
     ...(oldCat.settings as Settings),
+    printingPerSqM: oldCat.settings?.printingPerSqM,
+    foamBackerPerSqM: oldCat.settings?.foamBackerPerSqM,
   };
 
   // Ensure numeric defaults
-  if (typeof settings.foamBackerPerSqM !== "number")
-    settings.foamBackerPerSqM = 0;
+
   if (typeof settings.invoiceStartNumber !== "number")
     settings.invoiceStartNumber = 1000;
   if (typeof settings.paymentTermsDays !== "number")
@@ -427,9 +430,12 @@ export function useCatalog() {
       invoicePrefix: profile.invoicePrefix, invoiceStartNumber: profile.invoiceStartNumber,
       bankDetails: profile.bankDetails, paymentTermsDays: profile.paymentTermsDays,
       taxRatePct: profile.taxRatePct, taxLabel: profile.taxLabel, vatNumber: profile.vatNumber,
-      ...(typeof profile.labourBase === 'number' && Number.isFinite(profile.labourBase) ? { labourBase: profile.labourBase } : {}),
-      ...(typeof profile.printingPerSqM === 'number' && Number.isFinite(profile.printingPerSqM) ? { printingPerSqM: profile.printingPerSqM } : {}),
-      ...(typeof profile.marginMultiplier === 'number' && Number.isFinite(profile.marginMultiplier) ? { marginMultiplier: profile.marginMultiplier } : {}),
+      ...(Object.hasOwn(profile, 'labourBase') ? { labourBase: profile.labourBase } : {}),
+      ...(Object.hasOwn(profile, 'printingPerSqM') ? { printingPerSqM: profile.printingPerSqM } : {}),
+      ...(Object.hasOwn(profile, 'marginMultiplier') ? { marginMultiplier: profile.marginMultiplier } : {}),
+      ...(Object.hasOwn(profile, 'foamBackerPerSqM') ? { foamBackerPerSqM: profile.foamBackerPerSqM } : {}),
+      ...(typeof profile.foamBackerAllowZeroPrice === 'boolean' ? { foamBackerAllowZeroPrice: profile.foamBackerAllowZeroPrice } : {}),
+      ...(typeof profile.printingAllowZeroPrice === 'boolean' ? { printingAllowZeroPrice: profile.printingAllowZeroPrice } : {}),
       ...(profile.unit === 'metric' || profile.unit === 'imperial' ? { unit: profile.unit } : {}),
       ...(typeof profile.themeColor === 'string' && profile.themeColor ? { themeColor: profile.themeColor } : {}),
     };

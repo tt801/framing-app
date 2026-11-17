@@ -1,4 +1,3 @@
-import { writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import * as XLSX from '@e965/xlsx'
@@ -8,7 +7,6 @@ import { planFeed } from '../server/platform/supplierFeeds/planner.js'
 import { validateCandidate } from '../server/platform/supplierFeeds/validation.js'
 import type { Candidate, CanonicalProduct } from '../server/platform/supplierFeeds/contracts.js'
 
-const outputPath = '/opt/data/cache/scratch/wessex-block2f/phase2_planner_scenarios_results.json'
 const sourceUrl = 'https://www.wessexpictures.com/res/WessexMouldings.xls'
 const options = {
   supplierId: 'test-wessex', runId: 'test-run', sourceId: 'test-wessex-mouldings', scopeId: 'mouldings',
@@ -94,7 +92,6 @@ function scenarioCounts() {
 describe('generic Block 2E planner scenarios A-J with normalized Wessex candidates', () => {
   it('matches expected scenario actions and safety flags', () => {
     const scenarios = scenarioCounts()
-    writeFileSync(outputPath, JSON.stringify(scenarios, null, 2))
 
     expect(scenarios.A).toMatchObject({ create: 3, update: 0, unchanged: 0, potential_missing: 0, reject: 0, review: 0 })
     expect(scenarios.B).toMatchObject({ unchanged: 3, create: 0, update: 0, potential_missing: 0, reject: 0, review: 0 })

@@ -8,7 +8,7 @@ import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import InvoicePaymentForm from "@/components/InvoicePaymentForm";
 import { createManualDraft, editManualDraft, invoiceBalance, type CommercialItem } from "@/lib/commercialDocuments";
-import { effectiveTaxRatePct } from "@/lib/pricing";
+import { effectiveTaxRatePct, isMaterialUnit, sellingQuantityLabel, sellingRateLabel } from "@/lib/pricing";
 import { customerSearchFields, matchesCommercialSearch, referenceSearchFields } from "@/lib/commercialSearch";
 
 import { exportInvoicePDF } from "@/lib/pdf/invoicePdf";
@@ -168,12 +168,12 @@ const coerceItem = (raw: any) => {
     firstNonEmpty(raw?.total, raw?.line_total, raw?.amount, qty * unitPrice),
     qty * unitPrice
   );
-  return { name: String(name), qty, unitPrice, total };
+  return { id: raw?.id, name: String(name), qty, unitPrice, total, unit: raw?.unit, roundingAdjustment: raw?.roundingAdjustment };
 };
 
 const extractItems = (
   row: any
-): Array<{ name: string; qty: number; unitPrice: number; total: number }> => {
+): Array<ReturnType<typeof coerceItem>> => {
   const candidates: Array<any[] | null> = [
     pickArray(row?.items),
     pickArray(row?.lines),
@@ -549,7 +549,7 @@ export default function InvoicesPage() {
   const [invoiceDraftItems, setInvoiceDraftItems] = useState<CommercialItem[]>([]);
   React.useEffect(() => {
     setInvoiceDraftItems(Array.isArray(selected?.items) ? selected.items.map((item: any) => ({
-      id: item.id, name: item.name ?? item.description ?? '', qty: Number(item.qty ?? 1), unitPrice: Number(item.unitPrice ?? 0),
+      ...item, name: item.name ?? item.description ?? '', qty: Number(item.qty ?? 1), unitPrice: Number(item.unitPrice ?? 0),
     })) : []);
   }, [selected?.id, selected?.items]);
   const invoiceDraftDirty = Boolean(selected && selStatus === 'Draft' &&
@@ -1203,11 +1203,12 @@ export default function InvoicesPage() {
                     <div key={item.id ?? index} className="grid grid-cols-12 gap-2 items-center mb-2">
                       <input aria-label={`Invoice description ${index + 1}`} className="col-span-4 rounded-lg border p-2" value={item.name ?? ''}
                         onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, name: e.target.value} : row))}/>
-                      <input aria-label={`Invoice quantity ${index + 1}`} type="number" min="0" step="any" className="col-span-2 rounded-lg border p-2" value={item.qty}
-                        onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, qty: Number(e.target.value)} : row))}/>
-                      <input aria-label={`Invoice unit price ${index + 1}`} type="number" min="0" step="any" className="col-span-2 rounded-lg border p-2" value={item.unitPrice}
-                        onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, unitPrice: Number(e.target.value)} : row))}/>
-                      <span className="col-span-2 text-right">{selectedMoney(invoiceDraftPreview?.pricingSnapshot.items[index]?.lineTotal ?? 0)}</span>
+                      <label className="col-span-2"><input aria-label={`Invoice quantity ${index + 1}`} type="number" min="0" step="any" className="w-full rounded-lg border p-2" value={item.qty}
+                        onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, qty: Number(e.target.value)} : row))}/>{isMaterialUnit(item.unit) && <span>{item.unit}</span>}</label>
+                      <label className="col-span-2"><input aria-label={`Invoice unit price ${index + 1}`} type="number" min="0" step="any" className="w-full rounded-lg border p-2" value={item.unitPrice}
+                        onChange={e => setInvoiceDraftItems(prev => prev.map((row, i) => i === index ? {...row, unitPrice: Number(e.target.value)} : row))}/>{isMaterialUnit(item.unit) && <span>/{item.unit}</span>}</label>
+                      <span className="col-span-2 text-right">{selectedMoney(invoiceDraftPreview?.items[index]?.total ?? 0)}
+                        {!!invoiceDraftPreview?.items[index]?.roundingAdjustment && <small className="block">Rounding adjustment: {selectedMoney(invoiceDraftPreview.items[index].roundingAdjustment)}</small>}</span>
                       <button type="button" className="col-span-2 text-red-600 text-sm" onClick={() => setInvoiceDraftItems(prev => prev.filter((_, i) => i !== index))}>Remove</button>
                     </div>
                   ))}
@@ -1216,8 +1217,8 @@ export default function InvoicesPage() {
                   {invoiceDraftDirty && !invoiceDraftPreview && <p className="text-sm text-red-600 mt-2">Check prices and recorded payments before saving.</p>}
                 </> : (selectedItems.length ? selectedItems.map((item, index) => (
                   <div key={index} className="grid grid-cols-12 gap-2 text-sm py-1">
-                    <span className="col-span-4">{item.name}</span><span className="col-span-2">{item.qty}</span>
-                    <span className="col-span-2">{selectedMoney(item.unitPrice)}</span><span className="col-span-2">{selectedMoney(item.total)}</span>
+                    <span className="col-span-4">{item.name}{!!item.roundingAdjustment && <small className="block">Rounding adjustment: {selectedMoney(item.roundingAdjustment)}</small>}</span><span className="col-span-2">{sellingQuantityLabel(item.qty, item.unit)}</span>
+                    <span className="col-span-2">{isMaterialUnit(item.unit) ? sellingRateLabel(item.unitPrice, item.unit, selected.pricingSnapshot?.currencyCode ?? selected.currencyCode ?? (typeof selected.currency === 'object' ? selected.currency.code : selected.currency) ?? currencyCode) : selectedMoney(item.unitPrice)}</span><span className="col-span-2">{selectedMoney(item.total)}</span>
                   </div>
                 )) : <div className="text-sm text-slate-500">No line items.</div>)}
               </div>

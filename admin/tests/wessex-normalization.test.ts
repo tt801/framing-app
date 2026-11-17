@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import * as XLSX from '@e965/xlsx'
 import { parseWessexMouldings } from '../server/platform/supplierFeeds/wessexMouldings.js'
 import { normalizeWessexArtifact } from '../server/platform/supplierFeeds/wessexNormalization.js'
+import { planFeed } from '../server/platform/supplierFeeds/planner.js'
 
 const sourceUrl = 'https://www.wessexpictures.com/res/WessexMouldings.xls'
 const headers = ['Reference', 'Description', 'Price/mtr', 'Width']
@@ -25,6 +26,22 @@ function parse(rows: unknown[][] = [a007, stmo], lastModified = 'Thu, 08 Oct 202
 }
 
 describe('Wessex normalization into generic Block 2E', () => {
+  it('plans locally with missing inference disabled when release completeness is not confirmed', () => {
+    const release = normalizeWessexArtifact(parse(), { ...options, completeReleaseConfirmed: false })
+    const plan = planFeed({
+      context: release.context, rows: release.planningRows, aliases: [], massChangePolicy: {},
+      existingProducts: [{
+        id: 'absent-owned-product', supplierId: options.supplierId, sourceProductKey: 'ABSENT',
+        ownerSourceId: options.sourceId, ownerScopeId: options.scopeId, productRevision: '1',
+        updatedAt: '2026-10-08T15:30:00Z', fields: release.candidates[0].fields,
+      }],
+    })
+    expect(release.context).toMatchObject({ mode: 'dry_run', authoritative: false, missingInferenceEnabled: false })
+    expect(plan.missingInferenceEligible).toBe(false)
+    expect(plan.counts).toMatchObject({ create: 2, potential_missing: 0, reject: 0 })
+    expect(plan.warnings.map(warning => warning.code)).toContain('missing_inference_disabled')
+  })
+
   it('maps A007 exactly and keeps STMO unchanged as supplier identity', () => {
     const raw = parse()
     const release = normalizeWessexArtifact(raw, options)

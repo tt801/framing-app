@@ -40,7 +40,7 @@ describe('canonical Visualiser pricing v1', () => {
     expect(job.total).toBe(snapshot.total)
     expect(invoice.total).toBe(snapshot.total)
     expect(quote.items.reduce((sum, item) => sum + item.total, 0)).toBe(snapshot.subtotal)
-    expect(invoice.items.reduce((sum, item) => sum + item.qty * item.unitPrice, 0)).toBe(snapshot.subtotal)
+    expect(invoice.items.reduce((sum, item) => sum + item.total, 0)).toBe(snapshot.subtotal)
     expect(snapshot.subtotal + snapshot.tax).toBe(snapshot.total)
     expect(snapshot.items.find(item => item.key === 'frame')).toMatchObject({ materialQuantity: 1.8, materialUnit: 'm', rawAmount: 18, productId: 'f' })
     expect(quote.items[0].unitPrice).not.toBe(18)

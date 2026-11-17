@@ -9,11 +9,11 @@ export type VisualiserPricingInput = {
 }
 export type CommercialLine = {
   key: string; description: string; productId?: string
-  qty: number; unit: 'design' | 'item'; materialQuantity?: number; materialUnit?: 'm' | 'm²' | 'design'
-  rawAmount?: number; unitPrice: number; lineTotal: number
+  qty: number; unit: 'design' | 'item' | 'm' | 'm²'; materialQuantity?: number; materialUnit?: 'm' | 'm²' | 'design'
+  rawAmount?: number; unitPrice: number; lineTotal: number; roundingAdjustment?: number
 }
 export type CommercialSnapshot = {
-  version: 1; currencyCode: string; currencySymbol?: string
+  version: 1; quantityBasis?: 'material'; currencyCode: string; currencySymbol?: string
   marginMultiplier: number; pricingRule?: 'manual-selling'; taxRate: number; taxLabel?: string; taxMode: 'exclusive'
   items: CommercialLine[]; subtotal: number; tax: number; total: number
 }
@@ -27,6 +27,18 @@ export function roundMoney(amount: number, currencyCode: string): number {
   if (!Number.isFinite(amount)) throw new Error('Invalid monetary amount')
   const factor = 10 ** currencyMinorDigits(currencyCode)
   return Math.round((amount + Number.EPSILON) * factor) / factor
+}
+
+/** Presentation only: retain material rate precision, independently of money rounding. */
+export const isMaterialUnit = (unit: unknown): unit is 'm' | 'm²' => unit === 'm' || unit === 'm²'
+export const sellingQuantityLabel = (qty: number, unit?: string) => `${qty}${isMaterialUnit(unit) ? ` ${unit}` : ''}`
+export function sellingRateLabel(rate: number, unit: string | undefined, currencyCode: string, symbol?: string) {
+  let amount: string
+  try {
+    amount = new Intl.NumberFormat('en-GB', { style: 'currency', currency: currencyCode,
+      ...(isMaterialUnit(unit) ? { maximumFractionDigits: 20 } : {}) }).format(rate)
+  } catch { amount = `${symbol ?? currencyCode + ' '}${rate}` }
+  return `${amount}${isMaterialUnit(unit) ? `/${unit}` : ''}`
 }
 
 /** taxRatePct is authoritative when present; older taxRate accepted as fraction or percent. */
@@ -49,10 +61,10 @@ export function priceVisualiser(input: VisualiserPricingInput): CommercialSnapsh
   const artArea = artWcm * artHcm / 10000
   const perimeter = 2 * (visibleWcm + visibleHcm) / 100
   const lines: Array<CommercialLine & { rawAmount: number }> = []
-  const add = (key: string, description: string, productId: string | undefined, materialQuantity: number, materialUnit: CommercialLine['materialUnit'], rate: number) => {
+  const add = (key: string, description: string, productId: string | undefined, materialQuantity: number, materialUnit: NonNullable<CommercialLine['materialUnit']>, rate: number) => {
     if (!Number.isFinite(rate) || rate < 0) throw new Error('Invalid catalogue price')
-    lines.push({ key, description, productId, qty: 1, unit: 'design', materialQuantity, materialUnit,
-      rawAmount: rate * materialQuantity, unitPrice: 0, lineTotal: 0 })
+    lines.push({ key, description, productId, qty: materialQuantity, unit: materialUnit, materialQuantity, materialUnit,
+      rawAmount: rate * materialQuantity, unitPrice: rate * marginMultiplier, lineTotal: 0 })
   }
   add('frame', `Frame (${input.frame?.name ?? 'frame'})`, input.frame?.id, perimeter, 'm', input.frame?.pricePerMeter ?? 0)
   add('glazing', `Glazing (${input.glazing?.name ?? 'glazing'})`, input.glazing?.id, area, 'm²', input.glazing?.pricePerSqM ?? 0)
@@ -78,19 +90,21 @@ export function priceVisualiser(input: VisualiserPricingInput): CommercialSnapsh
   }
   if (difference !== 0) throw new Error('Cannot reconcile selling lines')
   lines.forEach((line, index) => {
-    line.unitPrice = lineUnits[index] / factor
-    line.lineTotal = line.unitPrice
+    line.lineTotal = lineUnits[index] / factor
+    // Preserve the agreed aggregate allocation, not a rounded/reverse-engineered rate.
+    line.roundingAdjustment = roundMoney(line.lineTotal - roundMoney(line.qty * line.unitPrice, currencyCode), currencyCode)
   })
   const subtotal = subtotalUnits / factor
   const taxRate = taxRatePct / 100
   const taxUnits = Math.round((subtotal * taxRate + Number.EPSILON) * factor)
   const tax = taxUnits / factor
   const total = (subtotalUnits + taxUnits) / factor
-  return { version: 1, currencyCode, currencySymbol: input.currencySymbol, marginMultiplier,
+  return { version: 1, quantityBasis: 'material', currencyCode, currencySymbol: input.currencySymbol, marginMultiplier,
     taxRate, taxLabel: input.taxLabel, taxMode: 'exclusive', items: lines, subtotal, tax, total }
 }
 
-export type SellingDraftItem = { id?: string; description: string; qty: number; unitPrice: number }
+export type SellingDraftItem = { id?: string; description: string; qty: number; unitPrice: number;
+  unit?: CommercialLine['unit']; preserveUnitPrice?: boolean; agreedLineTotal?: number }
 export type SellingDocumentInput = { items: SellingDraftItem[]; currencyCode: string; currencySymbol?: string; taxRatePct: number; taxLabel?: string }
 
 /** Manual unit prices are already SELLING prices. Never apply the Visualiser multiplier. */
@@ -101,10 +115,13 @@ export function priceSellingDocument(input: SellingDocumentInput): CommercialSna
   const items: CommercialLine[] = input.items.map((item, index) => {
     if (![item.qty, item.unitPrice].every(Number.isFinite) || item.qty < 0 || item.unitPrice < 0)
       throw new Error('Invalid selling item')
-    const unitPrice = roundMoney(item.unitPrice, currencyCode)
-    const lineTotal = roundMoney(item.qty * unitPrice, currencyCode)
+    const unitPrice = item.preserveUnitPrice ? item.unitPrice : roundMoney(item.unitPrice, currencyCode)
+    const calculated = roundMoney(item.qty * unitPrice, currencyCode)
+    const lineTotal = item.agreedLineTotal ?? calculated
+    if (!Number.isFinite(lineTotal) || lineTotal < 0) throw new Error('Invalid agreed line total')
     return { key: item.id ?? `manual-${index}`, description: item.description, qty: item.qty,
-      unit: 'item', unitPrice, lineTotal }
+      unit: item.unit ?? 'item', unitPrice, lineTotal,
+      ...(item.preserveUnitPrice ? { roundingAdjustment: roundMoney(lineTotal - calculated, currencyCode) } : {}) }
   })
   const subtotalUnits = items.reduce((sum, item) => sum + Math.round(item.lineTotal * factor), 0)
   const subtotal = subtotalUnits / factor
@@ -116,7 +133,8 @@ export function priceSellingDocument(input: SellingDocumentInput): CommercialSna
 }
 
 export function toVisualiserQuote(snapshot: CommercialSnapshot) {
-  return { items: snapshot.items.map(line => ({ name: line.description, qty: line.qty, unitPrice: line.unitPrice, total: line.lineTotal })),
+  return { items: snapshot.items.map(line => ({ name: line.description, ...(line.productId !== undefined ? { productId: line.productId } : {}), qty: line.qty, unit: line.unit, unitPrice: line.unitPrice,
+    total: line.lineTotal, ...(line.roundingAdjustment !== undefined ? { roundingAdjustment: line.roundingAdjustment } : {}) })),
     subtotal: snapshot.subtotal, taxRate: snapshot.taxRate, tax: snapshot.tax, total: snapshot.total,
     currency: snapshot.currencyCode, currencyCode: snapshot.currencyCode, currencySymbol: snapshot.currencySymbol,
     pricingSnapshot: snapshot }
@@ -132,7 +150,8 @@ export function toVisualiserJobCosts(snapshot: CommercialSnapshot) {
 
 export function toVisualiserInvoice(snapshot: CommercialSnapshot) {
   return { items: snapshot.items.map(line => ({ id: `${line.key}-${Math.random().toString(36).slice(2, 9)}`,
-    name: line.description, description: line.description, qty: line.qty, unitPrice: line.unitPrice })),
+    name: line.description, description: line.description, ...(line.productId !== undefined ? { productId: line.productId } : {}), qty: line.qty, unit: line.unit, unitPrice: line.unitPrice,
+    total: line.lineTotal, ...(line.roundingAdjustment !== undefined ? { roundingAdjustment: line.roundingAdjustment } : {}) })),
     subtotal: snapshot.subtotal, taxRate: snapshot.taxRate, tax: snapshot.tax, total: snapshot.total,
     currencyCode: snapshot.currencyCode, currencySymbol: snapshot.currencySymbol, pricingSnapshot: snapshot }
 }

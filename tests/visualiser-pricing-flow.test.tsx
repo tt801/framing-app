@@ -16,7 +16,7 @@ type Saved = {
   total: number
   subtotal: number
   tax: number
-  items: { total: number; unitPrice: number; qty: number }[]
+  items: { total: number; unitPrice: number; qty: number; unit?: string; roundingAdjustment?: number }[]
 }
 type PdfArgs = { invoice: Saved }
 const captured = vi.hoisted(() => ({
@@ -105,7 +105,12 @@ describe('Visualiser persistence uses its displayed commercial result', () => {
     expect(quote.total).toBe(job.total)
     expect(quote.total).toBe(invoice.total)
     expect(quote.items.reduce((sum, line) => sum + line.total, 0)).toBe(quote.subtotal)
-    expect(invoice.items.reduce((sum, line) => sum + line.unitPrice * line.qty, 0)).toBe(invoice.subtotal)
+    expect(invoice.items.reduce((sum, line) => sum + line.total, 0)).toBe(invoice.subtotal)
+    for (const document of [quote, invoice]) {
+      expect(document.pricingSnapshot.quantityBasis).toBe('material')
+      expect(document.items[0]).toMatchObject({ unit: 'm', qty: document.pricingSnapshot.items[0].materialQuantity, unitPrice: 12.5 })
+      expect(document.items[1]).toMatchObject({ unit: 'm²', qty: document.pricingSnapshot.items[1].materialQuantity, unitPrice: 10 })
+    }
     expect(invoice.subtotal + invoice.tax).toBe(invoice.total)
     expect(captured.invoices).toHaveLength(1)
     expect(screen.getByText(money(quote.total))).toBeTruthy()

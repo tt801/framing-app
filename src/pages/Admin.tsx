@@ -10,8 +10,11 @@ import {
   newPrintingMaterial,
   newBacker,      
 } from "@/lib/store";
-import type { Frame, Mat, Glazing, PrintingMaterial } from "@/lib/store";
+import type { Frame, Mat, Glazing, PrintingMaterial, Backer } from "@/lib/store";
+import MaterialRateEditor from '@/components/MaterialRateEditor';
+import { pricingSettingsIssue } from '@/lib/materialPricing';
 import AddressAutocomplete from "@/components/AddressAutocomplete";
+import SupplierManagementPanel from "@/components/SupplierManagementPanel";
 import { useBillingPortal, useBillingSummary } from "@/lib/billing";
 import { useToast } from "@/lib/toast";
 import { helpSections } from "@/lib/helpContent";
@@ -72,8 +75,6 @@ const num = (v: any, d = 0) => {
 
 const money = (v: any, symbol = "£") => `${symbol}${num(v, 0).toFixed(2)}`;
 
-const rid = () => Math.random().toString(36).slice(2, 10);
-
 const ROLE_OPTIONS: Array<{ value: AppUserRole; label: string; summary: string }> = [
   { value: "owner", label: "Owner", summary: "Full control over billing, setup, and team decisions." },
   { value: "manager", label: "Manager", summary: "Runs day-to-day operations, scheduling, and approvals." },
@@ -101,14 +102,7 @@ function matchesUserFilter(user: AppUser, filter: (typeof USER_FILTER_OPTIONS)[n
 }
 
 /* Backer board type (local to this file) */
-type BackerBoard = {
-  id?: string;
-  name?: string;
-  code?: string;
-  kind?: string; // e.g. MDF / Conservation
-  costPerSqm?: number;
-  markupPercent?: number;
-};
+type BackerBoard = Backer;
 
 /* ------------------------------------------------------------------
    Main page
@@ -122,6 +116,7 @@ type TabId =
   | "printing"
   | "backers"
   | "jobs"
+  | "suppliers"
   | "integrations"
   | "tickets"
   | "users"
@@ -179,6 +174,7 @@ export default function AdminPage() {
               ["printing", "Printing"],
               ["backers", "Backer boards"],
               ["jobs", "Jobs"],
+              ["suppliers", "Suppliers"],
               ["integrations", "Integrations"],
               ["tickets", "Support tickets"],
               ["users", "Users"],
@@ -201,7 +197,7 @@ export default function AdminPage() {
 
         {/* Panel */}
         <section className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 p-4 md:p-6 space-y-4">
-          {editor.error ? (
+          {activeTab === "suppliers" ? null : editor.error ? (
             <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
               <p>Catalogue changes are not saved. Your latest draft is still shown. {editor.error}</p>
               <button type="button" disabled={editor.saving} onClick={() => void editor.retry()}
@@ -234,6 +230,7 @@ export default function AdminPage() {
           {activeTab === "frames" && (
             <FramesPanel
               frames={frames}
+              multiplier={settings.marginMultiplier}
               currencySymbol={currencySymbol}
               onChange={(next) => saveCatalog({ frames: next })}
             />
@@ -242,6 +239,7 @@ export default function AdminPage() {
           {activeTab === "mats" && (
             <MatsPanel
               mats={mats}
+              multiplier={settings.marginMultiplier}
               currencySymbol={currencySymbol}
               onChange={(next) => saveCatalog({ mats: next })}
             />
@@ -250,6 +248,7 @@ export default function AdminPage() {
           {activeTab === "glazing" && (
             <GlazingPanel
               glazing={glazing}
+              multiplier={settings.marginMultiplier}
               currencySymbol={currencySymbol}
               onChange={(next) => saveCatalog({ glazing: next })}
             />
@@ -258,6 +257,7 @@ export default function AdminPage() {
           {activeTab === "printing" && (
             <PrintingPanel
               printingMaterials={printingMaterials}
+              multiplier={settings.marginMultiplier}
               currencySymbol={currencySymbol}
               onChange={(next) =>
                 saveCatalog({ printingMaterials: next })
@@ -268,6 +268,7 @@ export default function AdminPage() {
           {activeTab === "backers" && (
             <BackersPanel
               backers={backers}
+              multiplier={settings.marginMultiplier}
               currencySymbol={currencySymbol}
               onChange={(next) =>
                 saveCatalog({
@@ -300,6 +301,8 @@ export default function AdminPage() {
             />
           )}
 
+          {activeTab === "suppliers" && <SupplierManagementPanel />}
+
           {activeTab === "tickets" && <SupportTicketsPanel />}
 
           {activeTab === "users" && <CompanyAccessPanel />}
@@ -331,9 +334,19 @@ function CompanyPanel({
     bankDetails: settings.bankDetails || "",
   }));
 
+  const { add: toast } = useToast();
+
   const save = async () => {
-    const result = await onChange(draft);
-    alert(result?.ok === false ? result.error : "Company settings saved.");
+    try {
+      const result = await onChange(draft);
+      if (result?.ok === true) {
+        toast("Company settings saved.", "success");
+      } else {
+        toast(result?.error || "Could not save company settings.", "error");
+      }
+    } catch {
+      toast("Could not save company settings. Please try again.", "error");
+    }
   };
 
   return (
@@ -483,6 +496,12 @@ function SettingsPanel({
     nextInvoiceNumber: settings.nextInvoiceNumber || 1001,
     foamBackerEnabled: !!settings.foamBackerEnabled,
     invoiceFooterNote: settings.invoiceFooterNote || "",
+    marginMultiplier: String(settings.marginMultiplier ?? 1),
+    labourBase: String(settings.labourBase ?? 0),
+    printingPerSqM: String(settings.printingPerSqM ?? ''),
+    foamBackerPerSqM: String(settings.foamBackerPerSqM ?? ''),
+    printingAllowZeroPrice: settings.printingAllowZeroPrice === true,
+    foamBackerAllowZeroPrice: settings.foamBackerAllowZeroPrice === true,
   }));
 
   const selectedCurrency = useMemo(
@@ -490,9 +509,31 @@ function SettingsPanel({
     [draft.currencyCode]
   );
 
+  const { add: toast } = useToast();
+
   const save = async () => {
-    const result = await onSave({ ...draft, taxRatePct: draft.taxRate });
-    alert(result?.ok === false ? result.error : "Settings saved.");
+    try {
+      const pricing = {
+        marginMultiplier: draft.marginMultiplier === '' ? undefined : Number(draft.marginMultiplier),
+        labourBase: draft.labourBase === '' ? undefined : Number(draft.labourBase),
+        printingPerSqM: draft.printingPerSqM === '' ? undefined : Number(draft.printingPerSqM),
+        foamBackerPerSqM: draft.foamBackerPerSqM === '' ? undefined : Number(draft.foamBackerPerSqM),
+      };
+      const issue = pricingSettingsIssue(pricing);
+      const clearedFallback = (['printingPerSqM', 'foamBackerPerSqM'] as const).some(key => pricing[key] === undefined && settings[key] !== undefined);
+      if (issue || clearedFallback || [pricing.printingPerSqM, pricing.foamBackerPerSqM].some(rate => rate !== undefined && (!Number.isFinite(rate) || rate < 0))) {
+        toast(issue || 'Enter explicit finite, non-negative fallback base rates. Clear does not mean free.', 'error');
+        return;
+      }
+      const result = await onSave({ ...draft, ...pricing, taxRatePct: draft.taxRate });
+      if (result?.ok === true) {
+        toast("Settings saved.", "success");
+      } else {
+        toast(result?.error || "Could not save settings.", "error");
+      }
+    } catch {
+      toast("Could not save settings. Please try again.", "error");
+    }
   };
 
   return (
@@ -501,6 +542,26 @@ function SettingsPanel({
       <p className="text-sm text-slate-500">
         Defaults used across Visualizer, Quotes, Invoices and Customers.
       </p>
+
+      <fieldset className="space-y-3 rounded-xl border p-3">
+        <legend className="font-medium">Selling-price configuration</legend>
+        <p className="text-sm">Effective selling rate = base material rate × global selling multiplier, excluding tax. Applied once to all materials and labour. Purchase costs and inactive individual markup are not applied. Use ×1 for final selling rates.</p>
+        {([
+          ['marginMultiplier', 'Global selling multiplier'],
+          ['labourBase', 'Labour base rate per design'],
+          ['printingPerSqM', 'Fallback printing base rate / m²'],
+          ['foamBackerPerSqM', 'Legacy foam backing base rate / m²'],
+        ] as const).map(([key, label]) => <label key={key} className="block text-sm">{label}
+          <input aria-label={label} type="number" min="0" step="any" className="ml-2 rounded border px-2 py-1"
+            value={draft[key]} onChange={event => setDraft(previous => ({ ...previous, [key]: event.target.value,
+              ...(key === 'printingPerSqM' ? { printingAllowZeroPrice: false } : {}),
+              ...(key === 'foamBackerPerSqM' ? { foamBackerAllowZeroPrice: false } : {}),
+            }))} />
+        </label>)}
+        <p>Effective labour selling price (excl. tax): {draft.labourBase !== '' && draft.marginMultiplier !== '' && !pricingSettingsIssue({ labourBase: Number(draft.labourBase), marginMultiplier: Number(draft.marginMultiplier) })
+          ? `${draft.currencySymbol}${Number(draft.labourBase) * Number(draft.marginMultiplier)} per design` : 'Not configured'}</p>
+        <p className="text-xs">Explicit zero fallback rates are valid. Blank rates are not free. Legacy foam is separate from configured backing materials.</p>
+      </fieldset>
 
       {/* Currency + symbol */}
       <div className="grid gap-3 sm:grid-cols-2">
@@ -662,10 +723,12 @@ function SettingsPanel({
 
 function FramesPanel({
   frames,
+  multiplier,
   currencySymbol,
   onChange,
 }: {
   frames: Frame[];
+  multiplier: number;
   currencySymbol: string;
   onChange: (next: Frame[]) => void;
 }) {
@@ -699,7 +762,7 @@ function FramesPanel({
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        Cost per meter is used in Visualizer and job costing.
+        Base material rates × global selling multiplier determine selling prices, excluding tax. Purchase costs and legacy individual markup are not applied.
       </p>
 
       {frames.length === 0 && (
@@ -716,8 +779,7 @@ function FramesPanel({
                 <th className="py-1 pr-2">Name</th>
                 <th className="py-1 pr-2">Code</th>
                 <th className="py-1 pr-2">Colour</th>
-                <th className="py-1 pr-2">Cost / m</th>
-                <th className="py-1 pr-2">Markup %</th>
+                <th className="py-1 pr-2">Base material rate / m</th>
                 <th className="py-1 pr-2 w-10" />
               </tr>
             </thead>
@@ -777,34 +839,8 @@ function FramesPanel({
                 </td>
 
                 <td className="py-1 pr-2">
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-slate-500">
-                      {currencySymbol}
-                    </span>
-                    <input
-                      type="number"
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(f as any).pricePerMeter ?? (f as any).costPerMeter ?? ""}
-                      onChange={(e) =>
-                        updateFrameRow(idx, {
-                          pricePerMeter: num(e.target.value, 0),
-                        } as any)
-                      }
-                    />
-                  </div>
-                </td>
-
-                <td className="py-1 pr-2">
-                  <input
-                    type="number"
-                    className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                    value={(f as any).markupPct ?? ""}
-                    onChange={(e) =>
-                      updateFrameRow(idx, {
-                        markupPct: num(e.target.value, 0),
-                      } as any)
-                    }
-                  />
+                  <MaterialRateEditor product={f} rate={f.pricePerMeter} unit="m" multiplier={multiplier} currencySymbol={currencySymbol}
+                    onChange={(pricePerMeter, allowZeroPrice) => updateFrameRow(idx, { pricePerMeter, allowZeroPrice })} />
                 </td>
 
                 <td className="py-1 pl-2 text-right">
@@ -838,10 +874,12 @@ function FramesPanel({
 
 function MatsPanel({
   mats,
+  multiplier,
   currencySymbol,
   onChange,
 }: {
   mats: Mat[];
+  multiplier: number;
   currencySymbol: string;
   onChange: (next: Mat[]) => void;
 }) {
@@ -875,7 +913,7 @@ function MatsPanel({
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        Cost per square meter, used for single / multi-aperture layouts.
+        Base material rates × global selling multiplier determine selling prices, excluding tax. Purchase costs and legacy individual markup are not applied.
       </p>
 
       {mats.length === 0 && (
@@ -891,8 +929,7 @@ function MatsPanel({
               <tr className="text-left text-slate-500 border-b">
                 <th className="py-1 pr-2">Name</th>
                 <th className="py-1 pr-2">Colour</th>
-                <th className="py-1 pr-2">Cost / m²</th>
-                <th className="py-1 pr-2">Markup %</th>
+                <th className="py-1 pr-2">Base material rate / m²</th>
                 <th className="py-1 pr-2 w-10" />
               </tr>
             </thead>
@@ -940,34 +977,8 @@ function MatsPanel({
                     </td>
 
                     <td className="py-1 pr-2">
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-slate-500">
-                          {currencySymbol}
-                        </span>
-                        <input
-                          type="number"
-                          className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                          value={(m as any).pricePerSqM ?? ""}
-                          onChange={(e) =>
-                            updateMatRow(idx, {
-                              pricePerSqM: num(e.target.value, 0),
-                            } as any)
-                          }
-                        />
-                      </div>
-                    </td>
-
-                    <td className="py-1 pr-2">
-                      <input
-                        type="number"
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                        value={(m as any).markupPct ?? ""}
-                        onChange={(e) =>
-                          updateMatRow(idx, {
-                            markupPct: num(e.target.value, 0),
-                          } as any)
-                        }
-                      />
+                      {m.id === 'mat0' ? <span>No mat — not charged</span> : <MaterialRateEditor product={m} rate={m.pricePerSqM} unit="m²" multiplier={multiplier} currencySymbol={currencySymbol}
+                        onChange={(pricePerSqM, allowZeroPrice) => updateMatRow(idx, { pricePerSqM, allowZeroPrice })} />}
                     </td>
 
                     <td className="py-1 pl-2 text-right">
@@ -1001,10 +1012,12 @@ function MatsPanel({
 
 function GlazingPanel({
   glazing,
+  multiplier,
   currencySymbol,
   onChange,
 }: {
   glazing: Glazing[];
+  multiplier: number;
   currencySymbol: string;
   onChange: (next: Glazing[]) => void;
 }) {
@@ -1038,7 +1051,7 @@ function GlazingPanel({
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        Manual material rate per square meter, before the Visualiser multiplier. This is not a supplier wholesale cost.
+        Base material rates × global selling multiplier determine selling prices, excluding tax. Purchase costs and legacy individual markup are not applied.
       </p>
 
       {glazing.length === 0 && (
@@ -1054,8 +1067,7 @@ function GlazingPanel({
               <tr className="text-left text-slate-500 border-b">
                 <th className="py-1 pr-2">Name</th>
                 <th className="py-1 pr-2">Type</th>
-                <th className="py-1 pr-2">Material rate / m²</th>
-                <th className="py-1 pr-2">Markup %</th>
+                <th className="py-1 pr-2">Base material rate / m²</th>
                 <th className="py-1 pr-2 w-10" />
               </tr>
             </thead>
@@ -1081,34 +1093,8 @@ function GlazingPanel({
                     />
                   </td>
                   <td className="py-1 pr-2">
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-slate-500">
-                        {currencySymbol}
-                      </span>
-                      <input
-                        type="number"
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                        aria-label={`Glazing material rate ${idx + 1}`}
-                        value={g.pricePerSqM ?? ""}
-                        onChange={(e) =>
-                          updateRow(idx, {
-                            pricePerSqM: Number(e.target.value) || 0,
-                          })
-                        }
-                      />
-                    </div>
-                  </td>
-                  <td className="py-1 pr-2">
-                    <input
-                      type="number"
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(g as any).markupPercent ?? ""}
-                      onChange={(e) =>
-                        updateRow(idx, {
-                          markupPercent: Number(e.target.value) || 0,
-                        } as any)
-                      }
-                    />
+                    <MaterialRateEditor product={g} rate={g.pricePerSqM} unit="m²" multiplier={multiplier} currencySymbol={currencySymbol}
+                      onChange={(pricePerSqM, allowZeroPrice) => updateRow(idx, { pricePerSqM, allowZeroPrice })} />
                   </td>
                   <td className="py-1 pr-2 text-right">
                     <button
@@ -1134,10 +1120,12 @@ function GlazingPanel({
 
 function PrintingPanel({
   printingMaterials,
+  multiplier,
   currencySymbol,
   onChange,
 }: {
   printingMaterials: PrintingMaterial[];
+  multiplier: number;
   currencySymbol: string;
   onChange: (next: PrintingMaterial[]) => void;
 }) {
@@ -1171,8 +1159,7 @@ function PrintingPanel({
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        Cost per square meter for in-house printing media (paper, canvas,
-        metal, etc).
+        Base material rates × global selling multiplier determine selling prices, excluding tax. Purchase costs and legacy individual markup are not applied.
       </p>
 
       {printingMaterials.length === 0 && (
@@ -1189,8 +1176,7 @@ function PrintingPanel({
               <tr className="text-left text-slate-500 border-b">
                 <th className="py-1 pr-2">Name</th>
                 <th className="py-1 pr-2">Type</th>
-                <th className="py-1 pr-2">Cost / m²</th>
-                <th className="py-1 pr-2">Markup %</th>
+                <th className="py-1 pr-2">Base material rate / m²</th>
                 <th className="py-1 pr-2 w-10" />
               </tr>
             </thead>
@@ -1216,33 +1202,8 @@ function PrintingPanel({
                     />
                   </td>
                   <td className="py-1 pr-2">
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-slate-500">
-                        {currencySymbol}
-                      </span>
-                      <input
-                        type="number"
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                        value={(p as any).costPerSqm ?? ""}
-                        onChange={(e) =>
-                          updateRow(idx, {
-                            costPerSqm: Number(e.target.value) || 0,
-                          } as any)
-                        }
-                      />
-                    </div>
-                  </td>
-                  <td className="py-1 pr-2">
-                    <input
-                      type="number"
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={(p as any).markupPercent ?? ""}
-                      onChange={(e) =>
-                        updateRow(idx, {
-                          markupPercent: Number(e.target.value) || 0,
-                        } as any)
-                      }
-                    />
+                    <MaterialRateEditor product={p} rate={p.pricePerSqM} unit="m²" multiplier={multiplier} currencySymbol={currencySymbol}
+                      onChange={(pricePerSqM, allowZeroPrice) => updateRow(idx, { pricePerSqM, allowZeroPrice })} />
                   </td>
                   <td className="py-1 pr-2 text-right">
                     <button
@@ -1268,22 +1229,17 @@ function PrintingPanel({
 
 function BackersPanel({
   backers,
+  multiplier,
   currencySymbol,
   onChange,
 }: {
   backers: BackerBoard[];
+  multiplier: number;
   currencySymbol: string;
   onChange: (next: BackerBoard[]) => void;
 }) {
   const addBacker = () => {
-    const b: BackerBoard = {
-      id: rid(),
-      name: "New backer board",
-      code: "",
-      kind: "",
-      costPerSqm: 0,
-      markupPercent: 0,
-    };
+    const b = newBacker({ name: 'New backer board' });
     onChange([...(backers || []), b]);
   };
 
@@ -1312,8 +1268,7 @@ function BackersPanel({
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        Different backing boards (MDF, foam, conservation, etc). Cost is per
-        square meter.
+        Base material rates × global selling multiplier determine selling prices, excluding tax. Purchase costs and legacy individual markup are not applied.
       </p>
 
       {backers.length === 0 && (
@@ -1330,8 +1285,7 @@ function BackersPanel({
                 <th className="py-1 pr-2">Name</th>
                 <th className="py-1 pr-2">Code / SKU</th>
                 <th className="py-1 pr-2">Type</th>
-                <th className="py-1 pr-2">Cost / m²</th>
-                <th className="py-1 pr-2">Markup %</th>
+                <th className="py-1 pr-2">Base material rate / m²</th>
                 <th className="py-1 pr-2 w-10" />
               </tr>
             </thead>
@@ -1367,33 +1321,8 @@ function BackersPanel({
                     />
                   </td>
                   <td className="py-1 pr-2">
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-slate-500">
-                        {currencySymbol}
-                      </span>
-                      <input
-                        type="number"
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                        value={b.costPerSqm ?? ""}
-                        onChange={(e) =>
-                          updateRow(idx, {
-                            costPerSqm: num(e.target.value, 0),
-                          })
-                        }
-                      />
-                    </div>
-                  </td>
-                  <td className="py-1 pr-2">
-                    <input
-                      type="number"
-                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                      value={b.markupPercent ?? ""}
-                      onChange={(e) =>
-                        updateRow(idx, {
-                          markupPercent: num(e.target.value, 0),
-                        })
-                      }
-                    />
+                    <MaterialRateEditor product={b} rate={b.pricePerSqM} unit="m²" multiplier={multiplier} currencySymbol={currencySymbol}
+                      onChange={(pricePerSqM, allowZeroPrice) => updateRow(idx, { pricePerSqM, allowZeroPrice })} />
                   </td>
                   <td className="py-1 pr-2 text-right">
                     <button

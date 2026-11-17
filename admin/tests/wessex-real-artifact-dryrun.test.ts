@@ -1,18 +1,20 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { parseWessexMouldings } from '../server/platform/supplierFeeds/wessexMouldings.js'
 import { normalizeWessexArtifact } from '../server/platform/supplierFeeds/wessexNormalization.js'
 import { planFeed } from '../server/platform/supplierFeeds/planner.js'
 
-const artifactPath = '/opt/data/cache/scratch/wessex-block2f/WessexMouldings.xls'
-const outputPath = '/opt/data/cache/scratch/wessex-block2f/phase2_dryrun_results.json'
+// Optional genuine historical evidence, never replaced by a synthetic/current file.
+// An explicitly supplied missing or wrong-checksum file must fail, not skip.
+const artifactPath = process.env.WESSEX_HISTORICAL_ARTIFACT_PATH
 const sourceUrl = 'https://www.wessexpictures.com/res/WessexMouldings.xls'
 
-describe('real Wessex artifact dry run through parser + normalizer + planner', () => {
+describe.skipIf(!artifactPath)('historical Wessex artifact dry run (requires WESSEX_HISTORICAL_ARTIFACT_PATH)', () => {
   it('records artifact statistics and empty-state planner counts without DB writes', () => {
-    const bytes = readFileSync(artifactPath)
+    const bytes = readFileSync(artifactPath!)
     const sha256 = createHash('sha256').update(bytes).digest('hex')
+    expect(sha256).toBe('f96d393af1847d30929b8be8a2e165404a48ed6c3e93f7bcc6c2b0fd0d0f7e80')
     const raw = parseWessexMouldings(bytes, {
       sourceUrl,
       originalFilename: 'WessexMouldings.xls',
@@ -63,7 +65,7 @@ describe('real Wessex artifact dry run through parser + normalizer + planner', (
       pw45SupplierDescription: pw45?.fields.supplierDescription,
       plannerEmptyStateCounts: emptyPlan.counts,
     }
-    writeFileSync(outputPath, JSON.stringify(output, null, 2))
+    expect(output).toMatchObject({ normalizedCandidateCount: 1194, rejectedNormalizationRowCount: 0, duplicateSourceProductKeyCount: 0 })
 
     expect(sha256).toBe('f96d393af1847d30929b8be8a2e165404a48ed6c3e93f7bcc6c2b0fd0d0f7e80')
     expect(raw.observedRows).toBe(1194)

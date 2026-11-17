@@ -12,7 +12,7 @@ import { documentDraft } from '@/lib/customerMessages';
 import { useInvoices } from "@/lib/invoices";
 import { useJobs } from "@/lib/jobs";
 import { createManualDraft, editManualDraft, invoiceFromQuote, type CommercialItem } from "@/lib/commercialDocuments";
-import { effectiveTaxRatePct } from "@/lib/pricing";
+import { effectiveTaxRatePct, isMaterialUnit, sellingQuantityLabel, sellingRateLabel } from "@/lib/pricing";
 import { useToast } from "@/lib/toast";
 import { useHistory } from "@/lib/history";
 import StatusBadge from "@/components/StatusBadge";
@@ -156,14 +156,14 @@ const coerceItem = (raw: any) => {
     qty * unitPrice
   );
 
-  return { name: String(name), qty, unitPrice, total };
+  return { id: raw?.id, productId: raw?.productId, name: String(name), qty, unitPrice, total, unit: raw?.unit, roundingAdjustment: raw?.roundingAdjustment };
 };
 
 const pickArray = (v: any): any[] | null => (Array.isArray(v) ? v : null);
 
 const extractItems = (
   row: any
-): Array<{ name: string; qty: number; unitPrice: number; total: number }> => {
+): Array<ReturnType<typeof coerceItem>> => {
   const candidates: Array<any[] | null> = [
     pickArray(row?.items),
     pickArray(row?.lineItems),
@@ -596,7 +596,7 @@ export default function QuotesPage() {
   const selectedItems = useMemo(() => (selected ? extractItems(selected) : []), [selected]);
   const [draftItems, setDraftItems] = useState<CommercialItem[]>([]);
   React.useEffect(() => {
-    setDraftItems(selected ? extractItems(selected).map((it, index) => ({ id: `line-${index}`, name: it.name, qty: it.qty, unitPrice: it.unitPrice })) : []);
+    setDraftItems(selected ? extractItems(selected).map((it, index) => ({ ...it, id: it.id ?? `line-${index}` })) : []);
   }, [selected?.id, selected?.items]);
   const quoteDraftDirty = Boolean(selected && normaliseStatus(selected) === 'Draft' &&
     JSON.stringify(draftItems.map(({name, qty, unitPrice}) => ({name, qty, unitPrice}))) !==
@@ -1229,11 +1229,12 @@ export default function QuotesPage() {
                       <div key={item.id ?? index} className="grid grid-cols-12 gap-2 items-center mb-2">
                         <input aria-label={`Quote description ${index + 1}`} className="col-span-4 rounded-lg border p-2" value={item.name ?? ''}
                           onChange={e => setDraftItems(prev => prev.map((row, i) => i === index ? {...row, name: e.target.value} : row))}/>
-                        <input aria-label={`Quote quantity ${index + 1}`} type="number" min="0" step="any" className="col-span-2 rounded-lg border p-2" value={item.qty}
-                          onChange={e => setDraftItems(prev => prev.map((row, i) => i === index ? {...row, qty: Number(e.target.value)} : row))}/>
-                        <input aria-label={`Quote unit price ${index + 1}`} type="number" min="0" step="any" className="col-span-2 rounded-lg border p-2" value={item.unitPrice}
-                          onChange={e => setDraftItems(prev => prev.map((row, i) => i === index ? {...row, unitPrice: Number(e.target.value)} : row))}/>
-                        <span className="col-span-2 text-right">{fmt(draftPreview?.items[index]?.total ?? 0, selected.currency || overviewCurrencyCode)}</span>
+                        <label className="col-span-2"><input aria-label={`Quote quantity ${index + 1}`} type="number" min="0" step="any" className="w-full rounded-lg border p-2" value={item.qty}
+                          onChange={e => setDraftItems(prev => prev.map((row, i) => i === index ? {...row, qty: Number(e.target.value)} : row))}/>{isMaterialUnit(item.unit) && <span>{item.unit}</span>}</label>
+                        <label className="col-span-2"><input aria-label={`Quote unit price ${index + 1}`} type="number" min="0" step="any" className="w-full rounded-lg border p-2" value={item.unitPrice}
+                          onChange={e => setDraftItems(prev => prev.map((row, i) => i === index ? {...row, unitPrice: Number(e.target.value)} : row))}/>{isMaterialUnit(item.unit) && <span>/{item.unit}</span>}</label>
+                        <span className="col-span-2 text-right">{fmt(draftPreview?.items[index]?.total ?? 0, selected.currency || overviewCurrencyCode)}
+                          {!!draftPreview?.items[index]?.roundingAdjustment && <small className="block">Rounding adjustment: {fmt(draftPreview.items[index].roundingAdjustment, selected.currency || overviewCurrencyCode)}</small>}</span>
                         <button type="button" className="col-span-2 text-red-600 text-sm" onClick={() => setDraftItems(prev => prev.filter((_, i) => i !== index))}>Remove</button>
                       </div>
                     ))}
@@ -1247,8 +1248,9 @@ export default function QuotesPage() {
                   </>
                 ) : selectedItems.length > 0 ? (
                   <table className="w-full text-sm"><thead><tr className="text-left"><th>Description</th><th>Quantity</th><th>Unit price</th><th>Line total</th></tr></thead><tbody>
-                    {selectedItems.map((item, index) => <tr key={index}><td>{item.name}</td><td>{item.qty}</td>
-                      <td>{fmt(item.unitPrice, selected.currency || overviewCurrencyCode)}</td><td>{fmt(item.total, selected.currency || overviewCurrencyCode)}</td></tr>)}
+                    {selectedItems.map((item, index) => <tr key={index}><td>{item.name}
+                      {!!item.roundingAdjustment && <small className="block">Rounding adjustment: {fmt(item.roundingAdjustment, selected.currency || overviewCurrencyCode)}</small>}</td><td>{sellingQuantityLabel(item.qty, item.unit)}</td>
+                      <td>{isMaterialUnit(item.unit) ? sellingRateLabel(item.unitPrice, item.unit, selected.pricingSnapshot?.currencyCode ?? selected.currencyCode ?? (typeof selected.currency === 'object' ? selected.currency.code : selected.currency) ?? overviewCurrencyCode) : fmt(item.unitPrice, selected.currency || overviewCurrencyCode)}</td><td>{fmt(item.total, selected.currency || overviewCurrencyCode)}</td></tr>)}
                   </tbody></table>
                 ) : <div className="text-sm text-slate-500">No line items found.</div>}
               </div>

@@ -2,9 +2,10 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 
 // STORES / LIBS
-import { useCatalog } from "@/lib/store";
+import { useCatalog, type PrintingMaterial } from "@/lib/store";
+import { materialRateIssue, pricingSettingsIssue, type MaterialPricingMetadata } from '@/lib/materialPricing';
 import { useEffectiveCompanyCatalogue } from "@/lib/effectiveSupplierAccess";
-import { priceVisualiser, effectiveTaxRatePct, toVisualiserQuote, toVisualiserJobCosts, toVisualiserInvoice } from "@/lib/pricing";
+import { priceVisualiser, effectiveTaxRatePct, sellingRateLabel, toVisualiserQuote, toVisualiserJobCosts, toVisualiserInvoice } from "@/lib/pricing";
 import { useQuotes } from "@/lib/quotes";
 import { useCustomers, validateCustomer, type Customer } from "@/lib/customers";
 import { useInvoices } from "@/lib/invoices";
@@ -219,7 +220,7 @@ function makeJobChecklist() {
 }
 
 export default function VisualizerApp() {
-  const { catalog } = useCatalog();
+  const { catalog, loading: catalogLoading, settingsLoading, error: catalogError, settingsError } = useCatalog();
   const billing = useBillingAccess();
   const effectiveCatalogue = useEffectiveCompanyCatalogue(billing.companyAccountId, catalog);
   const qStore = useQuotes() as any;
@@ -257,12 +258,12 @@ export default function VisualizerApp() {
     return invoicesStore.addInvoice(invoice);
   };
 
-  const settings = catalog?.settings || {};
+  const settings = catalog?.settings || {} as Partial<import('@/lib/store').Settings>;
   const currencyCode = getSettingsCurrency(settings);
   const currencySymbol =
     settings?.currencySymbol || symbolFor(currencyCode) || "R ";
 
-  const defaultFrameId = catalog?.frames?.[0]?.id || "fr1";
+  const defaultFrameId = catalog?.frames?.[0]?.id || "";
 
   const moneyIntl = (n: number) => {
     try {
@@ -331,33 +332,36 @@ export default function VisualizerApp() {
   const [includePrint, setIncludePrint] = useState(false);
   const [printMaterialId, setPrintMaterialId] = useState<string>("");
   const [includeBacker, setIncludeBacker] = useState(false);
+  const [backerMaterialId, setBackerMaterialId] = useState('__legacy_foam__');
+  const backerList = catalog?.backers || [];
 
-  const foamBackerPerSqM = Number(
-    (catalog?.settings as any)?.foamBackerPerSqM ??
-      (catalog as any)?.backer?.pricePerSqM ??
-      0
-  );
+  const foamBackerPerSqM = catalog?.settings?.foamBackerPerSqM ?? (catalog as any)?.backer?.pricePerSqM;
 
   // Catalog lookups
   const frameProfile = catalog?.frames?.find?.(
     (f: any) => f.id === selectedFrame
   );
   const glazingList = (catalog?.glazing || []) as any[];
-  const glazing =
-    glazingList.find((g: any) => g.id === selectedGlazingId) ||
-    glazingList[0] || { pricePerSqM: 0, name: "Glazing" };
+  const glazing = selectedGlazingId ? glazingList.find((g: any) => g.id === selectedGlazingId) : glazingList[0];
 
   const mat1 = catalog?.mats?.find?.((m: any) => m.id === selectedMat1);
   const mat2 = catalog?.mats?.find?.((m: any) => m.id === selectedMat2);
   const mat3 = catalog?.mats?.find?.((m: any) => m.id === selectedMat3);
   const selectedPM = PRINT_MATS.find((p: any) => p.id === printMaterialId);
+  const selectedBacker = backerMaterialId === '__legacy_foam__'
+    ? { id: '__legacy_foam__', name: 'Foam board backer (legacy)', pricePerSqM: foamBackerPerSqM,
+        allowZeroPrice: catalog?.settings?.foamBackerAllowZeroPrice }
+    : backerList.find(board => board.id === backerMaterialId);
   const supplierSelectionIssue = effectiveCatalogue.selectionIssue([
     selectedFrame, selectedMat1, selectedMat2, selectedMat3, selectedGlazingId,
     ...(includePrint ? [printMaterialId] : []),
+    ...(includeBacker ? [backerMaterialId] : []),
   ]);
   const guardSupplierSelection = (feedback?: IndividualFeedback) => {
-    if (!supplierSelectionIssue) return true;
-    const message = `${supplierSelectionIssue} Choose a manual product before creating a priced document.`;
+    if (!supplierSelectionIssue && !pricingIssue) return true;
+    const message = supplierSelectionIssue
+      ? `${supplierSelectionIssue} Choose a manual product before creating a priced document.`
+      : pricingIssue;
     if (feedback) feedback.notify(message, "warning");
     else alert(message); // The combined workflow retains its existing feedback.
     return false;
@@ -384,8 +388,7 @@ export default function VisualizerApp() {
   useEffect(() => {
     const frames = (catalog?.frames || []) as any[];
     if (!frames.length) return;
-    const exists = frames.some((f) => f.id === selectedFrame);
-    if (!selectedFrame || (!exists && !selectedFrame.startsWith('supplier:'))) {
+    if (!selectedFrame) {
       setSelectedFrame(frames[0].id);
     }
   }, [catalog?.frames, selectedFrame]);
@@ -456,21 +459,40 @@ export default function VisualizerApp() {
   }
 
   // ---------- Pricing: one immutable commercial result for all creation paths ----------
-  const fallbackPrintSqM = Number(catalog?.settings?.printingPerSqM ?? 0);
-  const labourBase = Number(catalog?.settings?.labourBase ?? 0);
-  const marginMultiplier = Number(catalog?.settings?.marginMultiplier ?? 1);
-  const pricingSnapshot = priceVisualiser({
-    artWcm, artHcm, borderCm: totalBorder, frame: frameProfile,
-    mats: [hasMat1 ? mat1 : null, hasMat2 ? mat2 : null, hasMat3 ? mat3 : null].filter(Boolean) as NonNullable<typeof mat1>[],
-    glazing,
-    print: includePrint ? (selectedPM ? { ...selectedPM, pricePerSqM: selectedPM.pricePerSqM ?? fallbackPrintSqM } : { name: "Printing", pricePerSqM: fallbackPrintSqM }) : null,
-    backer: includeBacker ? { name: "Foam board backer", pricePerSqM: foamBackerPerSqM } : null,
-    labourBase, marginMultiplier,
-    taxRatePct: effectiveTaxRatePct(catalog?.settings ?? {}),
-    taxLabel: catalog?.settings?.taxLabel,
-    currencyCode, currencySymbol,
-  });
-  const rawCost = (key: string) => pricingSnapshot.items.find(item => item.key === key)?.rawAmount ?? 0;
+  const fallbackPrintSqM = catalog?.settings?.printingPerSqM;
+  const labourBase = catalog?.settings?.labourBase;
+  const marginMultiplier = catalog?.settings?.marginMultiplier;
+  const printProduct = printMaterialId ? selectedPM : { id: '__fallback_print__', name: 'Printing (fallback)',
+    pricePerSqM: fallbackPrintSqM, allowZeroPrice: catalog?.settings?.printingAllowZeroPrice };
+  const materialIssues = [
+    materialRateIssue(frameProfile, frameProfile?.pricePerMeter, 'Frame'),
+    materialRateIssue(glazing, glazing?.pricePerSqM, 'Glazing'),
+    ...(hasMat1 ? [materialRateIssue(mat1, mat1?.pricePerSqM, 'Mat 1')] : []),
+    ...(hasMat2 ? [materialRateIssue(mat2, mat2?.pricePerSqM, 'Mat 2')] : []),
+    ...(hasMat3 ? [materialRateIssue(mat3, mat3?.pricePerSqM, 'Mat 3')] : []),
+    ...(includePrint ? [materialRateIssue(printProduct, printProduct?.pricePerSqM, 'Printing')] : []),
+    ...(includeBacker ? [materialRateIssue(selectedBacker, selectedBacker?.pricePerSqM, 'Backing')] : []),
+  ];
+  let pricingIssue = catalogLoading || settingsLoading ? 'Catalogue and pricing settings are loading.'
+    : catalogError || settingsError ? 'Could not load catalogue or pricing settings. Retry before creating a priced document.'
+    : pricingSettingsIssue({ labourBase, marginMultiplier }) || materialIssues.find(Boolean) || supplierSelectionIssue;
+  // Invalid selections have no commercial result. Never display or persist fabricated zero totals.
+  const pricingSnapshot = (() => {
+    if (pricingIssue) return null;
+    try {
+      return priceVisualiser({ artWcm, artHcm, borderCm: totalBorder, frame: frameProfile,
+        mats: [hasMat1 ? mat1 : null, hasMat2 ? mat2 : null, hasMat3 ? mat3 : null].filter(Boolean) as NonNullable<typeof mat1>[],
+        glazing, print: includePrint ? printProduct : null, backer: includeBacker ? selectedBacker : null,
+        labourBase, marginMultiplier, taxRatePct: effectiveTaxRatePct(catalog?.settings ?? {}),
+        taxLabel: catalog?.settings?.taxLabel, currencyCode, currencySymbol });
+    } catch {
+      pricingIssue = 'Check dimensions, material rates, currency and tax settings before creating a priced document.';
+      return null;
+    }
+  })();
+  const selectionRateLabel = (product: MaterialPricingMetadata, rate: unknown, unit: 'm' | 'm²') => materialRateIssue(product, rate, 'Material') || !Number.isFinite(marginMultiplier) || marginMultiplier <= 0
+    ? 'Rate requires Admin review' : `Base ${sellingRateLabel(rate as number, unit, currencyCode, currencySymbol)}; selling ${sellingRateLabel((rate as number) * marginMultiplier, unit, currencyCode, currencySymbol)} excl. tax`;
+  const rawCost = (key: string) => pricingSnapshot?.items.find(item => item.key === key)?.rawAmount ?? 0;
   const frameCost = rawCost('frame');
   const glazingCost = rawCost('glazing');
   const mat1Cost = rawCost('mat1');
@@ -478,7 +500,8 @@ export default function VisualizerApp() {
   const mat3Cost = rawCost('mat3');
   const printingCost = rawCost('print');
   const backerCost = rawCost('backer');
-  const { subtotal, total } = pricingSnapshot;
+  const subtotal = pricingSnapshot?.subtotal;
+  const total = pricingSnapshot?.total;
 
   // ---------- Responsive preview ----------
   const [maxPx, setMaxPx] = useState(760);
@@ -1211,7 +1234,7 @@ export default function VisualizerApp() {
             materialName: selectedPM?.name || "",
           }
         : { include: false },
-      backer: { include: Boolean(includeBacker) },
+      backer: includeBacker ? { include: true, materialId: selectedBacker.id, materialName: selectedBacker.name } : { include: false },
       costs: {
         ...commercial,
         currency: { code: currencyCode, symbol: currencySymbol },
@@ -1433,7 +1456,7 @@ export default function VisualizerApp() {
       },
       glazing: { id: selectedGlazingId },
       printing: { includePrint, printMaterialId },
-      backer: { includeBacker },
+      backer: { includeBacker, materialId: backerMaterialId },
       backdrop,
     }),
     [
@@ -1461,6 +1484,7 @@ export default function VisualizerApp() {
       includePrint,
       printMaterialId,
       includeBacker,
+      backerMaterialId,
       backdrop,
     ]
   );
@@ -1519,6 +1543,7 @@ export default function VisualizerApp() {
         String(s?.printing?.printMaterialId || "")
       ); // note: we store id here
       setIncludeBacker(Boolean(s?.backer?.includeBacker));
+      setBackerMaterialId(typeof s?.backer?.materialId === 'string' ? s.backer.materialId : '__legacy_foam__');
       setBackdrop(
         (
           ["studio", "living", "gallery", "office"] as const
@@ -1870,6 +1895,8 @@ export default function VisualizerApp() {
               >
                 {selectedFrame.startsWith('supplier:') && !catalog?.frames?.some(f => f.id === selectedFrame) &&
                   <option value={selectedFrame}>Supplier reference (not priceable)</option>}
+                {selectedFrame && !frameProfile && !selectedFrame.startsWith('supplier:') &&
+                  <option value={selectedFrame}>Unavailable frame — select a material</option>}
                 {(catalog?.frames || []).map((f: any) => (
                   <option key={f.id} value={f.id}>
                     {f.name}
@@ -1979,6 +2006,7 @@ export default function VisualizerApp() {
                 value={selectedMat1}
                 onChange={(e) => setSelectedMat1(e.target.value)}
               >
+                {hasMat1 && !mat1 && <option value={selectedMat1}>Unavailable mat — select a material</option>}
                 <option value="mat0">None</option>
                 {(catalog?.mats || []).map((m: any) => (
                   <option key={m.id} value={m.id}>
@@ -2046,6 +2074,7 @@ export default function VisualizerApp() {
                     setSelectedMat2(e.target.value)
                   }
                 >
+                  {hasMat2 && !mat2 && <option value={selectedMat2}>Unavailable mat — select a material</option>}
                   <option value="mat0">None</option>
                   {(catalog?.mats || []).map((m: any) => (
                     <option key={m.id} value={m.id}>
@@ -2104,6 +2133,7 @@ export default function VisualizerApp() {
                         setSelectedMat3(e.target.value)
                       }
                     >
+                      {hasMat3 && !mat3 && <option value={selectedMat3}>Unavailable mat — select a material</option>}
                       <option value="mat0">None</option>
                       {(catalog?.mats || []).map((m: any) => (
                         <option key={m.id} value={m.id}>
@@ -2284,13 +2314,18 @@ export default function VisualizerApp() {
                     setIncludeBacker(e.target.checked)
                   }
                 />
-                Foam board backer{" "}
-                {foamBackerPerSqM ? (
-                  <span className="text-xs text-slate-500">
-                    ({moneyIntl(foamBackerPerSqM)}/m²)
-                  </span>
-                ) : null}
+                Include backing board
               </label>
+              {includeBacker && <label className="block text-sm mt-2">Backing material
+                <select aria-label="Backing material" className="w-full rounded-lg border p-2 bg-white text-sm" value={backerMaterialId}
+                  onChange={event => setBackerMaterialId(event.target.value)}>
+                  <option value="__legacy_foam__">Foam board backer (legacy) — {selectionRateLabel({ allowZeroPrice: settings.foamBackerAllowZeroPrice }, foamBackerPerSqM, 'm²')}</option>
+                  {!selectedBacker && <option value={backerMaterialId}>Unavailable backing — select a material</option>}
+                  {backerList.filter(board => !board.id.startsWith('supplier:')).map(board => <option key={board.id} value={board.id}>
+                    {board.name} — {selectionRateLabel(board, board.pricePerSqM, 'm²')}
+                  </option>)}
+                </select>
+              </label>}
             </div>
           </Panel>
 
@@ -2306,10 +2341,10 @@ export default function VisualizerApp() {
                 setSelectedGlazingId(e.target.value)
               }
             >
+              {selectedGlazingId && !glazing && <option value={selectedGlazingId}>Unavailable glazing — select a material</option>}
               {glazingList.map((g: any) => (
                 <option key={g.id} value={g.id}>
-                  {g.name} — {moneyIntl(Number(g.pricePerSqM))}
-                  /m²
+                  {g.name} — {selectionRateLabel(g, g.pricePerSqM, 'm²')}
                 </option>
               ))}
             </select>
@@ -2336,20 +2371,19 @@ export default function VisualizerApp() {
                 </label>
                 <select
                   className="w-full rounded-lg border p-2 bg-white text-sm mt-1"
+                  aria-label="Printing material"
                   value={printMaterialId}
                   onChange={(e) =>
                     setPrintMaterialId(e.target.value)
                   }
                 >
                   <option value="">
-                    Use fallback — {moneyIntl(fallbackPrintSqM)}
-                    /m²
+                    Use fallback — {selectionRateLabel({ allowZeroPrice: settings.printingAllowZeroPrice }, fallbackPrintSqM, 'm²')}
                   </option>
-                  {PRINT_MATS.map((pm: any) => (
+                  {printMaterialId && !selectedPM && <option value={printMaterialId}>Unavailable printing — select a material</option>}
+                  {PRINT_MATS.filter((pm: PrintingMaterial) => !pm.id.startsWith('supplier:')).map((pm: any) => (
                     <option key={pm.id} value={pm.id}>
-                      {pm.name} —{" "}
-                      {moneyIntl(Number(pm.pricePerSqM))}
-                      /m²
+                      {pm.name} — {selectionRateLabel(pm, pm.pricePerSqM, 'm²')}
                     </option>
                   ))}
                 </select>
@@ -2848,12 +2882,13 @@ export default function VisualizerApp() {
               </div>
               <div className="bg-slate-900 text-slate-50 rounded-xl border border-slate-800 p-4 text-sm mt-2">
                 <div className="font-semibold text-base mb-2 flex items-center justify-between">
-                  <span>Cost</span>
+                  <span>Pricing</span>
                   <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">
                     Admin currency: {currencyCode}
                   </span>
                 </div>
-                <div className="space-y-1 text-sm">
+                {pricingIssue ? !supplierSelectionIssue && <p role="alert">{pricingIssue}</p> : <div className="space-y-1 text-sm">
+                  <p className="text-xs">Base amounts below × global selling multiplier = selling subtotal, excluding tax. These are not purchase costs.</p>
                   <div className="flex justify-between">
                     <span>Frame</span>
                     <span>{moneyIntl(frameCost)}</span>
@@ -2898,8 +2933,8 @@ export default function VisualizerApp() {
                   </div>
                   {marginMultiplier !== 1 && (
                     <div className="flex justify-between text-xs text-slate-300">
-                      <span>Margin multiplier</span>
-                      <span>× {marginMultiplier.toFixed(2)}</span>
+                      <span>Global selling multiplier</span>
+                      <span>× {marginMultiplier}</span>
                     </div>
                   )}
                   <div className="border-t border-slate-700 pt-1 flex justify-between">
@@ -2916,7 +2951,7 @@ export default function VisualizerApp() {
                       {moneyIntl(total)}
                     </span>
                   </div>
-                </div>
+                </div>}
               </div>
             </div>
           </div>

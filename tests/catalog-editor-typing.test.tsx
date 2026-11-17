@@ -165,12 +165,13 @@ it('cancels an unsent old-workspace draft, including when returning to that comp
 it.each([['Frames', 'Oak profile 0', 'Add frame', 'New frame', 'Remove'],
   ['Mats', 'Conservation board 0', 'Add mat', 'New mat', 'Remove'],
   ['Glazing', 'Clear glass 0', 'Add glazing', 'New glazing', 'Delete']])(
-  '%s preserves numeric coercion, add, edit and delete with coalesced saves', async (tab, name, add, added, remove) => {
+  '%s preserves an empty rate as unconfigured, add, edit and delete with coalesced saves', async (tab, name, add, added, remove) => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const { input } = await open(tab, name)
     const row = input.closest('tr')!
     fireEvent.change(row.querySelector('input[type=number]')!, { target: { value: '' } })
-    expect((row.querySelector('input[type=number]') as HTMLInputElement).value).toBe('0')
+    expect((row.querySelector('input[type=number]') as HTMLInputElement).value).toBe('')
+    expect(row.textContent).toContain('configure a valid base material rate')
     fireEvent.click(screen.getByRole('button', { name: add }))
     const fresh = screen.getByDisplayValue(added) as HTMLInputElement
     fireEvent.change(fresh, { target: { value: text } })
@@ -181,7 +182,7 @@ it.each([['Frames', 'Oak profile 0', 'Add frame', 'New frame', 'Remove'],
     await finish(0); await settled()
     const key = tab.toLowerCase() as 'frames' | 'mats' | 'glazing'
     const saved = state.rows.get(company)!.catalog[key].find((product: { name: string }) => product.name === name)!
-    expect(tab === 'Frames' ? (saved as any).pricePerMeter : (saved as any).pricePerSqM).toBe(0)
+    expect(tab === 'Frames' ? (saved as any).pricePerMeter : (saved as any).pricePerSqM).toBeUndefined()
     vi.restoreAllMocks()
   },
 )

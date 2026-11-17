@@ -39,6 +39,8 @@ const expectedHeaders = ['Reference', 'Description', 'Price/mtr', 'Width'] as co
 const signature = Buffer.from('d0cf11e0a1b11ae1', 'hex')
 const maxBytes = 5_000_000
 const maxRows = 50_000
+// The current supplier workbook includes blank formatting through K, not new fields.
+const maxColumns = 11
 
 /** Compare fully retrieved bytes, not HTTP validators: ETag and Last-Modified are only hints. */
 export function wessexBytesChanged(previousSha256: string, currentSha256: string): boolean {
@@ -83,11 +85,13 @@ export function parseWessexMouldings(bytes: Uint8Array, acquisition: WessexAcqui
       book.Workbook?.Sheets?.[0]?.Hidden) throw new Error('Expected one visible gen worksheet')
   const sheet = book.Sheets.gen
   const range = sheet?.['!ref'] && XLSX.utils.decode_range(sheet['!ref'])
-  if (!range || range.s.r !== 0 || range.s.c !== 0 || range.e.c !== 3 || range.e.r < 1 || range.e.r > maxRows)
+  if (!range || range.s.r !== 0 || range.s.c !== 0 || range.e.c < 3 || range.e.c >= maxColumns || range.e.r < 1 || range.e.r > maxRows)
     throw new Error('Unexpected Wessex worksheet dimensions')
   const cells = sheet['!data'] as Array<Array<XLSX.CellObject | undefined> | undefined>
   if (cells.some(row => row?.some(cell => cell?.f != null)))
     throw new Error('Formula cells are not accepted as source evidence')
+  if (cells.some(row => row?.some((cell, col) => col >= expectedHeaders.length && cell?.v != null)))
+    throw new Error('Trailing Wessex worksheet cells must be empty')
   if (!expectedHeaders.every((header, i) => cells?.[0]?.[i]?.t === 's' && cells[0][i]?.v === header))
     throw new Error('Wessex headers differ from the approved four-column layout')
 

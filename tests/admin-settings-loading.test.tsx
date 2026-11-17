@@ -5,6 +5,7 @@ import { BillingAccessProvider, type BillingAccess } from '@/lib/billingAccess'
 import { useCatalog } from '@/lib/store'
 import * as companyModule from '@/lib/company'
 import Admin from '@/pages/Admin'
+import { useToast } from '@/lib/toast'
 
 const state = vi.hoisted(() => ({
   settings: { currencyCode: 'GBP', currencySymbol: '£', taxRatePct: 0, companyName: 'UAT Block1 Finish C' },
@@ -12,6 +13,8 @@ const state = vi.hoisted(() => ({
   reads: [] as Array<() => void>,
   defer: true,
   failRead: false,
+  failSave: false,
+  throwSave: false,
   saves: vi.fn(),
 }))
 vi.mock('@/lib/supabase', () => ({ supabase: {
@@ -28,6 +31,8 @@ vi.mock('@/lib/supabase', () => ({ supabase: {
       },
       upsert: (row: { settings: typeof state.settings }) => { pending = row; return query },
       single: async () => {
+        if (state.throwSave) throw new Error('Simulated unexpected save failure')
+        if (state.failSave) return { data: null, error: { message: 'Simulated database save failure' } }
         state.settings = structuredClone(pending!.settings)
         state.saves(state.settings)
         return { data: { settings: state.settings }, error: null }
@@ -41,9 +46,10 @@ const access: BillingAccess = { companyAccountId: 'company-c', userId: 'owner-c'
 const Wrapper = ({ children }: { children: React.ReactNode }) => <BillingAccessProvider value={access}>{children}</BillingAccessProvider>
 beforeEach(() => {
   localStorage.clear()
+  for (const item of useToast.getState().toasts) useToast.getState().remove(item.id)
   state.settings = { currencyCode: 'GBP', currencySymbol: '£', taxRatePct: 0, companyName: 'UAT Block1 Finish C' }
   state.catalog = null
-  state.reads = []; state.defer = true; state.failRead = false; state.saves.mockClear()
+  state.reads = []; state.defer = true; state.failRead = false; state.failSave = false; state.throwSave = false; state.saves.mockClear()
   vi.spyOn(window, 'alert').mockImplementation(() => {})
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -71,6 +77,70 @@ it('loads persisted GBP after the temporary ZAR profile and preserves GBP when s
   await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('GBP'))
   expect((screen.getByText('Default tax rate (%)').parentElement!.querySelector('input') as HTMLInputElement).value).toBe('15')
 })
+
+it('shows a success toast without a browser alert when settings are saved', async () => {
+  render(<Admin />, { wrapper: Wrapper })
+  await finishLoading()
+  fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+  await waitFor(() => expect(state.saves).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(useToast.getState().toasts).toEqual(
+    expect.arrayContaining([expect.objectContaining({ message: 'Settings saved.', type: 'success' })])
+  ))
+  expect(window.alert).not.toHaveBeenCalled()
+})
+
+it('shows a success toast without a browser alert when company settings are saved', async () => {
+  render(<Admin />, { wrapper: Wrapper })
+  await finishLoading()
+  fireEvent.click(screen.getByRole('button', { name: 'Company' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save company settings' }))
+  await waitFor(() => expect(state.saves).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(useToast.getState().toasts).toEqual(
+    expect.arrayContaining([expect.objectContaining({ message: 'Company settings saved.', type: 'success' })])
+  ))
+  expect(window.alert).not.toHaveBeenCalled()
+})
+
+for (const panel of ['Settings', 'Company'] as const) {
+  for (const failure of ['database', 'exception'] as const) {
+    it(`reports a save failure using an error toast: ${panel} / ${failure}`, async () => {
+      if (failure === 'database') state.failSave = true
+      else state.throwSave = true
+
+      render(<Admin />, { wrapper: Wrapper })
+      await finishLoading()
+
+      if (panel === 'Company') {
+        fireEvent.click(screen.getByRole('button', { name: 'Company' }))
+      }
+
+      const buttonName = panel === 'Company'
+        ? 'Save company settings'
+        : 'Save settings'
+
+      fireEvent.click(screen.getByRole('button', { name: buttonName }))
+
+      const expectedMessage = failure === 'database'
+        ? 'Simulated database save failure'
+        : panel === 'Company'
+          ? 'Could not save company settings. Please try again.'
+          : 'Could not save settings. Please try again.'
+
+      await waitFor(() => expect(useToast.getState().toasts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: expectedMessage,
+            type: 'error',
+          }),
+        ])
+      ))
+
+      expect(useToast.getState().toasts.some(toast => toast.type === 'success')).toBe(false)
+      expect(state.saves).not.toHaveBeenCalled()
+      expect(window.alert).not.toHaveBeenCalled()
+    })
+  }
+}
 
 it('does not expose a saveable temporary draft while settings are loading', async () => {
   render(<Admin />, { wrapper: Wrapper })
