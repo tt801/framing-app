@@ -1171,8 +1171,8 @@ function PrintingPanel({
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        Cost per square meter for in-house printing media (paper, canvas,
-        metal, etc).
+        Base material rate per square meter before the global selling multiplier,
+        excluding tax. Purchase costs and individual markup are not applied.
       </p>
 
       {printingMaterials.length === 0 && (
@@ -1189,7 +1189,7 @@ function PrintingPanel({
               <tr className="text-left text-slate-500 border-b">
                 <th className="py-1 pr-2">Name</th>
                 <th className="py-1 pr-2">Type</th>
-                <th className="py-1 pr-2">Cost / m²</th>
+                <th className="py-1 pr-2">Base material rate / m²</th>
                 <th className="py-1 pr-2">Markup %</th>
                 <th className="py-1 pr-2 w-10" />
               </tr>
@@ -1223,11 +1223,14 @@ function PrintingPanel({
                       <input
                         type="number"
                         className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
-                        value={(p as any).costPerSqm ?? ""}
+                        aria-label="Printing base material rate per square meter"
+                        min="0"
+                        step="any"
+                        value={p.pricePerSqM ?? ""}
                         onChange={(e) =>
                           updateRow(idx, {
-                            costPerSqm: Number(e.target.value) || 0,
-                          } as any)
+                            pricePerSqM: e.target.value === "" ? undefined : e.target.valueAsNumber,
+                          } as Partial<PrintingMaterial>)
                         }
                       />
                     </div>

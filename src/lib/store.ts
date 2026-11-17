@@ -257,31 +257,29 @@ function migrateCatalog(oldCat: Partial<Catalog> | null): Catalog {
   if (!oldCat) return defaultCatalog;
 
   const frames =
-    Array.isArray(oldCat.frames) && oldCat.frames.length
+    Array.isArray(oldCat.frames)
       ? oldCat.frames
       : defaultCatalog.frames;
 
   const mats = ensureMat0(
-    Array.isArray(oldCat.mats) && oldCat.mats.length
+    Array.isArray(oldCat.mats)
       ? oldCat.mats
       : defaultCatalog.mats
   );
 
   const glazing =
-    Array.isArray(oldCat.glazing) && oldCat.glazing.length
+    Array.isArray(oldCat.glazing)
       ? oldCat.glazing
       : defaultCatalog.glazing;
 
   const printingMaterials =
-    Array.isArray(oldCat.printingMaterials) &&
-    oldCat.printingMaterials.length
+    Array.isArray(oldCat.printingMaterials)
       ? oldCat.printingMaterials
       : defaultCatalog.printingMaterials;
 
   /** NEW: keep any existing backer boards instead of dropping them */
   const backers: Backer[] =
-    Array.isArray((oldCat as any).backers) &&
-    (oldCat as any).backers.length
+    Array.isArray((oldCat as any).backers)
       ? ((oldCat as any).backers as Backer[])
       : defaultCatalog.backers ?? [];
 
@@ -289,11 +287,12 @@ function migrateCatalog(oldCat: Partial<Catalog> | null): Catalog {
   const settings: Settings = {
     ...defaultCatalog.settings,
     ...(oldCat.settings as Settings),
+    // Material fallbacks must be recorded, not manufactured from sample defaults.
+    printingPerSqM: oldCat.settings?.printingPerSqM,
+    foamBackerPerSqM: oldCat.settings?.foamBackerPerSqM,
   };
 
   // Ensure numeric defaults
-  if (typeof settings.foamBackerPerSqM !== "number")
-    settings.foamBackerPerSqM = 0;
   if (typeof settings.invoiceStartNumber !== "number")
     settings.invoiceStartNumber = 1000;
   if (typeof settings.paymentTermsDays !== "number")
@@ -427,9 +426,11 @@ export function useCatalog() {
       invoicePrefix: profile.invoicePrefix, invoiceStartNumber: profile.invoiceStartNumber,
       bankDetails: profile.bankDetails, paymentTermsDays: profile.paymentTermsDays,
       taxRatePct: profile.taxRatePct, taxLabel: profile.taxLabel, vatNumber: profile.vatNumber,
-      ...(typeof profile.labourBase === 'number' && Number.isFinite(profile.labourBase) ? { labourBase: profile.labourBase } : {}),
-      ...(typeof profile.printingPerSqM === 'number' && Number.isFinite(profile.printingPerSqM) ? { printingPerSqM: profile.printingPerSqM } : {}),
-      ...(typeof profile.marginMultiplier === 'number' && Number.isFinite(profile.marginMultiplier) ? { marginMultiplier: profile.marginMultiplier } : {}),
+      // An explicitly stored invalid value must reach validation, not expose an older rate.
+      ...(Object.hasOwn(profile, 'labourBase') ? { labourBase: profile.labourBase } : {}),
+      ...(Object.hasOwn(profile, 'printingPerSqM') ? { printingPerSqM: profile.printingPerSqM } : {}),
+      ...(Object.hasOwn(profile, 'marginMultiplier') ? { marginMultiplier: profile.marginMultiplier } : {}),
+      ...(Object.hasOwn(profile, 'foamBackerPerSqM') ? { foamBackerPerSqM: profile.foamBackerPerSqM } : {}),
       ...(profile.unit === 'metric' || profile.unit === 'imperial' ? { unit: profile.unit } : {}),
       ...(typeof profile.themeColor === 'string' && profile.themeColor ? { themeColor: profile.themeColor } : {}),
     };

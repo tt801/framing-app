@@ -3,8 +3,9 @@ import React, { useMemo, useRef, useState, useEffect } from "react";
 
 // STORES / LIBS
 import { useCatalog } from "@/lib/store";
+import { pricePilotDesign } from '@/lib/pilotMaterialPricing';
 import { useEffectiveCompanyCatalogue } from "@/lib/effectiveSupplierAccess";
-import { priceVisualiser, effectiveTaxRatePct, toVisualiserQuote, toVisualiserJobCosts, toVisualiserInvoice } from "@/lib/pricing";
+import { effectiveTaxRatePct, toVisualiserQuote, toVisualiserJobCosts, toVisualiserInvoice } from "@/lib/pricing";
 import { useQuotes } from "@/lib/quotes";
 import { useCustomers, validateCustomer, type Customer } from "@/lib/customers";
 import { useInvoices } from "@/lib/invoices";
@@ -219,7 +220,7 @@ function makeJobChecklist() {
 }
 
 export default function VisualizerApp() {
-  const { catalog } = useCatalog();
+  const { catalog, loading: catalogLoading, settingsLoading, error: catalogError, settingsError } = useCatalog();
   const billing = useBillingAccess();
   const effectiveCatalogue = useEffectiveCompanyCatalogue(billing.companyAccountId, catalog);
   const qStore = useQuotes() as any;
@@ -262,7 +263,7 @@ export default function VisualizerApp() {
   const currencySymbol =
     settings?.currencySymbol || symbolFor(currencyCode) || "R ";
 
-  const defaultFrameId = catalog?.frames?.[0]?.id || "fr1";
+  const defaultFrameId = catalog?.frames?.[0]?.id || "";
 
   const moneyIntl = (n: number) => {
     try {
@@ -332,10 +333,9 @@ export default function VisualizerApp() {
   const [printMaterialId, setPrintMaterialId] = useState<string>("");
   const [includeBacker, setIncludeBacker] = useState(false);
 
-  const foamBackerPerSqM = Number(
+  const foamBackerPerSqM = (
     (catalog?.settings as any)?.foamBackerPerSqM ??
-      (catalog as any)?.backer?.pricePerSqM ??
-      0
+      (catalog as any)?.backer?.pricePerSqM
   );
 
   // Catalog lookups
@@ -343,9 +343,9 @@ export default function VisualizerApp() {
     (f: any) => f.id === selectedFrame
   );
   const glazingList = (catalog?.glazing || []) as any[];
-  const glazing =
-    glazingList.find((g: any) => g.id === selectedGlazingId) ||
-    glazingList[0] || { pricePerSqM: 0, name: "Glazing" };
+  const glazing = selectedGlazingId
+    ? glazingList.find((g: any) => g.id === selectedGlazingId)
+    : glazingList[0];
 
   const mat1 = catalog?.mats?.find?.((m: any) => m.id === selectedMat1);
   const mat2 = catalog?.mats?.find?.((m: any) => m.id === selectedMat2);
@@ -356,8 +356,10 @@ export default function VisualizerApp() {
     ...(includePrint ? [printMaterialId] : []),
   ]);
   const guardSupplierSelection = (feedback?: IndividualFeedback) => {
-    if (!supplierSelectionIssue) return true;
-    const message = `${supplierSelectionIssue} Choose a manual product before creating a priced document.`;
+    if (!supplierSelectionIssue && !pricingIssue) return true;
+    const message = supplierSelectionIssue
+      ? `${supplierSelectionIssue} Choose a manual product before creating a priced document.`
+      : pricingIssue!;
     if (feedback) feedback.notify(message, "warning");
     else alert(message); // The combined workflow retains its existing feedback.
     return false;
@@ -384,8 +386,7 @@ export default function VisualizerApp() {
   useEffect(() => {
     const frames = (catalog?.frames || []) as any[];
     if (!frames.length) return;
-    const exists = frames.some((f) => f.id === selectedFrame);
-    if (!selectedFrame || (!exists && !selectedFrame.startsWith('supplier:'))) {
+    if (!selectedFrame) {
       setSelectedFrame(frames[0].id);
     }
   }, [catalog?.frames, selectedFrame]);
@@ -456,21 +457,31 @@ export default function VisualizerApp() {
   }
 
   // ---------- Pricing: one immutable commercial result for all creation paths ----------
-  const fallbackPrintSqM = Number(catalog?.settings?.printingPerSqM ?? 0);
-  const labourBase = Number(catalog?.settings?.labourBase ?? 0);
-  const marginMultiplier = Number(catalog?.settings?.marginMultiplier ?? 1);
-  const pricingSnapshot = priceVisualiser({
+  const fallbackPrintSqM = catalog?.settings?.printingPerSqM;
+  const labourBase = catalog?.settings?.labourBase;
+  const marginMultiplier = catalog?.settings?.marginMultiplier;
+  const printProduct = printMaterialId ? selectedPM : { name: "Printing", pricePerSqM: fallbackPrintSqM };
+  const backerProduct = { name: "Foam board backer", pricePerSqM: foamBackerPerSqM };
+  const { snapshot: pricingSnapshot, issue: pricingIssue } = pricePilotDesign({
     artWcm, artHcm, borderCm: totalBorder, frame: frameProfile,
     mats: [hasMat1 ? mat1 : null, hasMat2 ? mat2 : null, hasMat3 ? mat3 : null].filter(Boolean) as NonNullable<typeof mat1>[],
     glazing,
-    print: includePrint ? (selectedPM ? { ...selectedPM, pricePerSqM: selectedPM.pricePerSqM ?? fallbackPrintSqM } : { name: "Printing", pricePerSqM: fallbackPrintSqM }) : null,
-    backer: includeBacker ? { name: "Foam board backer", pricePerSqM: foamBackerPerSqM } : null,
+    print: includePrint ? printProduct : null,
+    backer: includeBacker ? backerProduct : null,
     labourBase, marginMultiplier,
     taxRatePct: effectiveTaxRatePct(catalog?.settings ?? {}),
     taxLabel: catalog?.settings?.taxLabel,
     currencyCode, currencySymbol,
-  });
-  const rawCost = (key: string) => pricingSnapshot.items.find(item => item.key === key)?.rawAmount ?? 0;
+  }, [
+    { label: 'Frame', product: frameProfile, rate: frameProfile?.pricePerMeter },
+    { label: 'Glazing', product: glazing, rate: glazing?.pricePerSqM },
+    ...(hasMat1 ? [{ label: 'Mat 1', product: mat1, rate: mat1?.pricePerSqM }] : []),
+    ...(hasMat2 ? [{ label: 'Mat 2', product: mat2, rate: mat2?.pricePerSqM }] : []),
+    ...(hasMat3 ? [{ label: 'Mat 3', product: mat3, rate: mat3?.pricePerSqM }] : []),
+    ...(includePrint ? [{ label: 'Printing', product: printProduct, rate: printProduct?.pricePerSqM }] : []),
+    ...(includeBacker ? [{ label: 'Foam backing', product: backerProduct, rate: foamBackerPerSqM }] : []),
+  ], Boolean(catalogLoading || settingsLoading), Boolean(catalogError || settingsError));
+  const rawCost = (key: string) => pricingSnapshot?.items.find(item => item.key === key)?.rawAmount ?? 0;
   const frameCost = rawCost('frame');
   const glazingCost = rawCost('glazing');
   const mat1Cost = rawCost('mat1');
@@ -478,7 +489,8 @@ export default function VisualizerApp() {
   const mat3Cost = rawCost('mat3');
   const printingCost = rawCost('print');
   const backerCost = rawCost('backer');
-  const { subtotal, total } = pricingSnapshot;
+  const subtotal = pricingSnapshot?.subtotal;
+  const total = pricingSnapshot?.total;
 
   // ---------- Responsive preview ----------
   const [maxPx, setMaxPx] = useState(760);
@@ -1016,7 +1028,7 @@ export default function VisualizerApp() {
   }
 
   async function addQuoteNow(feedback?: IndividualFeedback) {
-    if (!guardSupplierSelection(feedback)) return;
+    if (!guardSupplierSelection(feedback) || !pricingSnapshot) return;
     let customerObj: Customer;
     try {
       customerObj = await resolveQuoteCustomer(feedback);
@@ -1163,6 +1175,7 @@ export default function VisualizerApp() {
       frameFaceWidthCm: Number(faceWidthCm),
     };
 
+    if (!pricingSnapshot) throw new Error(pricingIssue || 'Pricing is unavailable.');
     const commercial = toVisualiserJobCosts(pricingSnapshot);
 
     const detailsSnapshot = {
@@ -1324,7 +1337,7 @@ export default function VisualizerApp() {
   }
 
   async function invoiceNow(feedback?: IndividualFeedback) {
-    if (!guardSupplierSelection(feedback)) return;
+    if (!guardSupplierSelection(feedback) || !pricingSnapshot) return;
     const customerId = await ensureCustomerId(feedback);
     if (feedback && !feedback.isCurrent()) return;
 
@@ -1870,6 +1883,8 @@ export default function VisualizerApp() {
               >
                 {selectedFrame.startsWith('supplier:') && !catalog?.frames?.some(f => f.id === selectedFrame) &&
                   <option value={selectedFrame}>Supplier reference (not priceable)</option>}
+                {selectedFrame && !frameProfile && !selectedFrame.startsWith('supplier:') &&
+                  <option value={selectedFrame}>Unavailable frame — select a material</option>}
                 {(catalog?.frames || []).map((f: any) => (
                   <option key={f.id} value={f.id}>
                     {f.name}
@@ -2306,6 +2321,7 @@ export default function VisualizerApp() {
                 setSelectedGlazingId(e.target.value)
               }
             >
+              {selectedGlazingId && !glazing && <option value={selectedGlazingId}>Unavailable glazing — select a material</option>}
               {glazingList.map((g: any) => (
                 <option key={g.id} value={g.id}>
                   {g.name} — {moneyIntl(Number(g.pricePerSqM))}
@@ -2345,6 +2361,7 @@ export default function VisualizerApp() {
                     Use fallback — {moneyIntl(fallbackPrintSqM)}
                     /m²
                   </option>
+                  {printMaterialId && !selectedPM && <option value={printMaterialId}>Unavailable printing — select a material</option>}
                   {PRINT_MATS.map((pm: any) => (
                     <option key={pm.id} value={pm.id}>
                       {pm.name} —{" "}
@@ -2853,7 +2870,7 @@ export default function VisualizerApp() {
                     Admin currency: {currencyCode}
                   </span>
                 </div>
-                <div className="space-y-1 text-sm">
+                {!pricingSnapshot ? <p role="alert">{pricingIssue}</p> : <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <span>Frame</span>
                     <span>{moneyIntl(frameCost)}</span>
@@ -2916,7 +2933,7 @@ export default function VisualizerApp() {
                       {moneyIntl(total)}
                     </span>
                   </div>
-                </div>
+                </div>}
               </div>
             </div>
           </div>

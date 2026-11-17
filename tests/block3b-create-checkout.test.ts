@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({
   account: { id: 'company-a', owner_user_id: 'user-a', stripe_customer_id: null, stripe_subscription_id: null, plan_status: 'trialing', stripe_price_id: null, trial_started_at: '', trial_ends_at: '' },
@@ -55,7 +55,10 @@ const res = () => { const out: any = {}; return { out, status(code: number) { ou
 
 beforeEach(() => { supabaseMock.rpc.mockClear(); state.account.stripe_customer_id = null; state.account.stripe_subscription_id = null; state.account.plan_status = 'trialing'; state.account.stripe_price_id = null; state.account.trial_started_at = new Date(Date.now() - 86400000).toISOString(); state.account.trial_ends_at = new Date(Date.now() + 13 * 86400000).toISOString(); state.attempt = null; state.history = false; state.completedFounders = 0; state.reservedFounders = 0; state.stale.length = 0; state.customerSaveFailures = 0; state.sessionSaveFailures = 0; state.sessions.length = 0; state.customers.length = 0; stripeMock.customers.create.mockReset(); stripeMock.checkout.sessions.create.mockReset(); stripeMock.checkout.sessions.retrieve.mockReset() })
 
-describe('Block 3B create-checkout handler', () => {
+beforeEach(() => vi.stubEnv('STRIPE_CHECKOUT_ENABLED', 'true'))
+afterEach(() => vi.unstubAllEnvs())
+
+describe('Block 3B create-checkout handler (explicit server opt-in)', () => {
   it('allows an unexpired initial-trial Founder checkout while capacity is available', async () => {
     stripeMock.customers.create.mockResolvedValue({ id: 'cus-a' })
     stripeMock.checkout.sessions.create.mockResolvedValue({ id: 'cs-founder', url: 'https://checkout/founder', expires_at: Math.floor(Date.now() / 1000) + 3600 })
