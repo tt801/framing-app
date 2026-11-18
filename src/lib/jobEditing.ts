@@ -1,6 +1,7 @@
 import type { Customer } from './customers'
 import type { Job, JobChecklistItem } from './jobs'
 import { isRecord } from './persistedRows'
+import { matSides } from './matGeometry'
 
 type Data = Record<string, unknown>
 type WorkshopField = { key: string; label: string; kind: 'text' | 'number' | 'state'; paths: string[] }
@@ -16,6 +17,8 @@ export const workshopFields: WorkshopField[] = [
     { key: `mat${index}State`, label: `Mat ${index} state`, kind: 'state' as const, paths: [`details.mats.hasMat${index}`, `mats.hasMat${index}`, `hasMat${index}`] },
     { key: `mat${index}Name`, label: `Mat ${index} name`, kind: 'text' as const, paths: [`details.mats.mat${index}.name`, `mats.mat${index}.name`] },
     { key: `mat${index}Border`, label: `Mat ${index} border (cm)`, kind: 'number' as const, paths: [`details.mats.mat${index}.borderCm`, `mats.mat${index}.borderCm`] },
+    ...matSides.map(side => ({ key: `mat${index}${side[0].toUpperCase() + side.slice(1)}`, label: `Mat ${index} ${side} (cm)`, kind: 'number' as const,
+      paths: [`details.mats.mat${index}.borders.${side}`, `mats.mat${index}.borders.${side}`] })),
   ]),
   { key: 'printing', label: 'Printing state', kind: 'state', paths: ['details.printing.include', 'printing.include'] },
   { key: 'backer', label: 'Foam/backer state', kind: 'state', paths: ['details.backer.include', 'backer.include'] },
@@ -64,6 +67,15 @@ export function jobDetailsDraft(job: Partial<Job> = {}): JobDetailsDraft {
     dueDate: (job.dueDate ?? job.dueDateISO ?? '').split('T')[0], notes: job.notes ?? '',
     checklist: copy(job.checklist ?? []), spec }
 }
+/** Avoid competing scalar and physical side controls in workshop editing. */
+export function visibleWorkshopFields(draft: JobDetailsDraft) {
+  return workshopFields.filter(field => {
+    const match = /^mat([123])(Border|Top|Bottom|Left|Right)$/.exec(field.key)
+    if (!match) return true
+    const physical = ['Top', 'Bottom', 'Left', 'Right'].some(side => draft.spec[`mat${match[1]}${side}`] !== '')
+    return match[2] === 'Border' ? !physical : physical
+  })
+}
 export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], current?: Partial<Job>): Partial<Job> {
   if (!draft.description.trim() && !draft.workInstructions.trim()) throw new Error('Enter a meaningful description or work instructions.')
   const original = jobDetailsDraft(current)
@@ -100,6 +112,11 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
       if (field.kind === 'number' && raw !== '' && (!Number.isFinite(Number(raw)) || Number(raw) < 0)) throw new Error('Workshop measurements must be finite and non-negative.')
       if (field.kind === 'state' && !['', 'on', 'off'].includes(raw)) throw new Error('Invalid workshop option state.')
       const value = raw === '' ? undefined : field.kind === 'number' ? Number(raw) : field.kind === 'state' ? raw === 'on' : raw
+      const matSide = /^mat([123])(Top|Bottom|Left|Right)$/.exec(field.key)
+      if (matSide) {
+        set(result, `details.mats.mat${matSide[1]}.borderCm`, undefined)
+        set(result, `mats.mat${matSide[1]}.borderCm`, undefined)
+      }
       // Remove stale equivalent aliases so clearing a value cannot reveal an older fallback.
       for (const path of field.paths) set(result, path, undefined)
       if (value !== undefined) set(result, field.paths[0], value)

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { Customer } from '@/lib/customers'
 import type { Job, JobOpResult } from '@/lib/jobs'
-import { buildJobDetails, jobDetailsDraft, workshopFields, type JobDetailsDraft } from '@/lib/jobEditing'
+import { buildJobDetails, jobDetailsDraft, visibleWorkshopFields, type JobDetailsDraft } from '@/lib/jobEditing'
 import { makeCompanyChecklist } from '@/lib/jobChecklist'
 
 type Props = {
@@ -73,7 +73,7 @@ export default function JobDetailsForm({ job, customers, checklistTemplate, disa
           <label className="block text-sm">Due date<input type="date" className="block border rounded-lg p-2" value={draft.dueDate} onChange={e => change('dueDate', e.target.value)} /></label>
           <label className="block text-sm">Notes<textarea className="block w-full border rounded-lg p-2" value={draft.notes} onChange={e => change('notes', e.target.value)} /></label>
           <details><summary className="cursor-pointer font-medium">Workshop / framing specification (optional)</summary>
-            <div className="grid sm:grid-cols-2 gap-3 mt-3">{workshopFields.map(field => <label key={field.key} className="text-sm">{field.label}
+            <div className="grid sm:grid-cols-2 gap-3 mt-3">{visibleWorkshopFields(initial).map(field => <label key={field.key} className="text-sm">{field.label}
               {field.kind === 'state' ? <select className="block w-full border rounded-lg p-2" value={draft.spec[field.key]} onChange={e => setDraft(previous => ({ ...previous, spec: { ...previous.spec, [field.key]: e.target.value } }))}>
                 <option value="">Not recorded</option><option value="on">On / included</option><option value="off">{field.key.startsWith('mat') ? 'None' : 'Off'}</option>
               </select> : <input className="block w-full border rounded-lg p-2" type={field.kind === 'number' ? 'number' : 'text'} min={field.kind === 'number' ? '0' : undefined} step="any" placeholder="Not recorded" value={draft.spec[field.key]}

@@ -81,3 +81,8 @@ it('does not turn partial or nonfinite measurements and unknown options into zer
   expect(fields['Additional mats']).toBe('Mat 2: Second mat — Not recorded border; Mat 3: Not recorded')
   expect(fields.Printing).toBe('Not recorded'); expect(fields['Foam/backer']).toBe('Not recorded')
 })
+it('prints asymmetric frozen mat measurements while retaining agreed historical amounts', async () => {
+  const text = await pdfText({ details: { ...details, mats: { ...details.mats,
+    mat1: { name: 'Asymmetric mat', borders: { top: 3, bottom: 8, left: 4, right: 6 } } } } })
+  for (const expected of ['Top 3 cm', 'Bottom 8 cm', 'Left 4 cm', 'Right 6 cm', '£175.75', '£202.11']) expect(text).toContain(expected)
+})

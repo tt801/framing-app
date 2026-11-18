@@ -2,6 +2,8 @@
 export type PricingProduct = { id?: string; name: string; pricePerMeter?: number; pricePerSqM?: number }
 export type VisualiserPricingInput = {
   artWcm: number; artHcm: number; borderCm: number
+  /** Optional physical board dimensions; legacy callers retain the scalar path. */
+  geometry?: { internalWidthCm: number; internalHeightCm: number }
   frame?: PricingProduct | null; mats: PricingProduct[]; glazing?: PricingProduct | null
   print?: PricingProduct | null; backer?: PricingProduct | null
   labourBase: number; marginMultiplier: number; taxRatePct: number
@@ -55,8 +57,11 @@ export function priceVisualiser(input: VisualiserPricingInput): CommercialSnapsh
     artWcm <= 0 || artHcm <= 0 || borderCm < 0 || marginMultiplier < 0 || labourBase < 0 || taxRatePct < 0) {
     throw new Error('Invalid Visualiser pricing input')
   }
-  const visibleWcm = artWcm + 2 * borderCm
-  const visibleHcm = artHcm + 2 * borderCm
+  const visibleWcm = input.geometry?.internalWidthCm ?? artWcm + 2 * borderCm
+  const visibleHcm = input.geometry?.internalHeightCm ?? artHcm + 2 * borderCm
+  if (!Number.isFinite(visibleWcm) || !Number.isFinite(visibleHcm) || visibleWcm < artWcm || visibleHcm < artHcm) {
+    throw new Error('Invalid physical board geometry')
+  }
   const area = visibleWcm * visibleHcm / 10000
   const artArea = artWcm * artHcm / 10000
   const perimeter = 2 * (visibleWcm + visibleHcm) / 100

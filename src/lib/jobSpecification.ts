@@ -1,4 +1,5 @@
 import { savedJobDetails } from './jobEditing';
+import { matSides } from './matGeometry';
 
 type SavedRecord = Record<string, unknown>;
 const NOT_RECORDED = "Not recorded";
@@ -33,6 +34,10 @@ export function jobSpecificationFields(value: unknown): { label: string; value: 
     const saved = record(mats[`mat${index}`]);
     if (mats[`hasMat${index}`] === false) return "None";
     if (!Object.keys(saved).length) return NOT_RECORDED;
+    if (saved.borders && typeof saved.borders === 'object') {
+      const borders = record(saved.borders);
+      return `${text(saved.name) ?? NOT_RECORDED} — ${matSides.map(side => `${side[0].toUpperCase() + side.slice(1)} ${measurement(borders[side]) ?? NOT_RECORDED}`).join('; ')}`;
+    }
     return `${text(saved.name) ?? NOT_RECORDED} — ${measurement(saved.borderCm) ?? NOT_RECORDED} border`;
   };
   const state = (saved: SavedRecord) => saved.include === false ? "Off" : saved.include === true ? "On" : NOT_RECORDED;

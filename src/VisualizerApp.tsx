@@ -1,5 +1,51 @@
 ﻿// src/VisualizerApp.tsx
 import React, { useMemo, useRef, useState, useEffect } from "react";
+import { matGeometry, normalizeMatBorders, matSides, type MatBorders } from '@/lib/matGeometry';
+
+const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({
+    title,
+    children,
+  }) => (
+    <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-2">
+        {title}
+      </h3>
+      {children}
+    </div>
+  );
+
+function BorderInput({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  return <label className="block text-sm text-slate-700">{label}<input type="number" min="0" step="0.1"
+    className="w-full rounded-lg border p-2 text-sm bg-white/90" value={draft}
+    onChange={e => { const raw = e.target.value; setDraft(raw); const n = Number(raw); if (raw.trim() && Number.isFinite(n) && n >= 0) onChange(n); }}
+    onBlur={() => setDraft(String(value))} /></label>;
+}
+
+type HandleKey = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+const Handle = ({
+    o,
+    handle,
+    style,
+    phase,
+    onResize,
+  }: {
+    o: MatOpening;
+    handle: HandleKey;
+    style: React.CSSProperties;
+    phase: 'visible' | 'fading' | 'hidden';
+    onResize: (e: React.MouseEvent, o: MatOpening, handle: HandleKey) => void;
+  }) => (
+    <div
+      onMouseDown={(e) => onResize(e, o, handle)}
+      data-html2canvas-ignore="true"
+      className="absolute bg-white border border-slate-400 rounded shadow-sm cursor-pointer"
+      style={{ width: 12, height: 12, opacity: phase === 'fading' ? 0 : 1,
+        transition: 'opacity 200ms ease', pointerEvents: phase === 'fading' ? 'none' : 'auto', ...style }}
+      title={`Drag to resize (${handle.toUpperCase()})`}
+    />
+  );
 
 // STORES / LIBS
 import { useCatalog, type PrintingMaterial } from "@/lib/store";
@@ -311,17 +357,32 @@ export default function VisualizerApp() {
   const hasMat2 = selectedMat2 !== "mat0";
   const hasMat3 = selectedMat3 !== "mat0";
 
-  const totalBorder =
-    (hasMat1 ? mat1BorderCm : 0) +
-    (hasMat2 ? mat2BorderCm : 0) +
-    (hasMat3 ? mat3BorderCm : 0);
-
-  // Pro mode openings
   const [openings, setOpenings] = useState<MatOpening[]>([]);
+  // New distances are absolute; legacy bands are normalized only at the boundary.
+  const [savedBorders, setSavedBorders] = useState<MatBorders[] | undefined>();
+  const activeMats = [hasMat1, hasMat2, hasMat3];
+  const borders = normalizeMatBorders([mat1BorderCm, mat2BorderCm, mat3BorderCm], activeMats, savedBorders);
+  const [proOrigin, setProOrigin] = useState<{ x: number; y: number } | null>(null);
+  const baseGeometry = matGeometry(artWcm, artHcm, faceWidthCm, borders, activeMats);
+  const origin = proOrigin ?? { x: baseGeometry.total.left, y: baseGeometry.total.top };
+  const layoutWidth = mode === 'pro' ? Math.max(artWcm, ...openings.map(o => o.xCm + o.widthCm - origin.x)) : artWcm;
+  const layoutHeight = mode === 'pro' ? Math.max(artHcm, ...openings.map(o => o.yCm + o.heightCm - origin.y)) : artHcm;
+  const geometry = matGeometry(layoutWidth, layoutHeight, faceWidthCm, borders, activeMats);
+  const legacyLayoutIssue = mode === 'pro' && openings.some(o => o.xCm < origin.x || o.yCm < origin.y);
+  const totalBorder = geometry.total.left; // legacy initial-opening origin only
+  const proOffset = proOrigin ? { x: geometry.total.left - proOrigin.x, y: geometry.total.top - proOrigin.y } : { x: 0, y: 0 };
+
+  // Pro mode openings are stored unchanged in their saved coordinate space.
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(
     null
   );
   const [hoveredOpeningId, setHoveredOpeningId] = useState<string | null>(null);
+  const [handleOpeningId, setHandleOpeningId] = useState<string | null>(null);
+  const [handlePhase, setHandlePhase] = useState<'visible' | 'fading' | 'hidden'>('hidden');
+  const [handleInteraction, setHandleInteraction] = useState(0);
+  function revealHandles(id: string) {
+    setHandleOpeningId(id); setHandlePhase('visible'); setHandleInteraction(n => n + 1);
+  }
 
   const [selectedGlazingId, setSelectedGlazingId] = useState<string>("");
   const [useFrameTexture, setUseFrameTexture] = useState<boolean>(true);
@@ -411,10 +472,10 @@ export default function VisualizerApp() {
   const frameTextureUrl = "";
 
   // Derived dimensions
-  const outerWcm = artWcm + 2 * (totalBorder + faceWidthCm);
-  const outerHcm = artHcm + 2 * (totalBorder + faceWidthCm);
-  const visibleWcm = artWcm + 2 * totalBorder;
-  const visibleHcm = artHcm + 2 * totalBorder;
+  const outerWcm = geometry.external.width;
+  const outerHcm = geometry.external.height;
+  const visibleWcm = geometry.internal.width;
+  const visibleHcm = geometry.internal.height;
 
   // ---------- Dimension input handlers (now used onBlur / Enter) ----------
   function handleDimensionChange(axis: "width" | "height", raw: string) {
@@ -430,30 +491,16 @@ export default function VisualizerApp() {
       if (axis === "width") setArtWcm(cmValue);
       else setArtHcm(cmValue);
     } else {
-      const margin = totalBorder + faceWidthCm;
-      const newArtCm = cmValue - 2 * margin;
+      const margin = axis === 'width' ? geometry.total.left + geometry.total.right : geometry.total.top + geometry.total.bottom;
+      const newArtCm = cmValue - margin - 2 * faceWidthCm;
       const clamped = Math.max(1, newArtCm);
       if (axis === "width") setArtWcm(clamped);
       else setArtHcm(clamped);
     }
   }
 
-  // ---------- Mat border handlers (now onBlur / Enter) ----------
-  function handleMatBorderChange(which: 1 | 2 | 3, raw: string) {
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      if (which === 1) setMat1BorderCm(0);
-      else if (which === 2) setMat2BorderCm(0);
-      else setMat3BorderCm(0);
-      return;
-    }
-    const parsed = parseFloat(trimmed.replace(",", "."));
-    if (!Number.isFinite(parsed) || parsed < 0) return;
-    const safe = Math.min(50, Math.max(0, parsed));
-
-    if (which === 1) setMat1BorderCm(safe);
-    else if (which === 2) setMat2BorderCm(safe);
-    else setMat3BorderCm(safe);
+  function handleMatBorderChange(which: number, side: keyof MatBorders, value: number) {
+    setSavedBorders(borders.map((b, i) => i === which ? { ...b, [side]: value } : b));
   }
 
   // ---------- Pricing: one immutable commercial result for all creation paths ----------
@@ -473,12 +520,12 @@ export default function VisualizerApp() {
   ];
   let pricingIssue = catalogLoading || settingsLoading ? 'Catalogue and pricing settings are loading.'
     : catalogError || settingsError ? 'Could not load catalogue or pricing settings. Retry before creating a priced document.'
-    : pricingSettingsIssue({ labourBase, marginMultiplier }) || materialIssues.find(Boolean) || supplierSelectionIssue;
+    : geometry.issue || pricingSettingsIssue({ labourBase, marginMultiplier }) || materialIssues.find(Boolean) || supplierSelectionIssue;
   // Invalid selections have no commercial result. Never display or persist fabricated zero totals.
   const pricingSnapshot = (() => {
     if (pricingIssue) return null;
     try {
-      return priceVisualiser({ artWcm, artHcm, borderCm: totalBorder, frame: frameProfile,
+      return priceVisualiser({ artWcm, artHcm, borderCm: 0, geometry: { internalWidthCm: visibleWcm, internalHeightCm: visibleHcm }, frame: frameProfile,
         mats: [hasMat1 ? mat1 : null, hasMat2 ? mat2 : null, hasMat3 ? mat3 : null].filter(Boolean) as NonNullable<typeof mat1>[],
         glazing, print: includePrint ? printProduct : null, backer: includeBacker ? selectedBacker : null,
         labourBase, marginMultiplier, taxRatePct: effectiveTaxRatePct(catalog?.settings ?? {}),
@@ -515,7 +562,7 @@ export default function VisualizerApp() {
   // Keep a dataURL of the framed preview for the room mockup
   useEffect(() => {
     // If there's no artwork at all, clear the room preview too
-    if (!artworkUrl) {
+    if (!artworkUrl && !openings.some(o => o.imageUrl)) {
       setRoomArtworkUrl("");
       return;
     }
@@ -564,6 +611,7 @@ export default function VisualizerApp() {
     mat1BorderCm,
     mat2BorderCm,
     mat3BorderCm,
+    savedBorders,
     mode,
     openings,
     outerWcm,
@@ -581,7 +629,7 @@ export default function VisualizerApp() {
     const update = () => {
       const w = el.clientWidth || el.getBoundingClientRect().width || 760;
       setMaxPx(
-        Math.min(MAX_PREVIEW_PX, Math.max(320, Math.floor(w - 24)))
+        Math.min(MAX_PREVIEW_PX, Math.max(1, Math.floor(w - 24)), Math.max(1, Math.floor(window.innerHeight * 0.7)))
       );
     };
     update();
@@ -619,13 +667,18 @@ export default function VisualizerApp() {
   )}px`;
 
   // ---------- Drag / Resize for pro openings ----------
-  type HandleKey = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+
   const [drag, setDrag] = useState<null | {
     kind: "move" | "resize";
     id: string;
     handle?: HandleKey;
     startX: number;
     startY: number;
+    scale: number;
+    layoutWidth: number;
+    layoutHeight: number;
+    originX: number;
+    originY: number;
     ox?: number;
     oy?: number;
     ow?: number;
@@ -634,14 +687,27 @@ export default function VisualizerApp() {
   }>(null);
 
   useEffect(() => {
+    if (!handleOpeningId) return;
+    if (!openings.some(o => o.id === handleOpeningId)) {
+      setHandleOpeningId(null); setHandlePhase('hidden'); return;
+    }
+    if (hoveredOpeningId || drag) return;
+    const fade = window.setTimeout(() => setHandlePhase('fading'), 2500);
+    const hide = window.setTimeout(() => setHandlePhase('hidden'), 2700);
+    return () => { window.clearTimeout(fade); window.clearTimeout(hide); };
+  }, [handleOpeningId, handleInteraction, hoveredOpeningId, drag, openings]);
+
+  useEffect(() => {
     if (!drag) return;
 
     function onMove(e: MouseEvent) {
       const d = drag!;
       const dxPx = e.clientX - d.startX;
       const dyPx = e.clientY - d.startY;
-      const dx = dxPx / scale;
-      const dy = dyPx / scale;
+      const dx = dxPx / d.scale;
+      const dy = dyPx / d.scale;
+      const maxX = d.originX + d.layoutWidth;
+      const maxY = d.originY + d.layoutHeight;
 
       if (d.kind === "move") {
         const id = d.id;
@@ -651,8 +717,8 @@ export default function VisualizerApp() {
         let x = (d.ox ?? 0) + dx;
         let y = (d.oy ?? 0) + dy;
 
-        x = Math.max(0, Math.min(x, visibleWcm - baseW));
-        y = Math.max(0, Math.min(y, visibleHcm - baseH));
+        x = Math.max(d.originX, Math.min(x, maxX - baseW));
+        y = Math.max(d.originY, Math.min(y, maxY - baseH));
 
         x = snapToGrid(x);
         y = snapToGrid(y);
@@ -660,8 +726,8 @@ export default function VisualizerApp() {
         const centerX = x + baseW / 2;
         const centerY = y + baseH / 2;
 
-        const snappedCenterX = snapWithMagnet(centerX, [visibleWcm / 2]);
-        const snappedCenterY = snapWithMagnet(centerY, [visibleHcm / 2]);
+        const snappedCenterX = snapWithMagnet(centerX, [d.originX + d.layoutWidth / 2]);
+        const snappedCenterY = snapWithMagnet(centerY, [d.originY + d.layoutHeight / 2]);
 
         if (snappedCenterX !== centerX) {
           x = snappedCenterX - baseW / 2;
@@ -670,10 +736,10 @@ export default function VisualizerApp() {
           y = snappedCenterY - baseH / 2;
         }
 
-        const leftTarget = 0;
-        const rightTarget = visibleWcm - baseW;
-        const topTarget = 0;
-        const bottomTarget = visibleHcm - baseH;
+        const leftTarget = d.originX;
+        const rightTarget = maxX - baseW;
+        const topTarget = d.originY;
+        const bottomTarget = maxY - baseH;
 
         const snapLeft = snapWithMagnet(x, [leftTarget]);
         const snapRight = snapWithMagnet(x, [rightTarget]);
@@ -697,8 +763,8 @@ export default function VisualizerApp() {
           y = snapBottom;
         }
 
-        x = Math.max(0, Math.min(x, visibleWcm - baseW));
-        y = Math.max(0, Math.min(y, visibleHcm - baseH));
+        x = Math.max(d.originX, Math.min(x, maxX - baseW));
+        y = Math.max(d.originY, Math.min(y, maxY - baseH));
 
         setOpenings((arr) =>
           arr.map((o) =>
@@ -724,38 +790,38 @@ export default function VisualizerApp() {
             if (handle.includes("e")) {
               w = Math.max(
                 MIN_W_CM,
-                Math.min((d.ow ?? 0) + dx, visibleWcm - x)
+                Math.min((d.ow ?? 0) + dx, maxX - x)
               );
             }
             if (handle.includes("w")) {
               const newX = Math.max(
-                0,
-                Math.min(visibleWcm, (d.ox ?? 0) + dx)
+                d.originX,
+                Math.min(maxX, (d.ox ?? 0) + dx)
               );
               const owCalc =
                 (d.ow ?? 0) + (d.ox ?? 0) - newX;
               w = Math.max(
                 MIN_W_CM,
-                Math.min(owCalc, visibleWcm - newX)
+                Math.min(owCalc, maxX - newX)
               );
               x = newX;
             }
             if (handle.includes("s")) {
               h = Math.max(
                 MIN_H_CM,
-                Math.min((d.oh ?? 0) + dy, visibleHcm - y)
+                Math.min((d.oh ?? 0) + dy, maxY - y)
               );
             }
             if (handle.includes("n")) {
               const newY = Math.max(
-                0,
-                Math.min(visibleHcm, (d.oy ?? 0) + dy)
+                d.originY,
+                Math.min(maxY, (d.oy ?? 0) + dy)
               );
               const ohCalc =
                 (d.oh ?? 0) + (d.oy ?? 0) - newY;
               h = Math.max(
                 MIN_H_CM,
-                Math.min(ohCalc, visibleHcm - newY)
+                Math.min(ohCalc, maxY - newY)
               );
               y = newY;
             }
@@ -775,11 +841,15 @@ export default function VisualizerApp() {
             w = snapToGrid(w);
             h = snapToGrid(h);
 
-            x = Math.max(0, Math.min(x, visibleWcm - MIN_W_CM));
-            y = Math.max(0, Math.min(y, visibleHcm - MIN_H_CM));
-            w = Math.max(MIN_W_CM, Math.min(w, visibleWcm - x));
-            h = Math.max(MIN_H_CM, Math.min(h, visibleHcm - y));
+            x = Math.max(d.originX, Math.min(x, maxX - MIN_W_CM));
+            y = Math.max(d.originY, Math.min(y, maxY - MIN_H_CM));
+            w = Math.max(MIN_W_CM, Math.min(w, maxX - x));
+            h = Math.max(MIN_H_CM, Math.min(h, maxY - y));
 
+            if (shape === 'circle') {
+              const diameter = Math.min(w, h, maxX - x, maxY - y);
+              w = diameter; h = diameter;
+            }
             return {
               ...o,
               xCm: x,
@@ -807,11 +877,13 @@ export default function VisualizerApp() {
   const startMove = (e: React.MouseEvent, o: MatOpening) => {
     e.preventDefault();
     setSelectedOpeningId(o.id);
+    revealHandles(o.id);
     setDrag({
       kind: "move",
       id: o.id,
       startX: e.clientX,
       startY: e.clientY,
+      scale, layoutWidth, layoutHeight, originX: origin.x, originY: origin.y,
       ox: o.xCm,
       oy: o.yCm,
       ow: o.widthCm,
@@ -827,12 +899,14 @@ export default function VisualizerApp() {
     e.preventDefault();
     e.stopPropagation();
     setSelectedOpeningId(o.id);
+    revealHandles(o.id);
     setDrag({
       kind: "resize",
       id: o.id,
       handle,
       startX: e.clientX,
       startY: e.clientY,
+      scale, layoutWidth, layoutHeight, originX: origin.x, originY: origin.y,
       shape: o.shape,
       ox: o.xCm,
       oy: o.yCm,
@@ -841,23 +915,6 @@ export default function VisualizerApp() {
     });
   };
 
-  const Handle = ({
-    o,
-    handle,
-    style,
-  }: {
-    o: MatOpening;
-    handle: HandleKey;
-    style: React.CSSProperties;
-  }) => (
-    <div
-      onMouseDown={(e) => startResize(e, o, handle)}
-      data-html2canvas-ignore="true"
-      className="absolute bg-white border border-slate-400 rounded shadow-sm cursor-pointer"
-      style={{ width: 12, height: 12, ...style }}
-      title={`Drag to resize (${handle.toUpperCase()})`}
-    />
-  );
 
   // ---------- Customer panel ----------
   const [selectedCustomerId, setSelectedCustomerId] =
@@ -991,21 +1048,25 @@ export default function VisualizerApp() {
   }
 
   // FileReader may finish after a mode/layout change; initialize from the current design.
-  const proLayoutRef = useRef({ mode, openings, artWcm, artHcm, totalBorder });
-  proLayoutRef.current = { mode, openings, artWcm, artHcm, totalBorder };
+  const proLayoutRef = useRef({ mode, openings, artWcm, artHcm, totalBorder, topBorder: geometry.total.top });
+  proLayoutRef.current = { mode, openings, artWcm, artHcm, totalBorder, topBorder: geometry.total.top };
 
   // Seed only an empty Pro layout from the explicitly uploaded Basic artwork.
   // Never resolve an existing opening's image from the main artwork as a fallback.
   function initializeProOpening(imageUrl: string) {
     const layout = proLayoutRef.current;
     if (!imageUrl || layout.openings.length) return;
-    const opening: MatOpening = { id: rid(), shape: 'rect', xCm: layout.totalBorder, yCm: layout.totalBorder,
+    setProOrigin({ x: layout.totalBorder, y: layout.topBorder });
+    const opening: MatOpening = { id: rid(), shape: 'rect', xCm: layout.totalBorder, yCm: layout.topBorder,
       widthCm: layout.artWcm, heightCm: layout.artHcm, imageUrl };
     setOpenings(current => current.length ? current : [opening]);
   }
 
   function changeMatMode(next: 'basic' | 'pro') {
-    if (next === 'pro') initializeProOpening(artworkUrl);
+    if (next === 'pro') {
+      if (!proOrigin) setProOrigin({ x: geometry.total.left, y: geometry.total.top });
+      initializeProOpening(artworkUrl);
+    }
     setMode(next);
   }
 
@@ -1211,6 +1272,7 @@ export default function VisualizerApp() {
         widthCm: Number(visibleWcm),
         heightCm: Number(visibleHcm),
       },
+      external: { widthCm: outerWcm, heightCm: outerHcm },
       frameFaceWidthCm: Number(faceWidthCm),
     };
 
@@ -1220,6 +1282,8 @@ export default function VisualizerApp() {
       artworkUrl,
       dims: dimsNested,
       mats: {
+        geometryVersion: 2,
+        proOrigin,
         hasMat1,
         hasMat2,
         hasMat3,
@@ -1227,21 +1291,21 @@ export default function VisualizerApp() {
           ? {
               id: selectedMat1,
               name: mat1Name,
-              borderCm: Number(mat1BorderCm),
+              borders: { ...borders[0] },
             }
           : null,
         mat2: hasMat2
           ? {
               id: selectedMat2,
               name: mat2Name,
-              borderCm: Number(mat2BorderCm),
+              borders: { ...borders[1] },
             }
           : null,
         mat3: hasMat3
           ? {
               id: selectedMat3,
               name: mat3Name,
-              borderCm: Number(mat3BorderCm),
+              borders: { ...borders[2] },
             }
           : null,
         openings: mode === "pro" ? openings : [],
@@ -1289,6 +1353,8 @@ export default function VisualizerApp() {
       },
       glazing: { id: selectedGlazingId || "", name: glazingName },
       mats: {
+        geometryVersion: 2,
+        proOrigin,
         hasMat1,
         hasMat2,
         hasMat3,
@@ -1296,21 +1362,21 @@ export default function VisualizerApp() {
           ? {
               id: selectedMat1,
               name: mat1Name,
-              borderCm: Number(mat1BorderCm),
+              borders: { ...borders[0] },
             }
           : null,
         mat2: hasMat2
           ? {
               id: selectedMat2,
               name: mat2Name,
-              borderCm: Number(mat2BorderCm),
+              borders: { ...borders[1] },
             }
           : null,
         mat3: hasMat3
           ? {
               id: selectedMat3,
               name: mat3Name,
-              borderCm: Number(mat3BorderCm),
+              borders: { ...borders[2] },
             }
           : null,
         mode,
@@ -1440,17 +1506,7 @@ export default function VisualizerApp() {
     }
   }
 
-  const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({
-    title,
-    children,
-  }) => (
-    <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-2">
-        {title}
-      </h3>
-      {children}
-    </div>
-  );
+
 
   // ---------- Presets ----------
   const customerKey =
@@ -1458,8 +1514,7 @@ export default function VisualizerApp() {
       ? selectedCustomerId
       : "anonymous";
 
-  const currentState = useMemo(
-    () => ({
+  const currentState = {
       unit,
       sizeMode,
       art: { widthCm: artWcm, heightCm: artHcm, imageUrl: artworkUrl },
@@ -1479,6 +1534,9 @@ export default function VisualizerApp() {
         mat1BorderCm,
         mat2BorderCm,
         mat3BorderCm,
+        geometryVersion: 2,
+        borders,
+        proOrigin,
         openings,
         mode,
       },
@@ -1486,36 +1544,7 @@ export default function VisualizerApp() {
       printing: { includePrint, printMaterialId },
       backer: { includeBacker, materialId: backerMaterialId },
       backdrop,
-    }),
-    [
-      unit,
-      sizeMode,
-      artWcm,
-      artHcm,
-      artworkUrl,
-      selectedFrame,
-      faceAuto,
-      faceWidthCm,
-      framePreviewColor,
-      frameTextureUrl,
-      useFrameTexture,
-      textureScalePct,
-      selectedMat1,
-      selectedMat2,
-      selectedMat3,
-      mat1BorderCm,
-      mat2BorderCm,
-      mat3BorderCm,
-      openings,
-      mode,
-      selectedGlazingId,
-      includePrint,
-      printMaterialId,
-      includeBacker,
-      backerMaterialId,
-      backdrop,
-    ]
-  );
+    };
 
   function applyPreset(p: VisualizerPreset) {
     try {
@@ -1541,13 +1570,17 @@ export default function VisualizerApp() {
       setSelectedMat1(String(s?.mats?.selectedMat1 || "mat0"));
       setSelectedMat2(String(s?.mats?.selectedMat2 || "mat0"));
       setSelectedMat3(String(s?.mats?.selectedMat3 || "mat0"));
-      if (Number.isFinite(s?.mats?.mat1BorderCm))
-        setMat1BorderCm(Number(s.mats.mat1BorderCm));
-      if (Number.isFinite(s?.mats?.mat2BorderCm))
-        setMat2BorderCm(Number(s.mats.mat2BorderCm));
-      if (Number.isFinite(s?.mats?.mat3BorderCm))
-        setMat3BorderCm(Number(s.mats.mat3BorderCm));
+      setMat1BorderCm(Number.isFinite(s?.mats?.mat1BorderCm) ? Number(s.mats.mat1BorderCm) : 5);
+      setMat2BorderCm(Number.isFinite(s?.mats?.mat2BorderCm) ? Number(s.mats.mat2BorderCm) : 2);
+      setMat3BorderCm(Number.isFinite(s?.mats?.mat3BorderCm) ? Number(s.mats.mat3BorderCm) : 1);
 
+      const active = [s?.mats?.selectedMat1, s?.mats?.selectedMat2, s?.mats?.selectedMat3].map(id => !!id && id !== 'mat0');
+      const restored = normalizeMatBorders([s?.mats?.mat1BorderCm ?? 5, s?.mats?.mat2BorderCm ?? 2, s?.mats?.mat3BorderCm ?? 1], active, s?.mats?.borders);
+      setSavedBorders(s?.mats?.borders ? restored : undefined);
+      const restoredGeometry = matGeometry(Number(s?.art?.widthCm) || 40, Number(s?.art?.heightCm) || 30, 0, restored, active);
+      setProOrigin(s?.mats?.proOrigin && Number.isFinite(s.mats.proOrigin.x) && Number.isFinite(s.mats.proOrigin.y)
+        ? s.mats.proOrigin : { x: restoredGeometry.total.left, y: restoredGeometry.total.top });
+      setDrag(null); setSelectedOpeningId(null); setHoveredOpeningId(null); setHandleOpeningId(null); setHandlePhase('hidden');
       setOpenings(
         Array.isArray(s?.mats?.openings) ? s.mats.openings : []
       );
@@ -1645,106 +1678,35 @@ export default function VisualizerApp() {
   const mat2Color = matColor(mat2);
   const mat3Color = matColor(mat3);
 
-  // ---------- BASIC MODE MAT STACK ----------
-  const basicMatMarkup = React.useMemo<React.ReactNode>(() => {
-    if (mode !== "basic") return null;
-
-    const matsStack: { color: string; borderCm: number }[] = [];
-    if (hasMat1)
-      matsStack.push({ color: mat1Color, borderCm: mat1BorderCm });
-    if (hasMat2)
-      matsStack.push({ color: mat2Color, borderCm: mat2BorderCm });
-    if (hasMat3)
-      matsStack.push({ color: mat3Color, borderCm: mat3BorderCm });
-
-    const renderArtwork = () => (
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "#FFF",
-          overflow: "hidden",
-        }}
-      >
-        {artworkUrl ? (
-          <img
-            src={artworkUrl}
-            alt="artwork"
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              display: "block",
-            }}
-            draggable={false}
-          />
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <span className="text-neutral-700 text-sm">
-              Upload an image to preview
-            </span>
-          </div>
-        )}
-      </div>
-    );
-
-    if (!matsStack.length) {
-      return renderArtwork();
-    }
-
-    const buildLayers = (index: number): React.ReactElement => {
-      if (index >= matsStack.length) {
-        return renderArtwork();
-      }
-
-      const mat = matsStack[index];
-      const insetPx = px(mat.borderCm);
-
-      const nextColor =
-        index + 1 < matsStack.length
-          ? matsStack[index + 1].color
-          : "#FFF";
-
-      return (
-        <div
-          style={{
-            position: "absolute",
-            inset: insetPx,
-            background: nextColor,
-          }}
-        >
-          {buildLayers(index + 1)}
-        </div>
-      );
-    };
-
-    const outerColor = matsStack[0].color;
-
-    return (
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: outerColor,
-        }}
-      >
-        {buildLayers(0)}
-      </div>
-    );
-  }, [
-    mode,
-    hasMat1,
-    hasMat2,
-    hasMat3,
-    mat1Color,
-    mat2Color,
-    mat3Color,
-    mat1BorderCm,
-    mat2BorderCm,
-    mat3BorderCm,
-    artworkUrl,
-    px,
-  ]);
+  // Basic and Pro share physical board dimensions and nested aperture distances.
+  const matMaskId = React.useId().replace(/:/g, '');
+  const displayedOpenings = mode === 'pro' ? openings.map(o => ({ ...o, xCm: o.xCm + proOffset.x, yCm: o.yCm + proOffset.y }))
+    : [{ id: 'basic', shape: 'rect' as OpeningShape, xCm: geometry.total.left, yCm: geometry.total.top, widthCm: artWcm, heightCm: artHcm }];
+  const matLayers = <svg data-testid="mat-layers" aria-hidden="true" viewBox={`0 0 ${visibleWcm} ${visibleHcm}`}
+    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+    {[...geometry.layers].reverse().map(layer => {
+      const id = `${matMaskId}-${layer.slot}`;
+      return <g key={layer.slot} data-mat-layer={layer.slot + 1}>
+        <defs><mask id={id} maskUnits="userSpaceOnUse" x="0" y="0" width={visibleWcm} height={visibleHcm}>
+          <rect width={visibleWcm} height={visibleHcm} fill="white" />
+          {displayedOpenings.map(o => {
+            const x = o.xCm - (geometry.total.left - layer.borders.left);
+            const y = o.yCm - (geometry.total.top - layer.borders.top);
+            const width = o.widthCm + geometry.total.left + geometry.total.right - layer.borders.left - layer.borders.right;
+            const height = o.heightCm + geometry.total.top + geometry.total.bottom - layer.borders.top - layer.borders.bottom;
+            return o.shape === 'rect' ? <rect key={o.id} x={x} y={y} width={width} height={height} fill="black" />
+              : <ellipse key={o.id} cx={x + width / 2} cy={y + height / 2} rx={width / 2} ry={height / 2} fill="black" />;
+          })}
+        </mask></defs>
+        <rect width={visibleWcm} height={visibleHcm} fill={[mat1Color, mat2Color, mat3Color][layer.slot]} mask={`url(#${id})`} />
+      </g>;
+    })}
+  </svg>;
+  const basicMatMarkup = <div data-opening-x={geometry.total.left} style={{ position: 'absolute', left: geometry.total.left * scale,
+    top: geometry.total.top * scale, width: artWcm * scale, height: artHcm * scale, background: '#fff', overflow: 'hidden' }}>
+    {artworkUrl ? <img src={artworkUrl} alt="artwork" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      : <div className="flex items-center justify-center h-full"><span className="text-neutral-700 text-sm">Upload an image to preview</span></div>}
+  </div>;
 
   // ---------- RENDER ----------
   return (
@@ -2015,6 +1977,9 @@ export default function VisualizerApp() {
               </select>
             </div>
 
+            {geometry.issue && <p role="alert" className="text-sm text-amber-800">{geometry.issue}</p>}
+            {legacyLayoutIssue && <p role="status" className="text-sm text-amber-800">This saved layout has openings in its border area. Positions are preserved; review the layout before changing its measurements.</p>}
+            <p className="text-xs text-slate-500">Borders are aperture-to-internal-frame-edge distances. Lower mat values include the reveals; they are not added again.</p>
             {/* Mat 1 */}
             <div className="grid gap-2">
               <label className="block text-sm font-medium text-slate-700">
@@ -2035,29 +2000,10 @@ export default function VisualizerApp() {
               </select>
 
               {hasMat1 && (
-                <>
-                  <label className="block text-sm font-medium text-slate-700 mt-2">
-                    Mat 1 border (cm)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    defaultValue={mat1BorderCm.toFixed(1)}
-                    onBlur={(e) =>
-                      handleMatBorderChange(1, e.target.value)
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const val = (
-                          e.target as HTMLInputElement
-                        ).value;
-                        handleMatBorderChange(1, val);
-                        (e.target as HTMLInputElement).blur();
-                      }
-                    }}
-                    className="w-full rounded-lg border p-2 text-sm bg-white/90"
-                  />
-                </>
+                <div className="grid grid-cols-2 gap-2">
+                  {matSides.map(side => <BorderInput key={side} label={`Mat 1 ${side[0].toUpperCase() + side.slice(1)} (cm)`}
+                    value={borders[0][side]} onChange={value => handleMatBorderChange(0, side, value)} />)}
+                  </div>
               )}
             </div>
 
@@ -2102,29 +2048,10 @@ export default function VisualizerApp() {
                   ))}
                 </select>
                 {hasMat2 && (
-                  <>
-                    <label className="block text-sm font-medium text-slate-700 mt-2">
-                      Mat 2 border (cm)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      defaultValue={mat2BorderCm.toFixed(1)}
-                      onBlur={(e) =>
-                        handleMatBorderChange(2, e.target.value)
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          const val = (
-                            e.target as HTMLInputElement
-                          ).value;
-                          handleMatBorderChange(2, val);
-                          (e.target as HTMLInputElement).blur();
-                        }
-                      }}
-                      className="w-full rounded-lg border p-2 text-sm bg-white/90"
-                    />
-                  </>
+                  <div className="grid grid-cols-2 gap-2">
+                  {matSides.map(side => <BorderInput key={side} label={`Mat 2 ${side[0].toUpperCase() + side.slice(1)} (cm)`}
+                    value={borders[1][side]} onChange={value => handleMatBorderChange(1, side, value)} />)}
+                  </div>
                 )}
 
                 {/* Mat 3 trigger */}
@@ -2162,34 +2089,10 @@ export default function VisualizerApp() {
                     </select>
 
                     {hasMat3 && (
-                      <>
-                        <label className="block text-sm font-medium text-slate-700 mt-2">
-                          Mat 3 border (cm)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          defaultValue={mat3BorderCm.toFixed(1)}
-                          onBlur={(e) =>
-                            handleMatBorderChange(
-                              3,
-                              e.target.value
-                            )
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              const val = (
-                                e.target as HTMLInputElement
-                              ).value;
-                              handleMatBorderChange(3, val);
-                              (
-                                e.target as HTMLInputElement
-                              ).blur();
-                            }
-                          }}
-                          className="w-full rounded-lg border p-2 text-sm bg-white/90"
-                        />
-                      </>
+                      <div className="grid grid-cols-2 gap-2">
+                  {matSides.map(side => <BorderInput key={side} label={`Mat 3 ${side[0].toUpperCase() + side.slice(1)} (cm)`}
+                    value={borders[2][side]} onChange={value => handleMatBorderChange(2, side, value)} />)}
+                  </div>
                     )}
                   </div>
                 )}
@@ -2209,8 +2112,8 @@ export default function VisualizerApp() {
                         {
                           id: rid(),
                           shape: "rect",
-                          xCm: 2,
-                          yCm: 2,
+                          xCm: (proOrigin?.x ?? geometry.total.left) + 2,
+                          yCm: (proOrigin?.y ?? geometry.total.top) + 2,
                           widthCm: 10,
                           heightCm: 15,
                           imageUrl: "",
@@ -2229,8 +2132,8 @@ export default function VisualizerApp() {
                         {
                           id: rid(),
                           shape: "oval",
-                          xCm: 2,
-                          yCm: 2,
+                          xCm: (proOrigin?.x ?? geometry.total.left) + 2,
+                          yCm: (proOrigin?.y ?? geometry.total.top) + 2,
                           widthCm: 12,
                           heightCm: 16,
                           imageUrl: "",
@@ -2249,8 +2152,8 @@ export default function VisualizerApp() {
                         {
                           id: rid(),
                           shape: "circle",
-                          xCm: 2,
-                          yCm: 2,
+                          xCm: (proOrigin?.x ?? geometry.total.left) + 2,
+                          yCm: (proOrigin?.y ?? geometry.total.top) + 2,
                           widthCm: 12,
                           heightCm: 12,
                           imageUrl: "",
@@ -2263,7 +2166,7 @@ export default function VisualizerApp() {
                 </div>
 
                 <div className="space-y-1 max-h-40 overflow-auto pr-1">
-                  {openings.map((o) => (
+                  {openings.map((o, index) => (
                     <div
                       key={o.id}
                       className={`flex items-center justify-between rounded border px-2 py-1 text-xs bg-white ${
@@ -2272,7 +2175,8 @@ export default function VisualizerApp() {
                           : "border-slate-300"
                       }`}
                     >
-                      <div className="truncate">
+                      <button type="button" aria-label={`Opening ${index + 1}: ${o.shape}`} className="truncate text-left"
+                        onClick={() => { setSelectedOpeningId(o.id); revealHandles(o.id); }}>
                         <span className="font-medium">
                           {o.shape}
                         </span>{" "}
@@ -2282,7 +2186,7 @@ export default function VisualizerApp() {
                           {Math.round(o.xCm)},
                           {Math.round(o.yCm)}
                         </span>
-                      </div>
+                      </button>
                       <div className="flex items-center gap-1">
                         {o.imageUrl && (
                           <button
@@ -2491,8 +2395,7 @@ export default function VisualizerApp() {
                   style={{
                     width: px(outerWcm),
                     height: px(outerHcm),
-                    maxWidth: "100%",
-                    maxHeight: "70vh",
+
                   }}
                 >
                   {/* Frame band */}
@@ -2570,25 +2473,20 @@ export default function VisualizerApp() {
                       top: px(faceWidthCm),
                       right: px(faceWidthCm),
                       bottom: px(faceWidthCm),
-                      background: hasMat3
-                        ? mat3Color
-                        : hasMat2
-                        ? mat2Color
-                        : hasMat1
-                        ? mat1Color
-                        : "#EEE",
+                      background: "#fff",
                       borderRadius: 0,
                       overflow: "hidden",
                     }}
                   >
+                    {matLayers}
                     {/* BASIC MODE stacked mats */}
                     {mode === "basic" && basicMatMarkup}
 
                     {/* PRO MODE openings */}
                     {mode === "pro" &&
                       openings.map((o) => {
-                        const left = px(o.xCm);
-                        const top = px(o.yCm);
+                        const left = (o.xCm + proOffset.x) * scale;
+                        const top = (o.yCm + proOffset.y) * scale;
                         const w = px(o.widthCm);
                         const h = px(o.heightCm);
                         const isCircle = o.shape === "circle";
@@ -2608,9 +2506,7 @@ export default function VisualizerApp() {
                             onMouseDown={(e) =>
                               startMove(e, o)
                             }
-                            onMouseEnter={() =>
-                              setHoveredOpeningId(o.id)
-                            }
+                            onMouseEnter={() => { setHoveredOpeningId(o.id); revealHandles(o.id); }}
                             onMouseLeave={() =>
                               setHoveredOpeningId(null)
                             }
@@ -2642,7 +2538,7 @@ export default function VisualizerApp() {
                             />
 
                             {/* Artwork inset */}
-                            <div
+                            <div data-opening-x={o.xCm + proOffset.x}
                               style={{
                                 position: "absolute",
                                 inset: bevelPx,
@@ -2681,9 +2577,9 @@ export default function VisualizerApp() {
                             </div>
 
                             {/* Resize handles */}
-                            {(selectedOpeningId === o.id || hoveredOpeningId === o.id) && (
+                            {((drag?.id === o.id || hoveredOpeningId === o.id || handleOpeningId === o.id) && handlePhase !== 'hidden') && (
                               <>
-                                <Handle
+                                <Handle phase={handlePhase} onResize={startResize}
                                   o={o}
                                   handle="nw"
                                   style={{
@@ -2693,7 +2589,7 @@ export default function VisualizerApp() {
                                       "nwse-resize",
                                   }}
                                 />
-                                <Handle
+                                <Handle phase={handlePhase} onResize={startResize}
                                   o={o}
                                   handle="ne"
                                   style={{
@@ -2703,7 +2599,7 @@ export default function VisualizerApp() {
                                       "nesw-resize",
                                   }}
                                 />
-                                <Handle
+                                <Handle phase={handlePhase} onResize={startResize}
                                   o={o}
                                   handle="sw"
                                   style={{
@@ -2713,7 +2609,7 @@ export default function VisualizerApp() {
                                       "nesw-resize",
                                   }}
                                 />
-                                <Handle
+                                <Handle phase={handlePhase} onResize={startResize}
                                   o={o}
                                   handle="se"
                                   style={{
@@ -2723,7 +2619,7 @@ export default function VisualizerApp() {
                                       "nwse-resize",
                                   }}
                                 />
-                                <Handle
+                                <Handle phase={handlePhase} onResize={startResize}
                                   o={o}
                                   handle="n"
                                   style={{
@@ -2735,7 +2631,7 @@ export default function VisualizerApp() {
                                       "ns-resize",
                                   }}
                                 />
-                                <Handle
+                                <Handle phase={handlePhase} onResize={startResize}
                                   o={o}
                                   handle="s"
                                   style={{
@@ -2747,7 +2643,7 @@ export default function VisualizerApp() {
                                       "ns-resize",
                                   }}
                                 />
-                                <Handle
+                                <Handle phase={handlePhase} onResize={startResize}
                                   o={o}
                                   handle="w"
                                   style={{
@@ -2759,7 +2655,7 @@ export default function VisualizerApp() {
                                       "ew-resize",
                                   }}
                                 />
-                                <Handle
+                                <Handle phase={handlePhase} onResize={startResize}
                                   o={o}
                                   handle="e"
                                   style={{
@@ -2805,16 +2701,11 @@ export default function VisualizerApp() {
 
                   <RoomMockup
                     artworkUrl={roomArtworkUrl || artworkUrl}
-                    openings={
-                      mode === "pro" ? openings : undefined
-                    }
-                    artSizeCm={{
-                      widthCm: artWcm,
-                      heightCm: artHcm,
-                    }}
-                    onOpeningsChange={(next) =>
-                      setOpenings(next)
-                    }
+                    openings={mode === 'pro' ? openings.map(o => ({ ...o,
+                      xCm: o.xCm + proOffset.x + faceWidthCm, yCm: o.yCm + proOffset.y + faceWidthCm })) : undefined}
+                    artSizeCm={{ widthCm: outerWcm, heightCm: outerHcm }}
+                    onOpeningsChange={next => setOpenings(next.map(o => ({ ...o,
+                      xCm: o.xCm - proOffset.x - faceWidthCm, yCm: o.yCm - proOffset.y - faceWidthCm })))}
                     backdrop={backdrop}
                   />
                 </div>
