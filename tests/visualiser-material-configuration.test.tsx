@@ -26,7 +26,7 @@ type PresetProps = {
 }
 
 const state = vi.hoisted(() => ({ catalog: null as Catalog | null, preset: {} as Record<string, unknown>, current: {} as Record<string, unknown>,
-  quotes: [] as CapturedQuote[], jobs: [] as CapturedJob[], invoices: [] as CapturedInvoice[] }))
+  quotes: [] as CapturedQuote[], jobs: [] as CapturedJob[], invoices: [] as CapturedInvoice[], supplierProducts: [] as object[] }))
 vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: state.catalog, loading: false, settingsLoading: false }) }))
 vi.mock('@/lib/quotes', () => ({ useQuotes: () => ({ quotes: [], add: async (payload: CapturedQuote) => { state.quotes.push(payload); return { ok: true, quote: payload } } }) }))
 vi.mock('@/lib/jobs', () => ({ useJobs: () => ({ add: async (payload: CapturedJob) => { state.jobs.push(payload); return { ok: true, job: { ...payload, id: 'j' } } } }) }))
@@ -40,9 +40,9 @@ vi.mock('@/components/PresetControls', () => ({ default: ({ currentState, onAppl
   state.current = currentState
   return <button onClick={() => onApply({ state: state.preset })}>Apply test preset</button>
 } }))
-vi.mock('@/lib/effectiveSupplierAccess', () => ({ useEffectiveCompanyCatalogue: () => ({ supplierProducts: [], selectionIssue: () => null }) }))
+vi.mock('@/lib/effectiveSupplierAccess', () => ({ useEffectiveCompanyCatalogue: () => ({ supplierProducts: state.supplierProducts, selectionIssue: () => null }) }))
 beforeEach(() => {
-  state.quotes = []; state.jobs = []; state.invoices = []; state.preset = {}; window.location.hash = ''
+  state.quotes = []; state.jobs = []; state.invoices = []; state.preset = {}; state.supplierProducts = []; window.location.hash = ''
   vi.spyOn(window, 'alert').mockImplementation(() => {})
   state.catalog = { frames: [{ id: 'f', name: 'Oak', pricePerMeter: 10, faceWidthCm: 2 }],
     mats: [{ id: 'mat0', name: 'No mat', pricePerSqM: 0 }, { id: 'm', name: 'White mat', pricePerSqM: 5 }],
@@ -59,6 +59,80 @@ const create = async () => {
 }
 const fullPreset = () => ({ frame: { id: 'f' }, mats: { selectedMat1: 'm', mat1BorderCm: 5 }, glazing: { id: 'g' },
   printing: { includePrint: true, printMaterialId: 'p' }, backer: { includeBacker: true, materialId: 'b2' } })
+
+it('does not render discovered supplier products or their technical status', () => {
+  state.supplierProducts = [{ id: 'supplier:test', name: 'Synthetic discovery product', supplierName: 'Synthetic supplier',
+    lifecycle: 'active', availability: 'unknown', visibleForNewSelection: false, commerciallySelectable: false }]
+  render(<VisualizerApp />)
+  expect(document.body.textContent).not.toMatch(/Supplier catalogue|discovery only|not priceable|Synthetic discovery product|Synthetic supplier/)
+})
+
+it.each(['frame', 'mat', 'glazing', 'printing', 'backer'])(
+  'preserves a saved supplier %s reference as a disabled neutral option without substitution', category => {
+    const id = 'supplier:00000000-0000-0000-0000-000000000003'
+    const product = { id, name: 'Unpriceable supplier product', pricePerMeter: 99, pricePerSqM: 99, faceWidthCm: 2 }
+    const lists = { frame: state.catalog!.frames, mat: state.catalog!.mats, glazing: state.catalog!.glazing,
+      printing: state.catalog!.printingMaterials!, backer: state.catalog!.backers! }
+    lists[category as keyof typeof lists].push(product)
+    render(<VisualizerApp />)
+    expect(screen.queryByRole('option', { name: 'Unpriceable supplier product' })).toBeNull()
+    state.preset = category === 'mat' ? { mats: { selectedMat1: id } } : category === 'printing'
+      ? { printing: { includePrint: true, printMaterialId: id } } : category === 'backer'
+      ? { backer: { includeBacker: true, materialId: id } } : { [category]: { id } }
+    apply()
+    const option = screen.getByRole('option', { name: /Unavailable/ }) as HTMLOptionElement
+    expect(option.disabled).toBe(true)
+    expect(option.selected).toBe(true)
+    expect((option.parentElement as HTMLSelectElement).value).toBe(id)
+    expect(document.body.textContent).not.toMatch(/not priceable|Supplier reference|Unpriceable supplier product/)
+    fireEvent.click(screen.getByRole('button', { name: 'Create Quote + Invoice + Job' }))
+    expect(state.quotes).toHaveLength(0); expect(state.invoices).toHaveLength(0); expect(state.jobs).toHaveLength(0)
+  })
+
+it.each([0, 1, 2, 3, 4, 5, 6, 7])('reconciles every displayed selling component, subtotal and tax for mat mask %s', async mask => {
+  // Fractional rates exercise the engine's rounding allocation, including labour.
+  state.catalog!.settings.marginMultiplier = 1.0625
+  state.catalog!.settings.labourBase = 10.123
+  state.catalog!.frames[0].pricePerMeter = 10.019
+  state.catalog!.mats.push({ id: 'm2', name: 'Blue mat', pricePerSqM: 11.111 }, { id: 'm3', name: 'Red mat', pricePerSqM: 17.777 })
+  render(<VisualizerApp />)
+  state.preset = { ...fullPreset(), mats: { selectedMat1: mask & 1 ? 'm' : 'mat0', selectedMat2: mask & 2 ? 'm2' : 'mat0',
+    selectedMat3: mask & 4 ? 'm3' : 'mat0', mat1BorderCm: 5, mat2BorderCm: 2, mat3BorderCm: 1 } }
+  apply()
+  await create()
+  const snapshot = state.quotes[0].pricingSnapshot!
+  const format = (n: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'GBP' }).format(n)
+  const shown = (label: string) => screen.getByText(label, { selector: 'span' }).nextElementSibling!.textContent!
+  let matIndex = 0
+  const rows: Array<[string, string]> = [['Frame', 'frame'], ['Glazing', 'glazing'],
+    ...[1, 2, 3].filter(slot => mask & (1 << (slot - 1))).map(slot => [`Mat ${slot}`, `mat${++matIndex}`] as [string, string]),
+    ['Printing', 'print'], ['Backer', 'backer'], ['Labour', 'labour']]
+  let displayedCents = 0
+  for (const [label, key] of rows) {
+    const amount = shown(label)
+    expect(amount).toBe(format(snapshot.items.find(line => line.key === key)!.lineTotal))
+    displayedCents += Math.round(Number(amount.replace(/[^0-9.-]/g, '')) * 100)
+  }
+  expect(displayedCents).toBe(Math.round(snapshot.subtotal * 100))
+  expect(shown('Subtotal')).toBe(format(snapshot.subtotal))
+  expect(shown('Tax')).toBe(format(snapshot.tax))
+  expect(shown('Total')).toBe(format(snapshot.total))
+  expect(Math.round(snapshot.subtotal * 100) + Math.round(snapshot.tax * 100)).toBe(Math.round(snapshot.total * 100))
+  expect(state.jobs[0].details.internalCosts).toBeTruthy()
+})
+
+it('displays the 400 × 300 mm backing selling amount of £12.00 without changing its saved base amount', async () => {
+  state.catalog.backers[0].pricePerSqM = 80
+  render(<VisualizerApp />)
+  state.preset = { backer: { includeBacker: true, materialId: 'b1' } }; apply()
+  expect(screen.getByText('Backer').parentElement!.textContent).toBe('Backer£12.00')
+  await create()
+  expect(state.quotes[0].pricingSnapshot.items.find((line: CommercialSnapshot['items'][number]) => line.key === 'backer')).toMatchObject({
+    qty: 0.12, rawAmount: 9.6, unitPrice: 100, lineTotal: 12,
+  })
+  expect(state.jobs[0].details.internalCosts).toMatchObject({ backerCost: 9.6, labourBase: 10 })
+  expect(screen.getByText('Labour', { selector: 'span' }).nextElementSibling!.textContent).toBe('£12.50')
+})
 
 it('selects configured backing and carries all five material rates, identities and quantities to every creation route', async () => {
   render(<VisualizerApp />)
@@ -182,15 +256,41 @@ it('blocks a supplier backing reference even with injected positive pricing and 
   render(<VisualizerApp />)
   state.preset = { backer: { includeBacker: true, materialId: supplierId } }; apply()
   fireEvent.click(screen.getByRole('button', { name: 'Create Quote + Invoice + Job' }))
-  expect(screen.getByRole('alert').textContent).toMatch(/supplier/i)
+  expect(screen.getByRole('alert').textContent).toBe('Pricing is unavailable for this selection. Please choose another material or ask a staff member.')
   expect(state.invoices).toHaveLength(0)
 })
 
-it('shows the exact selling multiplier and retains sub-cent material rate precision in selection', () => {
+it('keeps selectors and pricing customer-safe while preserving sub-cent rates internally', async () => {
   state.catalog.settings.marginMultiplier = 1.0625
   state.catalog.printingMaterials[0].pricePerSqM = 0.00390625
   render(<VisualizerApp />)
   state.preset = fullPreset(); apply()
-  expect(screen.getByText('× 1.0625')).toBeTruthy()
-  expect(screen.getByRole('option', { name: /Rag paper/ }).textContent).toContain('Base £0.00390625/m²; selling £0.004150390625/m²')
+  expect(screen.getByRole('option', { name: 'Rag paper' }).textContent).toBe('Rag paper')
+  expect(document.body.textContent).not.toMatch(/base (?:cost|rate|amount)|purchase cost|multiplier|markup|margin|Admin currency|0\.00390625|0\.004150390625|1\.0625/i)
+  expect(screen.getByText('Currency: GBP')).toBeTruthy()
+  await create()
+  expect(state.quotes[0].pricingSnapshot!.items.find((line: CommercialSnapshot['items'][number]) => line.key === 'print')!.unitPrice).toBe(0.004150390625)
 })
+
+it.each(['frame', 'glazing', 'mat', 'printing', 'backing', 'labour', 'multiplier', 'tax'])(
+  'does not disclose internal configuration for invalid %s pricing, including action feedback', async kind => {
+    if (kind === 'frame') state.catalog!.frames[0].pricePerMeter = NaN
+    if (kind === 'glazing') state.catalog!.glazing[0].pricePerSqM = -1
+    if (kind === 'mat') state.catalog!.mats[1].pricePerSqM = undefined
+    if (kind === 'printing') state.catalog!.printingMaterials![0].pricePerSqM = NaN
+    if (kind === 'backing') state.catalog!.backers![1].pricePerSqM = -1
+    if (kind === 'labour') state.catalog!.settings.labourBase = -1
+    if (kind === 'multiplier') state.catalog!.settings.marginMultiplier = 0
+    if (kind === 'tax') state.catalog!.settings.taxRatePct = -1
+    render(<VisualizerApp />)
+    state.preset = fullPreset(); apply()
+    expect(screen.getByRole('alert').textContent).toBe('Pricing is unavailable for this selection. Please choose another material or ask a staff member.')
+    expect(document.body.textContent).not.toMatch(/base (?:cost|rate|amount|material)|purchase cost|multiplier|markup|margin|Admin review/i)
+    fireEvent.click(screen.getByRole('button', { name: 'Create Quote + Invoice + Job' }))
+    expect(window.alert).toHaveBeenCalledWith('Pricing is unavailable for this selection. Please choose another material or ask a staff member.')
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Quotes' }))
+    await waitFor(() => expect(useToast.getState().toasts.some((toast: { message: string }) => /Pricing is unavailable/.test(toast.message))).toBe(true))
+    expect(state.quotes).toHaveLength(0)
+    expect(state.invoices).toHaveLength(0)
+    expect(state.jobs).toHaveLength(0)
+  })

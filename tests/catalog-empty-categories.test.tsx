@@ -73,7 +73,7 @@ it('removes the last frame through Admin, persists the empty category and blocks
   expect(reader.result.current.catalog.frames).toEqual([])
   reader.unmount()
   render(<VisualizerApp />, { wrapper: Wrapper })
-  await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/select an available frame/i))
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Pricing is unavailable for this selection. Please choose another material or ask a staff member.'))
   expect(screen.queryByRole('option', { name: /Black Classic|Oak 30mm/ })).toBeNull()
   fireEvent.change(screen.getByText('Existing customer').parentElement!.querySelector('select')!, { target: { value: 'customer' } })
   for (const name of ['Add to Quotes', 'Add to Jobs', 'Add to Invoices', 'Create Quote + Invoice + Job'])

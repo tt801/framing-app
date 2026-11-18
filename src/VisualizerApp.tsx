@@ -3,9 +3,9 @@ import React, { useMemo, useRef, useState, useEffect } from "react";
 
 // STORES / LIBS
 import { useCatalog, type PrintingMaterial } from "@/lib/store";
-import { materialRateIssue, pricingSettingsIssue, type MaterialPricingMetadata } from '@/lib/materialPricing';
+import { materialRateIssue, pricingSettingsIssue } from '@/lib/materialPricing';
 import { useEffectiveCompanyCatalogue } from "@/lib/effectiveSupplierAccess";
-import { priceVisualiser, effectiveTaxRatePct, sellingRateLabel, toVisualiserQuote, toVisualiserJobCosts, toVisualiserInvoice } from "@/lib/pricing";
+import { priceVisualiser, effectiveTaxRatePct, toVisualiserQuote, toVisualiserJobCosts, toVisualiserInvoice } from "@/lib/pricing";
 import { useQuotes } from "@/lib/quotes";
 import { useCustomers, validateCustomer, type Customer } from "@/lib/customers";
 import { useInvoices } from "@/lib/invoices";
@@ -359,9 +359,7 @@ export default function VisualizerApp() {
   ]);
   const guardSupplierSelection = (feedback?: IndividualFeedback) => {
     if (!supplierSelectionIssue && !pricingIssue) return true;
-    const message = supplierSelectionIssue
-      ? `${supplierSelectionIssue} Choose a manual product before creating a priced document.`
-      : pricingIssue;
+    const message = customerPricingIssue;
     if (feedback) feedback.notify(message, "warning");
     else alert(message); // The combined workflow retains its existing feedback.
     return false;
@@ -490,8 +488,9 @@ export default function VisualizerApp() {
       return null;
     }
   })();
-  const selectionRateLabel = (product: MaterialPricingMetadata, rate: unknown, unit: 'm' | 'm²') => materialRateIssue(product, rate, 'Material') || !Number.isFinite(marginMultiplier) || marginMultiplier <= 0
-    ? 'Rate requires Admin review' : `Base ${sellingRateLabel(rate as number, unit, currencyCode, currencySymbol)}; selling ${sellingRateLabel((rate as number) * marginMultiplier, unit, currencyCode, currencySymbol)} excl. tax`;
+  // Internal validation stays intact; never render its configuration diagnostics to customers.
+  const customerPricingIssue = catalogLoading || settingsLoading ? 'Pricing is loading. Please wait.'
+    : 'Pricing is unavailable for this selection. Please choose another material or ask a staff member.';
   const rawCost = (key: string) => pricingSnapshot?.items.find(item => item.key === key)?.rawAmount ?? 0;
   const frameCost = rawCost('frame');
   const glazingCost = rawCost('glazing');
@@ -500,6 +499,10 @@ export default function VisualizerApp() {
   const mat3Cost = rawCost('mat3');
   const printingCost = rawCost('print');
   const backerCost = rawCost('backer');
+  // Presentation consumes the engine's rounded selling lines; internal costs stay unchanged.
+  const sellingAmount = (key: string) => pricingSnapshot?.items.find(item => item.key === key)?.lineTotal ?? 0;
+  // The engine numbers only included mats; UI slots may contain gaps in a saved design.
+  const sellingMatAmount = (slot: number) => sellingAmount(`mat${[hasMat1, hasMat2, hasMat3].slice(0, slot).filter(Boolean).length}`);
   const subtotal = pricingSnapshot?.subtotal;
   const total = pricingSnapshot?.total;
 
@@ -1870,16 +1873,7 @@ export default function VisualizerApp() {
 
           {supplierSelectionIssue && (
             <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-              {supplierSelectionIssue} This saved selection cannot be used in a priced document; select a manual product.
-            </div>
-          )}
-          {effectiveCatalogue.supplierProducts.length > 0 && (
-            <div className="rounded-lg border bg-white p-3 text-sm">
-              <h3 className="font-semibold">Supplier catalogue (discovery only)</h3>
-              <ul>{effectiveCatalogue.supplierProducts.map(product => (
-                <li key={product.id}>{product.supplierName}: {product.name} — {product.lifecycle}, {product.availability}
-                  {product.visibleForNewSelection ? '' : ' (not available for new designs)'} — not priceable</li>
-              ))}</ul>
+              {customerPricingIssue}
             </div>
           )}
           {/* Frame Profile */}
@@ -1893,11 +1887,11 @@ export default function VisualizerApp() {
                 value={selectedFrame}
                 onChange={(e) => setSelectedFrame(e.target.value)}
               >
-                {selectedFrame.startsWith('supplier:') && !catalog?.frames?.some(f => f.id === selectedFrame) &&
-                  <option value={selectedFrame}>Supplier reference (not priceable)</option>}
+                {selectedFrame.startsWith('supplier:') &&
+                  <option value={selectedFrame} disabled>Unavailable frame — select a material</option>}
                 {selectedFrame && !frameProfile && !selectedFrame.startsWith('supplier:') &&
-                  <option value={selectedFrame}>Unavailable frame — select a material</option>}
-                {(catalog?.frames || []).map((f: any) => (
+                  <option value={selectedFrame} disabled>Unavailable frame — select a material</option>}
+                {(catalog?.frames || []).filter(f => !f.id.startsWith('supplier:')).map((f: any) => (
                   <option key={f.id} value={f.id}>
                     {f.name}
                   </option>
@@ -2006,9 +2000,9 @@ export default function VisualizerApp() {
                 value={selectedMat1}
                 onChange={(e) => setSelectedMat1(e.target.value)}
               >
-                {hasMat1 && !mat1 && <option value={selectedMat1}>Unavailable mat — select a material</option>}
+                {hasMat1 && (!mat1 || selectedMat1.startsWith('supplier:')) && <option value={selectedMat1} disabled>Unavailable mat — select a material</option>}
                 <option value="mat0">None</option>
-                {(catalog?.mats || []).map((m: any) => (
+                {(catalog?.mats || []).filter(m => !m.id.startsWith('supplier:')).map((m: any) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
@@ -2074,9 +2068,9 @@ export default function VisualizerApp() {
                     setSelectedMat2(e.target.value)
                   }
                 >
-                  {hasMat2 && !mat2 && <option value={selectedMat2}>Unavailable mat — select a material</option>}
+                  {hasMat2 && (!mat2 || selectedMat2.startsWith('supplier:')) && <option value={selectedMat2} disabled>Unavailable mat — select a material</option>}
                   <option value="mat0">None</option>
-                  {(catalog?.mats || []).map((m: any) => (
+                  {(catalog?.mats || []).filter(m => !m.id.startsWith('supplier:')).map((m: any) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
                     </option>
@@ -2133,9 +2127,9 @@ export default function VisualizerApp() {
                         setSelectedMat3(e.target.value)
                       }
                     >
-                      {hasMat3 && !mat3 && <option value={selectedMat3}>Unavailable mat — select a material</option>}
+                      {hasMat3 && (!mat3 || selectedMat3.startsWith('supplier:')) && <option value={selectedMat3} disabled>Unavailable mat — select a material</option>}
                       <option value="mat0">None</option>
-                      {(catalog?.mats || []).map((m: any) => (
+                      {(catalog?.mats || []).filter(m => !m.id.startsWith('supplier:')).map((m: any) => (
                         <option key={m.id} value={m.id}>
                           {m.name}
                         </option>
@@ -2319,10 +2313,10 @@ export default function VisualizerApp() {
               {includeBacker && <label className="block text-sm mt-2">Backing material
                 <select aria-label="Backing material" className="w-full rounded-lg border p-2 bg-white text-sm" value={backerMaterialId}
                   onChange={event => setBackerMaterialId(event.target.value)}>
-                  <option value="__legacy_foam__">Foam board backer (legacy) — {selectionRateLabel({ allowZeroPrice: settings.foamBackerAllowZeroPrice }, foamBackerPerSqM, 'm²')}</option>
-                  {!selectedBacker && <option value={backerMaterialId}>Unavailable backing — select a material</option>}
+                  <option value="__legacy_foam__">Foam board backer</option>
+                  {(!selectedBacker || backerMaterialId.startsWith('supplier:')) && <option value={backerMaterialId} disabled>Unavailable backing — select a material</option>}
                   {backerList.filter(board => !board.id.startsWith('supplier:')).map(board => <option key={board.id} value={board.id}>
-                    {board.name} — {selectionRateLabel(board, board.pricePerSqM, 'm²')}
+                    {board.name}
                   </option>)}
                 </select>
               </label>}
@@ -2341,10 +2335,10 @@ export default function VisualizerApp() {
                 setSelectedGlazingId(e.target.value)
               }
             >
-              {selectedGlazingId && !glazing && <option value={selectedGlazingId}>Unavailable glazing — select a material</option>}
-              {glazingList.map((g: any) => (
+              {selectedGlazingId && (!glazing || selectedGlazingId.startsWith('supplier:')) && <option value={selectedGlazingId} disabled>Unavailable glazing — select a material</option>}
+              {glazingList.filter(g => !g.id.startsWith('supplier:')).map((g: any) => (
                 <option key={g.id} value={g.id}>
-                  {g.name} — {selectionRateLabel(g, g.pricePerSqM, 'm²')}
+                  {g.name}
                 </option>
               ))}
             </select>
@@ -2378,12 +2372,12 @@ export default function VisualizerApp() {
                   }
                 >
                   <option value="">
-                    Use fallback — {selectionRateLabel({ allowZeroPrice: settings.printingAllowZeroPrice }, fallbackPrintSqM, 'm²')}
+                    Standard printing
                   </option>
-                  {printMaterialId && !selectedPM && <option value={printMaterialId}>Unavailable printing — select a material</option>}
+                  {printMaterialId && (!selectedPM || printMaterialId.startsWith('supplier:')) && <option value={printMaterialId} disabled>Unavailable printing — select a material</option>}
                   {PRINT_MATS.filter((pm: PrintingMaterial) => !pm.id.startsWith('supplier:')).map((pm: any) => (
                     <option key={pm.id} value={pm.id}>
-                      {pm.name} — {selectionRateLabel(pm, pm.pricePerSqM, 'm²')}
+                      {pm.name}
                     </option>
                   ))}
                 </select>
@@ -2884,59 +2878,52 @@ export default function VisualizerApp() {
                 <div className="font-semibold text-base mb-2 flex items-center justify-between">
                   <span>Pricing</span>
                   <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/40">
-                    Admin currency: {currencyCode}
+                    Currency: {currencyCode}
                   </span>
                 </div>
-                {pricingIssue ? !supplierSelectionIssue && <p role="alert">{pricingIssue}</p> : <div className="space-y-1 text-sm">
-                  <p className="text-xs">Base amounts below × global selling multiplier = selling subtotal, excluding tax. These are not purchase costs.</p>
+                {pricingIssue ? !supplierSelectionIssue && <p role="alert">{customerPricingIssue}</p> : <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <span>Frame</span>
-                    <span>{moneyIntl(frameCost)}</span>
+                    <span>{moneyIntl(sellingAmount('frame'))}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Glazing</span>
-                    <span>{moneyIntl(glazingCost)}</span>
+                    <span>{moneyIntl(sellingAmount('glazing'))}</span>
                   </div>
                   {hasMat1 && (
                     <div className="flex justify-between">
                       <span>Mat 1</span>
-                      <span>{moneyIntl(mat1Cost)}</span>
+                      <span>{moneyIntl(sellingMatAmount(1))}</span>
                     </div>
                   )}
                   {hasMat2 && (
                     <div className="flex justify-between">
                       <span>Mat 2</span>
-                      <span>{moneyIntl(mat2Cost)}</span>
+                      <span>{moneyIntl(sellingMatAmount(2))}</span>
                     </div>
                   )}
                   {hasMat3 && (
                     <div className="flex justify-between">
                       <span>Mat 3</span>
-                      <span>{moneyIntl(mat3Cost)}</span>
+                      <span>{moneyIntl(sellingMatAmount(3))}</span>
                     </div>
                   )}
                   {includePrint && (
                     <div className="flex justify-between">
                       <span>Printing</span>
-                      <span>{moneyIntl(printingCost)}</span>
+                      <span>{moneyIntl(sellingAmount('print'))}</span>
                     </div>
                   )}
                   {includeBacker && (
                     <div className="flex justify-between">
                       <span>Backer</span>
-                      <span>{moneyIntl(backerCost)}</span>
+                      <span>{moneyIntl(sellingAmount('backer'))}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
                     <span>Labour</span>
-                    <span>{moneyIntl(labourBase)}</span>
+                    <span>{moneyIntl(sellingAmount('labour'))}</span>
                   </div>
-                  {marginMultiplier !== 1 && (
-                    <div className="flex justify-between text-xs text-slate-300">
-                      <span>Global selling multiplier</span>
-                      <span>× {marginMultiplier}</span>
-                    </div>
-                  )}
                   <div className="border-t border-slate-700 pt-1 flex justify-between">
                     <span>Subtotal</span>
                     <span>{moneyIntl(subtotal)}</span>

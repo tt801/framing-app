@@ -163,12 +163,12 @@ it('keeps successful invoice navigation without adding a success notification', 
 it('keeps supplier warnings inline and blocks every individual document with warning toasts', async () => {
   state.issue = 'Supplier product unavailable'
   render(view())
-  expect(screen.getByRole('alert').textContent).toContain('select a manual product')
+  expect(screen.getByRole('alert').textContent).toBe('Pricing is unavailable for this selection. Please choose another material or ask a staff member.')
   for (const button of ['Add to Quotes', 'Add to Jobs', 'Add to Invoices']) {
     await act(async () => click(button))
   }
   expect(messages()).toHaveLength(3)
-  expect(messages().every(message => message.type === 'warning' && message.message.includes('Choose a manual product'))).toBe(true)
+  expect(messages().every(message => message.type === 'warning' && message.message === 'Pricing is unavailable for this selection. Please choose another material or ask a staff member.')).toBe(true)
   expect(state.createCustomer).not.toHaveBeenCalled()
   expect(state.quote).not.toHaveBeenCalled(); expect(state.job).not.toHaveBeenCalled(); expect(state.invoice).not.toHaveBeenCalled()
   expect(window.alert).not.toHaveBeenCalled()
