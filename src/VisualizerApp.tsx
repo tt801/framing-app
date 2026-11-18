@@ -527,6 +527,7 @@ export default function VisualizerApp() {
       try {
         const dataUrl = await htmlToImage.toPng(previewRef.current!, {
           cacheBust: true,
+          filter: node => !(node instanceof Element && node.hasAttribute('data-html2canvas-ignore')),
         });
         if (!cancelled) {
           setRoomArtworkUrl(dataUrl);
@@ -851,6 +852,7 @@ export default function VisualizerApp() {
   }) => (
     <div
       onMouseDown={(e) => startResize(e, o, handle)}
+      data-html2canvas-ignore="true"
       className="absolute bg-white border border-slate-400 rounded shadow-sm cursor-pointer"
       style={{ width: 12, height: 12, ...style }}
       title={`Drag to resize (${handle.toUpperCase()})`}
@@ -988,11 +990,34 @@ export default function VisualizerApp() {
     return result.customer.id;
   }
 
+  // FileReader may finish after a mode/layout change; initialize from the current design.
+  const proLayoutRef = useRef({ mode, openings, artWcm, artHcm, totalBorder });
+  proLayoutRef.current = { mode, openings, artWcm, artHcm, totalBorder };
+
+  // Seed only an empty Pro layout from the explicitly uploaded Basic artwork.
+  // Never resolve an existing opening's image from the main artwork as a fallback.
+  function initializeProOpening(imageUrl: string) {
+    const layout = proLayoutRef.current;
+    if (!imageUrl || layout.openings.length) return;
+    const opening: MatOpening = { id: rid(), shape: 'rect', xCm: layout.totalBorder, yCm: layout.totalBorder,
+      widthCm: layout.artWcm, heightCm: layout.artHcm, imageUrl };
+    setOpenings(current => current.length ? current : [opening]);
+  }
+
+  function changeMatMode(next: 'basic' | 'pro') {
+    if (next === 'pro') initializeProOpening(artworkUrl);
+    setMode(next);
+  }
+
   // ---------- Image upload ----------
   function onPickImage(file?: File | null) {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setArtworkUrl(String(reader.result || ""));
+    reader.onload = () => {
+      const imageUrl = String(reader.result || "");
+      setArtworkUrl(imageUrl);
+      if (proLayoutRef.current.mode === 'pro') initializeProOpening(imageUrl);
+    };
     reader.readAsDataURL(file);
   }
 
@@ -1982,7 +2007,7 @@ export default function VisualizerApp() {
                 className="rounded border p-1 text-xs bg-white"
                 value={mode}
                 onChange={(e) =>
-                  setMode(e.target.value as "basic" | "pro")
+                  changeMatMode(e.target.value as "basic" | "pro")
                 }
               >
                 <option value="basic">Basic</option>
@@ -2656,7 +2681,7 @@ export default function VisualizerApp() {
                             </div>
 
                             {/* Resize handles */}
-                            {hoveredOpeningId === o.id && (
+                            {(selectedOpeningId === o.id || hoveredOpeningId === o.id) && (
                               <>
                                 <Handle
                                   o={o}
