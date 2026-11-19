@@ -16,6 +16,7 @@ export function normalizeMatBorders(legacy: number[], _active?: boolean[], saved
 }
 const data = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 export const MAT_REVIEW_ISSUE = 'This saved mat geometry needs review: measurements are incomplete, crossing, or have unknown semantics. Load a valid design before saving or pricing.'
+export const MAT_COINCIDENT_REVIEW_ISSUE = 'This saved mat geometry needs review: legacy absolute borders produce zero-width reveals (coincident edges). Original geometry is retained; review the measurements before adopting the pilot layout.'
 /** Read-only boundary adapter. A failed conversion is not permission to save the preview fallback. */
 export function restoreMatBorders(value: unknown, active: boolean[]): { borders: MatBorders[]; issue: string | null } {
   const saved = data(value)
@@ -39,10 +40,13 @@ export function restoreMatBorders(value: unknown, active: boolean[]): { borders:
     return { borders: sides.map(b => ({ ...b as MatBorders })), issue: null }
   }
   let previous = uniformBorders(0)
+  let coincident = false
   let previousSlot = uniformBorders(0)
   const borders = legacy.map(b => ({ ...b }))
   for (let slot = 0; slot < 3; slot++) {
     const absolute = sides[slot]
+    const alias = data(saved[`mat${slot + 1}`]).borders
+    if (Array.isArray(saved.borders) && alias !== undefined && (!isMatBorders(alias) || !isMatBorders(absolute) || matSides.some(side => alias[side] !== absolute[side]))) return fail()
     if (!active[slot]) {
       // Equal-to-active values are Stage B's generated inactive placeholders. Retain independent
       // scalar settings for those; retain meaningful cached four-sided values when unambiguous.
@@ -56,10 +60,11 @@ export function restoreMatBorders(value: unknown, active: boolean[]): { borders:
     }
     if (!isMatBorders(absolute) || matSides.some(side => absolute[side] < previous[side])) return fail()
     borders[slot] = Object.fromEntries(matSides.map(side => [side, absolute[side] - previous[side]])) as MatBorders
+    if (slot > 0 && matSides.some(side => absolute[side] > 0 && borders[slot][side] === 0)) coincident = true
     previous = absolute
     previousSlot = absolute
   }
-  return { borders, issue: null }
+  return { borders, issue: coincident ? MAT_COINCIDENT_REVIEW_ISSUE : null }
 }
 export function matGeometry(width: number, height: number, face: number, borders: MatBorders[], active: boolean[]) {
   const total = uniformBorders(0)

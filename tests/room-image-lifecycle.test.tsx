@@ -53,6 +53,12 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear() })
 
+it('uses the authoritative composite without loading or repainting a second opening model', () => {
+  render(<RoomMockup artworkUrl="scene-composite" compositeIncludesOpenings openings={[opening('individual-image')]} />)
+  expect(ControlledImage.requests.map(img => img.src)).toEqual(['scene-composite'])
+  const composite = image('scene-composite'); composite.load()
+  expect(drawn).toEqual([composite])
+})
 it('ignores artwork A loading after B, including any stale redraw', () => {
   const view = render(room())
   const a = image('art-a')

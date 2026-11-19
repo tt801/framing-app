@@ -1,6 +1,8 @@
 ﻿// src/VisualizerApp.tsx
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { matGeometry, restoreMatBorders, defaultMatBorders, MAT_GEOMETRY_VERSION, matSides, type MatBorders } from '@/lib/matGeometry';
+import { matGeometry, restoreMatBorders, MAT_GEOMETRY_VERSION, MAT_COINCIDENT_REVIEW_ISSUE, matSides, type MatBorders } from '@/lib/matGeometry';
+import { matColour, createMatSlots, selectMatMaterial, editMatSide, restoreMatLocks, matDisplayValue, matPhysicalValue, matUnit } from '@/lib/visualizerMats';
+import { visualizerScene, layoutDimensionForExternal, decodeVisualizerPreset, type VisualizerDesign, type LayoutModel } from '@/lib/visualizerScene';
 
 const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({
     title,
@@ -330,8 +332,13 @@ export default function VisualizerApp() {
 
   const [sizeMode, setSizeMode] = useState<"image" | "frame">("image");
 
-  const [artWcm, setArtWcm] = useState(40);
-  const [artHcm, setArtHcm] = useState(30);
+  const [basicWcm, setBasicWcm] = useState(40);
+  const [basicHcm, setBasicHcm] = useState(30);
+  const [proLayoutSize, setProLayoutSize] = useState<{ widthCm: number; heightCm: number } | null>(null);
+  const artWcm = mode === 'pro' ? proLayoutSize?.widthCm ?? basicWcm : basicWcm;
+  const artHcm = mode === 'pro' ? proLayoutSize?.heightCm ?? basicHcm : basicHcm;
+  const setArtWcm = (widthCm: number) => mode === 'pro' ? setProLayoutSize(s => ({ widthCm, heightCm: s?.heightCm ?? basicHcm })) : setBasicWcm(widthCm);
+  const setArtHcm = (heightCm: number) => mode === 'pro' ? setProLayoutSize(s => ({ heightCm, widthCm: s?.widthCm ?? basicWcm })) : setBasicHcm(heightCm);
   const [artworkUrl, setArtworkUrl] = useState<string>("");
   // Composite framed preview for RoomMockup
   const [roomArtworkUrl, setRoomArtworkUrl] = useState<string>("");
@@ -341,13 +348,13 @@ export default function VisualizerApp() {
   const [faceAuto, setFaceAuto] = useState<boolean>(true);
   const [faceWidthCm, setFaceWidthCm] = useState(2.0);
 
-  const [selectedMat1, setSelectedMat1] = useState<string>("mat0");
-  const [selectedMat2, setSelectedMat2] = useState<string>("mat0");
-  const [selectedMat3, setSelectedMat3] = useState<string>("mat0");
-
-  // Independent incremental measurements survive disabling/re-enabling each material slot.
-  const [borders, setBorders] = useState<MatBorders[]>(defaultMatBorders);
+  const [matSlots, setMatSlots] = useState(createMatSlots);
+  const [selectedMat1, selectedMat2, selectedMat3] = matSlots.map(slot => slot.materialId);
+  const borders = useMemo(() => matSlots.map(slot => slot.borders), [matSlots]);
+  const [layoutModel, setLayoutModel] = useState<LayoutModel>("shared-group-v1");
+  const [reviewableMats, setReviewableMats] = useState(false);
   const [matRestoreIssue, setMatRestoreIssue] = useState<string | null>(null);
+  const [designLoadIssue, setDesignLoadIssue] = useState<string | null>(null);
 
   const [showMat2, setShowMat2] = useState(false);
   const [showMat3, setShowMat3] = useState(false);
@@ -359,14 +366,14 @@ export default function VisualizerApp() {
   const [openings, setOpenings] = useState<MatOpening[]>([]);
   const activeMats = [hasMat1, hasMat2, hasMat3];
   const [proOrigin, setProOrigin] = useState<{ x: number; y: number } | null>(null);
-  const baseGeometry = matGeometry(artWcm, artHcm, faceWidthCm, borders, activeMats);
-  const origin = proOrigin ?? { x: baseGeometry.total.left, y: baseGeometry.total.top };
-  const layoutWidth = mode === 'pro' ? Math.max(artWcm, ...openings.map(o => o.xCm + o.widthCm - origin.x)) : artWcm;
-  const layoutHeight = mode === 'pro' ? Math.max(artHcm, ...openings.map(o => o.yCm + o.heightCm - origin.y)) : artHcm;
-  const geometry = matGeometry(layoutWidth, layoutHeight, faceWidthCm, borders, activeMats);
-  const legacyLayoutIssue = mode === 'pro' && openings.some(o => o.xCm < origin.x || o.yCm < origin.y);
-  const totalBorder = geometry.total.left; // legacy initial-opening origin only
-  const proOffset = proOrigin ? { x: geometry.total.left - proOrigin.x, y: geometry.total.top - proOrigin.y } : { x: 0, y: 0 };
+  const geometry = visualizerScene({ mode, layoutModel, width: artWcm, height: artHcm, face: faceWidthCm, borders, active: activeMats, origin: proOrigin, openings });
+  const origin = geometry.layoutOrigin;
+  const { layoutWidth, layoutHeight } = geometry;
+  const legacyLayoutIssue = geometry.legacyBoundsIssue;
+  const totalBorder = geometry.total.left;
+  const proOffset = geometry.offset;
+  const visualizerDesign: VisualizerDesign = { version: 1, layoutModel, mode, basic: { widthCm: basicWcm, heightCm: basicHcm, imageUrl: artworkUrl },
+    pro: { origin: proOrigin, openings, ...(proLayoutSize ? { layout: proLayoutSize } : {}) }, mats: matSlots };
 
   // Pro mode openings are stored unchanged in their saved coordinate space.
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(
@@ -404,6 +411,9 @@ export default function VisualizerApp() {
   const mat1 = catalog?.mats?.find?.((m: any) => m.id === selectedMat1);
   const mat2 = catalog?.mats?.find?.((m: any) => m.id === selectedMat2);
   const mat3 = catalog?.mats?.find?.((m: any) => m.id === selectedMat3);
+  const matColours = [mat1, mat2, mat3].map(matColour);
+  const matColourSignature = matColours.join('|');
+  const scenePaintSignature = JSON.stringify({ layers: geometry.layers.map(layer => ({ slot: layer.slot, cutouts: layer.cutouts.map(({ id, shape, xCm, yCm, widthCm, heightCm }) => ({ id, shape, xCm, yCm, widthCm, heightCm })) })), offset: geometry.offset, layoutModel });
   const selectedPM = PRINT_MATS.find((p: any) => p.id === printMaterialId);
   const selectedBacker = backerMaterialId === '__legacy_foam__'
     ? { id: '__legacy_foam__', name: 'Foam board backer (legacy)', pricePerSqM: foamBackerPerSqM,
@@ -475,6 +485,7 @@ export default function VisualizerApp() {
 
   // ---------- Dimension input handlers (now used onBlur / Enter) ----------
   function handleDimensionChange(axis: "width" | "height", raw: string) {
+    if (legacyLayoutIssue) { toast("Review and adopt this historical layout before changing geometry.", "error"); return; }
     const trimmed = raw.trim();
     if (!trimmed) return;
 
@@ -487,16 +498,16 @@ export default function VisualizerApp() {
       if (axis === "width") setArtWcm(cmValue);
       else setArtHcm(cmValue);
     } else {
-      const margin = axis === 'width' ? geometry.total.left + geometry.total.right : geometry.total.top + geometry.total.bottom;
-      const newArtCm = cmValue - margin - 2 * faceWidthCm;
-      const clamped = Math.max(1, newArtCm);
-      if (axis === "width") setArtWcm(clamped);
-      else setArtHcm(clamped);
+      try {
+        const layout = layoutDimensionForExternal(geometry, axis, cmValue);
+        if (axis === 'width') setArtWcm(layout); else setArtHcm(layout);
+      } catch (error) { toast(error instanceof Error ? error.message : 'Review the requested frame dimensions.', 'error'); }
     }
   }
 
   function handleMatBorderChange(which: number, side: keyof MatBorders, value: number) {
-    setBorders(current => current.map((b, i) => i === which ? { ...b, [side]: value } : b));
+    if (legacyLayoutIssue) return;
+    setMatSlots(current => editMatSide(current, which, side, value));
   }
 
   // ---------- Pricing: one immutable commercial result for all creation paths ----------
@@ -516,7 +527,7 @@ export default function VisualizerApp() {
   ];
   let pricingIssue = catalogLoading || settingsLoading ? 'Catalogue and pricing settings are loading.'
     : catalogError || settingsError ? 'Could not load catalogue or pricing settings. Retry before creating a priced document.'
-    : matRestoreIssue || geometry.issue || pricingSettingsIssue({ labourBase, marginMultiplier }) || materialIssues.find(Boolean) || supplierSelectionIssue;
+    : designLoadIssue || matRestoreIssue || (legacyLayoutIssue ? 'Legacy opening coordinates need review before changing geometry.' : null) || geometry.issue || pricingSettingsIssue({ labourBase, marginMultiplier }) || materialIssues.find(Boolean) || supplierSelectionIssue;
   // Invalid selections have no commercial result. Never display or persist fabricated zero totals.
   const pricingSnapshot = (() => {
     if (pricingIssue) return null;
@@ -592,6 +603,8 @@ export default function VisualizerApp() {
     // Include the things that visually change the frame/mats/openings
   }, [
     artworkUrl,
+    matColourSignature,
+    scenePaintSignature,
     selectedFrame,
     framePreviewColor,
     faceWidthCm,
@@ -609,6 +622,7 @@ export default function VisualizerApp() {
     openings,
     outerWcm,
     outerHcm,
+    maxPx,
   ]);
 
   // Pro-mode: per-opening image picker
@@ -699,6 +713,19 @@ export default function VisualizerApp() {
       const dyPx = e.clientY - d.startY;
       const dx = dxPx / d.scale;
       const dy = dyPx / d.scale;
+      if (layoutModel === 'shared-group-v1') {
+        setOpenings(arr => arr.map(o => {
+          if (o.id !== d.id) return o;
+          if (d.kind === 'move') return { ...o, xCm: snapToGrid((d.ox ?? 0) + dx), yCm: snapToGrid((d.oy ?? 0) + dy) };
+          const handle = d.handle!;
+          let w = Math.max(2, (d.ow ?? 0) + (handle.includes('e') ? dx : handle.includes('w') ? -dx : 0));
+          let h = Math.max(2, (d.oh ?? 0) + (handle.includes('s') ? dy : handle.includes('n') ? -dy : 0));
+          if (d.shape === 'circle') { const diameter = handle === 'n' || handle === 's' ? h : handle === 'e' || handle === 'w' ? w : Math.max(w, h); w = diameter; h = diameter; }
+          return { ...o, widthCm: w, heightCm: h, xCm: handle.includes('w') ? (d.ox ?? 0) + (d.ow ?? 0) - w : d.ox ?? 0,
+            yCm: handle.includes('n') ? (d.oy ?? 0) + (d.oh ?? 0) - h : d.oy ?? 0 };
+        }));
+        return;
+      }
       const maxX = d.originX + d.layoutWidth;
       const maxY = d.originY + d.layoutHeight;
 
@@ -865,7 +892,7 @@ export default function VisualizerApp() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [drag, scale, visibleWcm, visibleHcm]);
+  }, [drag, scale, visibleWcm, visibleHcm, layoutModel]);
 
   const startMove = (e: React.MouseEvent, o: MatOpening) => {
     e.preventDefault();
@@ -1057,6 +1084,7 @@ export default function VisualizerApp() {
 
   function changeMatMode(next: 'basic' | 'pro') {
     if (next === 'pro') {
+      if (!proLayoutSize) setProLayoutSize({ widthCm: basicWcm, heightCm: basicHcm });
       if (!proOrigin) setProOrigin({ x: geometry.total.left, y: geometry.total.top });
       initializeProOpening(artworkUrl);
     }
@@ -1272,10 +1300,13 @@ export default function VisualizerApp() {
     const commercial = toVisualiserJobCosts(pricingSnapshot);
 
     const detailsSnapshot = {
+      visualizerDesign,
       artworkUrl,
       dims: dimsNested,
       mats: {
         geometryVersion: MAT_GEOMETRY_VERSION,
+        layoutModel,
+        locks: matSlots.map(slot => slot.locked),
         borders: borders.map(b => ({ ...b })),
         proOrigin,
         hasMat1,
@@ -1302,7 +1333,7 @@ export default function VisualizerApp() {
               borders: { ...borders[2] },
             }
           : null,
-        openings: mode === "pro" ? openings : [],
+        openings,
         mode,
       },
       frame: {
@@ -1330,6 +1361,7 @@ export default function VisualizerApp() {
     };
 
     const flatForJobs = {
+      visualizerDesign,
       customer: customerSnapshot || {},
       artwork: {
         imageUrl: artworkUrl,
@@ -1348,6 +1380,8 @@ export default function VisualizerApp() {
       glazing: { id: selectedGlazingId || "", name: glazingName },
       mats: {
         geometryVersion: MAT_GEOMETRY_VERSION,
+        layoutModel,
+        locks: matSlots.map(slot => slot.locked),
         borders: borders.map(b => ({ ...b })),
         proOrigin,
         hasMat1,
@@ -1375,7 +1409,7 @@ export default function VisualizerApp() {
             }
           : null,
         mode,
-        openings: mode === "pro" ? openings : [],
+        openings,
       },
       dims: {
         unit,
@@ -1510,6 +1544,7 @@ export default function VisualizerApp() {
       : "anonymous";
 
   const currentState = {
+      visualizerDesign,
       unit,
       sizeMode,
       art: { widthCm: artWcm, heightCm: artHcm, imageUrl: artworkUrl },
@@ -1527,6 +1562,8 @@ export default function VisualizerApp() {
         selectedMat2,
         selectedMat3,
         geometryVersion: MAT_GEOMETRY_VERSION,
+        layoutModel,
+        locks: matSlots.map(slot => slot.locked),
         borders: borders.map(b => ({ ...b })),
         proOrigin,
         openings,
@@ -1540,11 +1577,15 @@ export default function VisualizerApp() {
 
   function applyPreset(p: VisualizerPreset) {
     try {
-      const s = (p.state as any) || {};
+      const decoded = decodeVisualizerPreset(p.state);
+      if (decoded.issue) { setDesignLoadIssue(decoded.issue); toast(decoded.issue, "error", 0); return; }
+      setDesignLoadIssue(null);
+      const s = decoded.state as any;
       setUnit(s.unit === "imperial" ? "imperial" : "metric");
       setSizeMode(s.sizeMode === "frame" ? "frame" : "image");
-      setArtWcm(Number(s?.art?.widthCm) || 40);
-      setArtHcm(Number(s?.art?.heightCm) || 30);
+      setBasicWcm(Number(s?.visualizerDesign?.basic?.widthCm ?? s?.art?.widthCm) || 40);
+      setBasicHcm(Number(s?.visualizerDesign?.basic?.heightCm ?? s?.art?.heightCm) || 30);
+      setProLayoutSize(s?.visualizerDesign?.pro?.layout ?? (s?.mats?.mode === 'pro' || s?.mats?.openings?.length ? { widthCm: Number(s?.art?.widthCm) || 40, heightCm: Number(s?.art?.heightCm) || 30 } : null));
       setArtworkUrl(String(s?.art?.imageUrl || ""));
       setSelectedFrame(String(s?.frame?.id || defaultFrameId));
       setFaceAuto(Boolean(s?.frame?.faceAuto));
@@ -1559,15 +1600,15 @@ export default function VisualizerApp() {
         setTextureScalePct(Number(s.frame.textureScalePct));
       }
 
-      setSelectedMat1(String(s?.mats?.selectedMat1 || "mat0"));
-      setSelectedMat2(String(s?.mats?.selectedMat2 || "mat0"));
-      setSelectedMat3(String(s?.mats?.selectedMat3 || "mat0"));
+      setLayoutModel(s?.mats?.layoutModel === "shared-group-v1" ? "shared-group-v1" : "legacy-individual-v1");
       const active = [s?.mats?.selectedMat1, s?.mats?.selectedMat2, s?.mats?.selectedMat3].map(id => !!id && id !== 'mat0');
       const restored = restoreMatBorders(s?.mats, active);
-      setBorders(restored.borders);
+      const locks = restoreMatLocks(restored.borders, s?.mats?.locks);
+      setMatSlots(restored.borders.map((borders, i) => ({ borders, locked: locks[i], materialId: String(s?.mats?.[`selectedMat${i + 1}`] || "mat0") })));
+      setReviewableMats(restored.issue === MAT_COINCIDENT_REVIEW_ISSUE);
       setMatRestoreIssue(restored.issue);
       const restoredGeometry = matGeometry(Number(s?.art?.widthCm) || 40, Number(s?.art?.heightCm) || 30, 0, restored.borders, active);
-      setProOrigin(s?.mats?.proOrigin && Number.isFinite(s.mats.proOrigin.x) && Number.isFinite(s.mats.proOrigin.y)
+      setProOrigin(s?.mats?.proOrigin === null ? null : s?.mats?.proOrigin && Number.isFinite(s.mats.proOrigin.x) && Number.isFinite(s.mats.proOrigin.y)
         ? s.mats.proOrigin : { x: restoredGeometry.total.left, y: restoredGeometry.total.top });
       setDrag(null); setSelectedOpeningId(null); setHoveredOpeningId(null); setHandleOpeningId(null); setHandlePhase('hidden');
       setOpenings(
@@ -1616,6 +1657,8 @@ export default function VisualizerApp() {
   const runExport = async (format: "PNG" | "JPG" | "PDF") => {
     setExportMenuOpen(false);
     if (exportPendingRef.current) return;
+    const reviewIssue = designLoadIssue || matRestoreIssue || geometry.issue || (legacyLayoutIssue ? 'Review the historical layout before exporting.' : null);
+    if (reviewIssue) { toast(reviewIssue, 'error', 0); return; }
     const node = previewRef.current;
     if (!node) {
       toast("The preview is not ready. Wait for the preview and its images to load, then try again.", "error");
@@ -1650,51 +1693,27 @@ export default function VisualizerApp() {
     return () => window.removeEventListener("mousedown", handle);
   }, [exportMenuOpen]);
 
-  // ---------- Colours for mats ----------
-      const matColor = (m: any): string => {
-      if (!m) return "#EEE";
-
-      const raw =
-        (m as any).colour ??
-        (m as any).color ??
-        "";
-
-      if (raw === "transparent") return "#EEE";
-      return raw || "#EEE";
-    };
-
-  const mat1Color = matColor(mat1);
-  const mat2Color = matColor(mat2);
-  const mat3Color = matColor(mat3);
-
-  // Basic and Pro share physical board dimensions and nested aperture distances.
+  // The scene owns aperture geometry; the renderer only paints it.
   const matMaskId = React.useId().replace(/:/g, '');
-  const displayedOpenings = mode === 'pro' ? openings.map(o => ({ ...o, xCm: o.xCm + proOffset.x, yCm: o.yCm + proOffset.y }))
-    : [{ id: 'basic', shape: 'rect' as OpeningShape, xCm: geometry.total.left, yCm: geometry.total.top, widthCm: artWcm, heightCm: artHcm }];
   const matLayers = <svg data-testid="mat-layers" aria-hidden="true" viewBox={`0 0 ${visibleWcm} ${visibleHcm}`}
     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-    {[...geometry.layers].reverse().map(layer => {
+    {geometry.layers.map(layer => {
       const id = `${matMaskId}-${layer.slot}`;
       return <g key={layer.slot} data-mat-layer={layer.slot + 1}>
         <defs><mask id={id} maskUnits="userSpaceOnUse" x="0" y="0" width={visibleWcm} height={visibleHcm}>
           <rect width={visibleWcm} height={visibleHcm} fill="white" />
-          {displayedOpenings.map(o => {
-            const x = o.xCm - (geometry.total.left - layer.borders.left);
-            const y = o.yCm - (geometry.total.top - layer.borders.top);
-            const width = o.widthCm + geometry.total.left + geometry.total.right - layer.borders.left - layer.borders.right;
-            const height = o.heightCm + geometry.total.top + geometry.total.bottom - layer.borders.top - layer.borders.bottom;
-            return o.shape === 'rect' ? <rect key={o.id} x={x} y={y} width={width} height={height} fill="black" />
-              : <ellipse key={o.id} cx={x + width / 2} cy={y + height / 2} rx={width / 2} ry={height / 2} fill="black" />;
-          })}
+          {layer.cutouts.map(o => o.shape === 'rect'
+            ? <rect key={o.id} x={o.xCm} y={o.yCm} width={o.widthCm} height={o.heightCm} fill="black" />
+            : <ellipse key={o.id} cx={o.xCm + o.widthCm / 2} cy={o.yCm + o.heightCm / 2} rx={o.widthCm / 2} ry={o.heightCm / 2} fill="black" />)}
         </mask></defs>
-        <rect width={visibleWcm} height={visibleHcm} fill={[mat1Color, mat2Color, mat3Color][layer.slot]} mask={`url(#${id})`} />
+        <rect width={visibleWcm} height={visibleHcm} fill={matColours[layer.slot]} mask={`url(#${id})`} />
       </g>;
     })}
   </svg>;
   const basicMatMarkup = <div data-opening-x={geometry.total.left} style={{ position: 'absolute', left: geometry.total.left * scale,
     top: geometry.total.top * scale, width: artWcm * scale, height: artHcm * scale, background: '#fff', overflow: 'hidden' }}>
     {artworkUrl ? <img src={artworkUrl} alt="artwork" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-      : <div className="flex items-center justify-center h-full"><span className="text-neutral-700 text-sm">Upload an image to preview</span></div>}
+      : <div className="flex items-center justify-center h-full"><span className="text-neutral-700 text-sm">{openings.some(o => o.imageUrl) ? 'Basic artwork is empty. Your opening images are retained in Pro Mode.' : 'Upload an image to preview'}</span></div>}
   </div>;
 
   // ---------- RENDER ----------
@@ -1783,22 +1802,20 @@ export default function VisualizerApp() {
                     <label className="block text-sm font-medium text-slate-700">
                       {labelText} ({unit === "imperial" ? "in" : "cm"})
                     </label>
-                    <input
+                    <input aria-label={`${labelText} (${unit === "imperial" ? "in" : "cm"})`}
                       key={`dim-${axis}-${unit}-${sizeMode}-${Math.round(
                         keySeed * 10
                       )}`}
                       type="number"
                       step="0.1"
                       defaultValue={dimDisplay}
-                      onBlur={(e) =>
-                        handleDimensionChange(axis, e.target.value)
-                      }
+                      onBlur={e => { if (e.target.value !== dimDisplay) handleDimensionChange(axis, e.target.value); e.currentTarget.value = dimDisplay; }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           const val = (
                             e.target as HTMLInputElement
                           ).value;
-                          handleDimensionChange(axis, val);
+                          if (val !== dimDisplay) handleDimensionChange(axis, val);
                           (e.target as HTMLInputElement).blur();
                         }
                       }}
@@ -1967,126 +1984,42 @@ export default function VisualizerApp() {
             </div>
 
             {(matRestoreIssue || geometry.issue) && <p role="status" className="text-sm text-amber-800">{matRestoreIssue || geometry.issue}</p>}
-            {legacyLayoutIssue && <p role="status" className="text-sm text-amber-800">This saved layout has openings in its border area. Positions are preserved; review the layout before changing its measurements.</p>}
             <p className="text-xs text-slate-500">Each side is incremental: Mat 1 is relative to the artwork/layout opening; Mat 2 is relative to Mat 1’s inner edge; Mat 3 is relative to Mat 2’s inner edge. Enabled contributions are added on each side.</p>
-            {/* Mat 1 */}
-            <div className="grid gap-2">
-              <label className="block text-sm font-medium text-slate-700">
-                Mat 1 (top)
-              </label>
-              <select
-                className="w-full rounded-lg border p-2 bg-white text-sm"
-                value={selectedMat1}
-                onChange={(e) => setSelectedMat1(e.target.value)}
-              >
-                {hasMat1 && (!mat1 || selectedMat1.startsWith('supplier:')) && <option value={selectedMat1} disabled>Unavailable mat — select a material</option>}
-                <option value="mat0">None</option>
-                {(catalog?.mats || []).filter(m => !m.id.startsWith('supplier:')).map((m: any) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-
-              {hasMat1 && (
-                <div className="grid grid-cols-2 gap-2">
-                  {matSides.map(side => <BorderInput key={side} label={`Mat 1 ${side[0].toUpperCase() + side.slice(1)} (cm)`}
-                    value={borders[0][side]} onChange={value => handleMatBorderChange(0, side, value)} />)}
-                  </div>
-              )}
-            </div>
-
-            {/* Mat 2 trigger */}
-            {!showMat2 && (
-              <button
-                type="button"
-                className="mt-3 rounded-lg border border-dashed border-emerald-300 px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-600 hover:text-white transition"
-                onClick={() => setShowMat2(true)}
-              >
-                + Add second mat
-              </button>
-            )}
-
-            {/* Mat 2 */}
-            {showMat2 && (
-              <div className="mt-3 border-t border-slate-200 pt-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-sm font-medium text-slate-700">
-                    Mat 2 (under)
-                  </label>
-                  {!hasMat2 && (
-                    <span className="text-[11px] text-slate-500">
-                      Choose a mat colour
-                    </span>
-                  )}
-                </div>
-
-                <select
-                  className="w-full rounded-lg border p-2 bg-white text-sm"
-                  value={selectedMat2}
-                  onChange={(e) =>
-                    setSelectedMat2(e.target.value)
-                  }
-                >
-                  {hasMat2 && (!mat2 || selectedMat2.startsWith('supplier:')) && <option value={selectedMat2} disabled>Unavailable mat — select a material</option>}
+            {mode === 'basic' && !artworkUrl && openings.some(o => !!o.imageUrl) && <p className="text-xs text-slate-500 mb-2">Basic has no original artwork. Your Pro openings and images are retained; switch to Pro to view them.</p>}
+            {layoutModel === 'legacy-individual-v1' && <div className="rounded border p-2 text-xs text-amber-900">
+              <p>Historical individual-cut-out layout preserved. Adopting the pilot layout changes decorative cut-outs, not saved opening coordinates or images. Review measurements before saving a new copy.</p>
+              <button type="button" className="rounded border p-2 mt-2" disabled={!!matRestoreIssue && (!reviewableMats || matSlots.some(s => s.materialId !== 'mat0' && matSides.every(side => s.borders[side] === 0)))}
+                onClick={() => { setLayoutModel('shared-group-v1'); setMatRestoreIssue(null); setReviewableMats(false); }}>Review and adopt shared-cut-out layout</button>
+            </div>}
+            {matSlots.map((slot, index) => {
+              const shown = index === 0 || (index === 1 ? showMat2 : showMat3) || slot.materialId !== 'mat0';
+              if (!shown) return <button key={index} type="button" className="mt-3 rounded-lg border border-dashed px-3 py-2 text-sm"
+                onClick={() => index === 1 ? setShowMat2(true) : setShowMat3(true)}>+ Add {index === 1 ? 'second' : 'third'} mat</button>;
+              const material = [mat1, mat2, mat3][index];
+              const displayUnit = matUnit(index, unit);
+              return <div key={index} className="mt-3 border-t border-slate-200 pt-3 space-y-2">
+                <label className="block text-sm font-medium text-slate-700">Mat {index + 1}{index === 0 ? ' (primary)' : ' (decorative)'}</label>
+                <select aria-label={`Mat ${index + 1} material`} className="w-full rounded-lg border p-2 bg-white text-sm" value={slot.materialId}
+                  disabled={legacyLayoutIssue} onChange={e => setMatSlots(current => selectMatMaterial(current, index, e.target.value))}>
+                  {slot.materialId !== 'mat0' && (!material || slot.materialId.startsWith('supplier:')) && <option value={slot.materialId} disabled>Unavailable mat — select a material</option>}
                   <option value="mat0">None</option>
-                  {(catalog?.mats || []).filter(m => !m.id.startsWith('supplier:')).map((m: any) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
+                  {(catalog?.mats || []).filter(m => m.id !== 'mat0' && !m.id.startsWith('supplier:')).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
-                {hasMat2 && (
+                {slot.materialId !== 'mat0' && <>
+                  <div className="flex gap-2">
+                    <button type="button" aria-label={`${slot.locked ? 'Unlock' : 'Lock'} Mat ${index + 1} borders`} className="rounded border px-2 py-1 text-xs"
+                      onClick={() => setMatSlots(current => current.map((s, i) => i === index ? { ...s, locked: !s.locked } : s))}>{slot.locked ? 'Locked' : 'Unlocked'}</button>
+                    <button type="button" disabled={legacyLayoutIssue} aria-label={`Remove Mat ${index + 1}`} className="rounded border px-2 py-1 text-xs"
+                      onClick={() => setMatSlots(current => selectMatMaterial(current, index, 'mat0'))}>Remove</button>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
-                  {matSides.map(side => <BorderInput key={side} label={`Mat 2 ${side[0].toUpperCase() + side.slice(1)} (cm)`}
-                    value={borders[1][side]} onChange={value => handleMatBorderChange(1, side, value)} />)}
+                    {matSides.map(side => <BorderInput key={`${side}-${unit}`} label={`Mat ${index + 1} ${side[0].toUpperCase() + side.slice(1)} (${displayUnit})`}
+                      value={Number(matDisplayValue(slot.borders[side], index, unit).toFixed(6))}
+                      onChange={value => handleMatBorderChange(index, side, matPhysicalValue(value, index, unit))} />)}
                   </div>
-                )}
-
-                {/* Mat 3 trigger */}
-                {!showMat3 && (
-                  <button
-                    type="button"
-                    className="mt-3 rounded-lg border border-dashed border-emerald-300 px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-600 hover:text-white transition"
-                    onClick={() => setShowMat3(true)}
-                  >
-                    + Add third mat
-                  </button>
-                )}
-
-                {/* Mat 3 */}
-                {showMat3 && (
-                  <div className="mt-3 border-t border-slate-200 pt-3 space-y-2">
-                    <label className="block text-sm font-medium text-slate-700">
-                      Mat 3 (lowest)
-                    </label>
-
-                    <select
-                      className="w-full rounded-lg border p-2 bg-white text-sm"
-                      value={selectedMat3}
-                      onChange={(e) =>
-                        setSelectedMat3(e.target.value)
-                      }
-                    >
-                      {hasMat3 && (!mat3 || selectedMat3.startsWith('supplier:')) && <option value={selectedMat3} disabled>Unavailable mat — select a material</option>}
-                      <option value="mat0">None</option>
-                      {(catalog?.mats || []).filter(m => !m.id.startsWith('supplier:')).map((m: any) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    {hasMat3 && (
-                      <div className="grid grid-cols-2 gap-2">
-                  {matSides.map(side => <BorderInput key={side} label={`Mat 3 ${side[0].toUpperCase() + side.slice(1)} (cm)`}
-                    value={borders[2][side]} onChange={value => handleMatBorderChange(2, side, value)} />)}
-                  </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                </>}
+              </div>;
+            })}
 
             {/* Pro-mode openings */}
             {mode === "pro" && (
@@ -2176,6 +2109,15 @@ export default function VisualizerApp() {
                           {Math.round(o.yCm)}
                         </span>
                       </button>
+                      {layoutModel === 'shared-group-v1' && <div className="grid grid-cols-2 gap-1 w-full mt-2">
+                        {(['xCm', 'yCm', 'widthCm', 'heightCm'] as const).map(field => <label key={field} className="text-[10px]">
+                          {field.replace('Cm', '')}<input type="number" step="0.1" aria-label={`Opening ${index + 1} ${field === 'xCm' ? 'X' : field === 'yCm' ? 'Y' : field === 'widthCm' ? 'width' : 'height'} (cm)`}
+                            className="block w-full rounded border p-1" value={o[field]}
+                            onChange={e => { const raw = e.target.value, value = Number(raw); if (!raw.trim() || !Number.isFinite(value) || ((field === 'widthCm' || field === 'heightCm') && value < 2)) return;
+                              setOpenings(current => current.map(opening => opening.id !== o.id ? opening : { ...opening, [field]: value,
+                                ...(opening.shape === 'circle' && (field === 'widthCm' || field === 'heightCm') ? { widthCm: value, heightCm: value } : {}) })); }} />
+                        </label>)}
+                      </div>}
                       <div className="flex items-center gap-1">
                         {o.imageUrl && (
                           <button
@@ -2486,7 +2428,7 @@ export default function VisualizerApp() {
                           ? "50% / 50%"
                           : "0px";
 
-                        const bevelPx = bevelThicknessPx;
+                        const bevelPx = layoutModel === 'shared-group-v1' ? Math.min(bevelThicknessPx, w / 10, h / 10) : bevelThicknessPx;
                         const bevelColor = "#f5f0e6";
 
                         return (
@@ -2503,11 +2445,8 @@ export default function VisualizerApp() {
                             style={{
                               left,
                               top,
-                              width: Math.max(8, w),
-                              height: Math.max(
-                                8,
-                                isCircle ? Math.max(w, h) : h
-                              ),
+                              width: layoutModel === 'shared-group-v1' ? w : Math.max(8, w),
+                              height: layoutModel === 'shared-group-v1' ? h : Math.max(8, isCircle ? Math.max(w, h) : h),
                               borderRadius,
                               userSelect: "none",
                             }}
@@ -2689,6 +2628,7 @@ export default function VisualizerApp() {
                   </div>
 
                   <RoomMockup
+                    compositeIncludesOpenings
                     artworkUrl={roomArtworkUrl || artworkUrl}
                     openings={mode === 'pro' ? openings.map(o => ({ ...o,
                       xCm: o.xCm + proOffset.x + faceWidthCm, yCm: o.yCm + proOffset.y + faceWidthCm })) : undefined}
@@ -2852,7 +2792,7 @@ export default function VisualizerApp() {
         {/* RIGHT */}
         <aside className="space-y-3">
           <PresetControls
-            saveIssue={matRestoreIssue || geometry.issue}
+            saveIssue={designLoadIssue || matRestoreIssue || geometry.issue || (legacyLayoutIssue ? "Review the legacy layout before saving." : null)}
             companyName={billing.companyName}
             customerKey={customerKey}
             hasSavedCustomer={Boolean(selectedCustomerId && selectedCustomerId !== "__new__")}

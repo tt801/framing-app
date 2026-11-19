@@ -6,6 +6,8 @@ import { jobDetailsDraft, buildJobDetails } from '@/lib/jobEditing'
 import { exportQuotePDF } from '@/lib/pdf/quotePdf'
 import { exportInvoicePDF } from '@/lib/pdf/invoicePdf'
 import { exportJobCardPDF } from '@/lib/pdf/jobCardPdf'
+import { visualizerScene } from '@/lib/visualizerScene'
+import { createMatSlots } from '@/lib/visualizerMats'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.js'
 
 const inputs = { artWcm: 40, artHcm: 30, borderCm: 0, frame: { name: 'Frame', pricePerMeter: 10 },
@@ -22,6 +24,27 @@ async function text(document: { output: (kind: 'arraybuffer') => ArrayBuffer }) 
   await pdf.destroy()
   return pages.join(' ').replace(/\s+/g, ' ')
 }
+it('prices expanded shared bounds and exports their edited Pro specification without repricing the agreement', async () => {
+  const slots = createMatSlots(['a', 'b', 'c'])
+  const openings = [{ id: 'one', shape: 'rect' as const, xCm: -10, yCm: 5, widthCm: 15, heightCm: 10, imageUrl: 'data:opening' }]
+  const origin = { x: 8, y: 8 }, borders = slots.map(s => s.borders)
+  const g = visualizerScene({ mode: 'pro', layoutModel: 'shared-group-v1', width: 40, height: 30, face: 2, borders, active: [true,true,true], origin, openings })
+  const snapshot = priceVisualiser({ ...inputs, geometry: { internalWidthCm: g.internal.width, internalHeightCm: g.internal.height } })
+  expect(snapshot.items.find(i => i.key === 'frame')?.materialQuantity).toBe(2.46)
+  expect(snapshot.items.find(i => i.key === 'mat1')?.materialQuantity).toBeCloseTo(0.3626)
+  expect(snapshot.items.find(i => i.key === 'print')?.materialQuantity).toBe(0.12)
+  const original = { description: 'Shared Pro agreement', jobType: 'internal', subtotal: snapshot.subtotal, tax: snapshot.tax, total: snapshot.total, pricingSnapshot: snapshot, details: {
+    visualizerDesign: { version: 1, layoutModel: 'shared-group-v1', mode: 'pro', basic: { widthCm: 40, heightCm: 30, imageUrl: 'data:original' }, pro: { origin, openings }, mats: slots },
+    dims: { art: { widthCm: 40, heightCm: 30 }, visible: { widthCm: g.internal.width, heightCm: g.internal.height }, frameFaceWidthCm: 2 },
+    mats: { geometryVersion: 3, layoutModel: 'shared-group-v1', mode: 'pro', proOrigin: origin, openings, borders, hasMat1: true, hasMat2: true, hasMat3: true,
+      ...Object.fromEntries(slots.map((slot, i) => [`mat${i+1}`, { id: slot.materialId, name: slot.materialId, borders: slot.borders }])) } } }
+  const draft = jobDetailsDraft(original as never); draft.spec.mat2Left = '4'
+  const saved = buildJobDetails(draft, [], original as never)
+  expect(saved.pricingSnapshot).toEqual(snapshot); expect(saved.total).toBe(original.total)
+  const content = await text(await exportJobCardPDF({ job: saved, settings: { companyName: 'Business', currencyCode: 'GBP' }, download: false }))
+  expect(content).toContain('76.0 × 49.0 cm'); expect(content).toContain('Opening 1'); expect(content).toContain('Image retained'); expect(content).toContain('one shared group cut-out')
+  expect(content).toContain(new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(original.total))
+})
 it('prices cumulative asymmetric board geometry without changing print area, rounding or rate policy', () => {
   const g = matGeometry(40, 30, 2, [{ top: 2, bottom: 4, left: 3, right: 5 }, { top: 1, bottom: 2, left: 1, right: 2 }, { top: 2, bottom: 2, left: 2, right: 2 }], [true, true, true])
   const snapshot = priceVisualiser({ ...inputs, geometry: { internalWidthCm: g.internal.width, internalHeightCm: g.internal.height } })

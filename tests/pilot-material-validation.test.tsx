@@ -148,6 +148,14 @@ it.each(['labourBase', 'marginMultiplier'].flatMap(key => [undefined, null, '', 
   state.catalog.settings[key] = value
   open(); await assertBlocked()
 })
+it('recovers from a rejected design only after loading valid data', async () => {
+  state.preset.art = { widthCm: -1, heightCm: 30 }
+  open(); await assertBlocked()
+  state.preset.art = { widthCm: 40, heightCm: 30 }
+  fireEvent.click(screen.getByRole('button', { name: 'Load pilot preset' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add to Quotes' }))
+  await waitFor(() => expect(state.quote).toHaveBeenCalledTimes(1))
+})
 it('renders a validation error instead of crashing on invalid dimensions', async () => {
   state.preset.art = { widthCm: -1, heightCm: 30 }
   open(); await assertBlocked()

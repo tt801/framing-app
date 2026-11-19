@@ -2,6 +2,7 @@ import type { Customer } from './customers'
 import type { Job, JobChecklistItem } from './jobs'
 import { isRecord } from './persistedRows'
 import { matSides, matGeometry, restoreMatBorders, MAT_GEOMETRY_VERSION, type MatBorders } from './matGeometry'
+import { visualizerScene, decodeVisualizerPreset, type DesignOpening, type VisualizerDesign } from './visualizerScene'
 
 type Data = Record<string, unknown>
 type WorkshopField = { key: string; label: string; kind: 'text' | 'number' | 'state'; paths: string[] }
@@ -136,6 +137,10 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
     }
     const geometryChanged = changedFields.some(field => /^mat[123](State|Border|Top|Bottom|Left|Right)$/.test(field.key) || ['artWidth', 'artHeight', 'faceWidth'].includes(field.key))
     const oldGeometry = jobMatState(current ?? {})
+    if (geometryChanged && savedJobDetails(current ?? {}).visualizerDesign !== undefined) {
+      const decoded = decodeVisualizerPreset(savedJobDetails(current ?? {}))
+      if (decoded.issue) throw new Error(decoded.issue)
+    }
     if (oldGeometry.mats.geometryVersion !== undefined && changedFields.some(field => ['visibleWidth', 'visibleHeight'].includes(field.key)))
       throw new Error('Internal dimensions are derived from the artwork/layout and incremental mats; edit those measurements instead.')
     if (geometryChanged && oldGeometry.restored.issue) throw new Error(oldGeometry.restored.issue)
@@ -155,9 +160,8 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
       const oldTotal = matGeometry(width, height, face, oldGeometry.restored.borders, oldGeometry.active).total
       const origin = isRecord(mats.proOrigin) ? mats.proOrigin : { x: oldTotal.left, y: oldTotal.top }
       const openings = Array.isArray(mats.openings) ? mats.openings.filter(isRecord) : []
-      const layoutWidth = mats.mode === 'pro' ? Math.max(width, ...openings.map(o => Number(o.xCm) + Number(o.widthCm) - Number(origin.x))) : width
-      const layoutHeight = mats.mode === 'pro' ? Math.max(height, ...openings.map(o => Number(o.yCm) + Number(o.heightCm) - Number(origin.y))) : height
-      const geometry = matGeometry(layoutWidth, layoutHeight, face, increments, active)
+      const geometry = visualizerScene({ mode: mats.mode === 'pro' ? 'pro' : 'basic', layoutModel: mats.layoutModel === 'shared-group-v1' ? 'shared-group-v1' : 'legacy-individual-v1',
+        width, height, face, borders: increments, active, origin: { x: Number(origin.x), y: Number(origin.y) }, openings: openings as unknown as DesignOpening[] })
       if (geometry.issue) throw new Error('Saved dimensions need review before changing mat geometry.')
       mats.geometryVersion = MAT_GEOMETRY_VERSION
       mats.borders = increments
@@ -171,6 +175,21 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
           mats[key] = material
         }
       })
+      if (result.details.visualizerDesign !== undefined) {
+        const design = copy(result.details.visualizerDesign as VisualizerDesign)
+        if (design.mode === "pro") design.pro.layout = { widthCm: width, heightCm: height }
+        else { design.basic.widthCm = width; design.basic.heightCm = height }
+        if (mats.mode === 'pro') design.pro.origin = { x: Number(origin.x), y: Number(origin.y) }
+        design.mats = design.mats.map((slot, i) => {
+          const cached = isRecord(mats[`mat${i + 1}`]) ? mats[`mat${i + 1}`] as Data : {}
+          const materialId = !active[i] ? 'mat0' : slot.materialId !== 'mat0' ? slot.materialId : cached.id
+          if (typeof materialId !== 'string' || !materialId || (active[i] && materialId === 'mat0')) throw new Error('Mat material identity needs review before enabling this slot.')
+          if (mats[`selectedMat${i + 1}`] !== undefined) mats[`selectedMat${i + 1}`] = materialId
+          return { ...slot, borders: { ...increments[i] }, materialId }
+        })
+        result.details.visualizerDesign = design
+        result.visualizerDesign = copy(design)
+      }
       result.details.mats = mats
       result.mats = copy(mats)
       dims.visible = { widthCm: geometry.internal.width, heightCm: geometry.internal.height }

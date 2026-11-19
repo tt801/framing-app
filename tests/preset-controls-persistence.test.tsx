@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PresetControls from '@/components/PresetControls'
 import { BillingAccessProvider, type BillingAccess } from '@/lib/billingAccess'
 import { useToast } from '@/lib/toast'
+import { decodeVisualizerPreset } from '@/lib/visualizerScene'
 
 const db = vi.hoisted(() => ({ rpc: vi.fn(), rows: new Map<string, any[]>() }))
 vi.mock('@/lib/supabase', () => ({ supabase: {
@@ -18,11 +19,12 @@ vi.mock('@/lib/supabase', () => ({ supabase: {
     return query
   },
 } }))
-const design = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:saved-artwork' }, mats: { geometryVersion: 3,
+const legacyDesign = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:saved-artwork' }, mats: { geometryVersion: 3,
   selectedMat1: 'm1', selectedMat2: 'm2', selectedMat3: 'mat0', mode: 'pro', proOrigin: { x: 6, y: 3 },
   borders: [{ top: 2, bottom: 4, left: 3, right: 5 }, { top: 1, bottom: 2, left: 3, right: 2 }, { top: 2, bottom: 2, left: 2, right: 2 }],
   openings: [{ id: 'one', shape: 'oval', xCm: 6, yCm: 3, widthCm: 10, heightCm: 12, imageUrl: 'data:opening-one' },
     { id: 'two', shape: 'circle', xCm: 24, yCm: 3, widthCm: 8, heightCm: 8, imageUrl: 'data:opening-two' }] } }
+const design = { ...legacyDesign, mats: { ...legacyDesign.mats, layoutModel: 'shared-group-v1', locks: [false, false, true] }, visualizerDesign: { version: 1, layoutModel: 'shared-group-v1', mode: 'pro', basic: legacyDesign.art, pro: { origin: legacyDesign.mats.proOrigin, openings: legacyDesign.mats.openings }, mats: legacyDesign.mats.borders.map((borders, i) => ({ materialId: ['m1', 'm2', 'mat0'][i], borders, locked: i === 2 })) } }
 const access = (companyAccountId: string): BillingAccess => ({ readOnly: false, hasFullAccess: true, canUsePremiumFeatures: true, isFounder: false, isPastDue: false, statusMessage: '', companyAccountId, companyName: 'Same name', userId: 'user' })
 const row = (name: string) => ({ id: name, name, state: design, created_at: '2026-11-01T00:00:00Z', revision: 1 })
 const view = (company = 'company-a', customer = 'customer-a') => <BillingAccessProvider value={access(company)}><PresetControls companyName="Same name" customerKey={customer} hasSavedCustomer ensureCustomerId={async () => customer} currentState={design} onApply={vi.fn()} /></BillingAccessProvider>
@@ -92,6 +94,9 @@ it('reloads the persisted versioned mat design through the real hook without los
   fireEvent.click(screen.getByRole('button', { name: 'Load' }))
   expect(apply).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: design }))
   expect(db.rpc).toHaveBeenCalledTimes(1)
+  const loaded = decodeVisualizerPreset(apply.mock.calls[0][0].state)
+  expect(loaded.issue).toBeNull()
+  expect(loaded.state.visualizerDesign).toEqual(design.visualizerDesign)
 })
 
 it('deletes only the confirmed ID and revision, updates the list, and focuses the stable panel action', async () => {

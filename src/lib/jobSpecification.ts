@@ -58,6 +58,13 @@ export function jobSpecificationFields(value: unknown): { label: string; value: 
       ? "Incremental: Mat 1 from artwork/layout opening; Mat 2 from Mat 1 inner edge; Mat 3 from Mat 2 inner edge. Enabled sides are summed."
       : mats.geometryVersion === 2 ? "Stage B absolute aperture-to-internal-frame-edge distances; lower mat values already include reveals."
       : "Unknown mat geometry version — review required." }] : []),
+    ...(mats.layoutModel !== undefined ? [{ label: "Mat cut-outs", value: mats.layoutModel === 'shared-group-v1'
+      ? "Primary mat: individual openings; decorative mats: one shared group cut-out."
+      : "Historical individual cut-outs preserved." }] : []),
+    ...(mats.mode !== undefined ? [{ label: "Design mode", value: mats.mode === 'pro' ? 'Pro' : 'Basic' }] : []),
+    ...(mats.mode === 'pro' && Array.isArray(mats.openings) ? mats.openings.map((value, i) => { const o = record(value); return {
+      label: `Opening ${i + 1}`, value: `${text(o.shape) ?? NOT_RECORDED}: ${dimensions(o.widthCm, o.heightCm)}; X ${measurement(o.xCm) ?? NOT_RECORDED}; Y ${measurement(o.yCm) ?? NOT_RECORDED}; ${text(o.imageUrl) ? 'Image retained' : 'No image'}`,
+    } }) : []),
     { label: "Mat 1", value: mat(1) },
     { label: "Additional mats", value: additionalMats },
     { label: "Glazing", value: text(glazing.name) ?? text(job.glazingName) ?? text(frame.glazing) ?? NOT_RECORDED },

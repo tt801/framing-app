@@ -5,13 +5,13 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 const root = path.resolve(process.env.TEST_PROJECT_ROOT || fileURLToPath(new URL('../..', import.meta.url)))
 const appRequire = createRequire(path.join(root, 'package.json'))
 const tools = createRequire(path.join(process.env.BROWSER_TOOLS_PATH || root + '/node_modules', '_browser.cjs'))
 const { chromium } = tools('playwright')
 const { PNG } = tools('pngjs')
-const { createServer } = await import(pathToFileURL(appRequire.resolve('vite')).href)
+const { createServer, build } = await import(pathToFileURL(appRequire.resolve('vite')).href)
 const output = process.env.BROWSER_OUTPUT || '/opt/data/cache/scratch/stage-b-browser-evidence'
 mkdirSync(output, { recursive: true })
 const mocks = new Set(['@/lib/store', '@/lib/quotes', '@/lib/jobs', '@/lib/invoices', '@/lib/customers', '@/lib/layout', '@/lib/billingAccess', '@/lib/effectiveSupplierAccess', '@/components/PresetControls', 'html-to-image', '@/lib/supabase'])
@@ -38,19 +38,38 @@ export default function FixturePreset({currentState,onApply,saveIssue}) {
   React.createElement('button',{disabled:!!saveIssue,onClick:()=>localStorage.setItem('browser-design',JSON.stringify(currentState))},'Save fixture'),
   React.createElement('button',{onClick:()=>onApply({state:JSON.parse(localStorage.getItem('browser-design'))})},'Load fixture'));
 }`
-const server = await createServer({ root, configFile: false, envFile: false, server: { host: '127.0.0.1', port: 0 },
- resolve: { alias: [...mocks].map(id => ({ find: id, replacement: '\0stage-b:' + id })).concat([{ find: '@', replacement: path.join(root, 'src') }]) },
+const configuration = { root, configFile: false, envFile: false, css: { postcss: root }, server: { host: '127.0.0.1', port: 0 },
+ resolve: { alias: [...mocks].map(id => ({ find: id, replacement: '\0stage-b:' + id })).concat([{ find: /^react$/, replacement: appRequire.resolve('react') }, { find: /^react-dom\/client$/, replacement: appRequire.resolve('react-dom/client') }, { find: '@', replacement: path.join(root, 'src') }]) },
  plugins: [{ name: 'offline-stage-b-fixture', enforce: 'pre',
-  resolveId(id) { if (id.startsWith('\0stage-b:')) return id; if (mocks.has(id)) return '\0stage-b:' + id; if (id === '/stage-b-entry.jsx') return '\0stage-b-entry' },
-  load(id) { if (id.startsWith('\0stage-b:')) return fixtureModule;
+  resolveId(id) { if (id.startsWith('/src/')) return path.join(root, id); if (id.startsWith('\0stage-b:')) return id; if (mocks.has(id)) return '\0stage-b:' + id; if (id === '/stage-b-entry.jsx') return '\0stage-b-entry' },
+  load(id) { if (id === '\0stage-b:@/components/RoomMockup') return `import React from 'react'; import Room from '/src/components/RoomMockup.tsx'; export default function Observer(props){window.roomProps=props;return React.createElement(Room,props)}`; if (id.startsWith('\0stage-b:')) return fixtureModule;
    if (id === '\0stage-b-entry') return `import React from 'react'; import {createRoot} from 'react-dom/client'; import VisualizerApp from '/src/VisualizerApp.tsx'; import '/src/index.css'; createRoot(document.getElementById('root')).render(React.createElement(VisualizerApp));` },
   configureServer(s) { s.middlewares.use('/stage-b', (_req,res) => { res.setHeader('Content-Type','text/html'); res.end('<html><body><div id="root"></div><script type="module" src="/stage-b-entry.jsx"></script></body></html>') }) }
- }], esbuild: { jsx: 'automatic' } })
+ }], esbuild: { jsx: 'automatic' } }
+let server
+if (process.env.BROWSER_PRODUCTION === '1') {
+ const fixtureRoot=path.join(output,'fixture-source'),buildDirectory=path.join(output,'production-build')
+ mkdirSync(fixtureRoot,{recursive:true});writeFileSync(path.join(fixtureRoot,'index.html'),'<html><body><div id="root"></div><script type="module" src="/stage-b-entry.jsx"></script></body></html>')
+ await build({...configuration,root:fixtureRoot,publicDir:path.join(root,'public'),build:{outDir:buildDirectory,emptyOutDir:true}})
+ const {createServer:httpServer}=await import('node:http')
+ const http=httpServer((request,response)=>{
+  let file
+  try {
+   const pathname=decodeURIComponent(new URL(request.url,'http://localhost').pathname)
+   file=path.resolve(buildDirectory,pathname==='/stage-b'?'index.html':'.'+pathname)
+   if(!file.startsWith(path.resolve(buildDirectory)+path.sep)){response.statusCode=403;response.end();return}
+  }catch{response.statusCode=400;response.end();return}
+  try{const body=readFileSync(file);response.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':file.endsWith('.png')?'image/png':file.endsWith('.jpg')?'image/jpeg':'text/html');response.end(body)}catch{response.statusCode=404;response.end()}
+ })
+ server={httpServer:http,listen:()=>new Promise(resolve=>http.listen(0,'127.0.0.1',resolve)),close:()=>new Promise(resolve=>http.close(resolve))}
+} else server=await createServer(configuration)
+
 let browser
 const results=[]
 try {
  await server.listen()
  const address=server.httpServer.address(), url=`http://127.0.0.1:${address.port}/stage-b`
+ if(process.env.BROWSER_PRODUCTION==='1')assert.equal((await fetch(`http://127.0.0.1:${address.port}/%2e%2e%2fpackage.json`)).status,403)
  browser=await chromium.launch({headless:true,args:['--no-sandbox']})
  for (const mode of ['basic','pro']) for (const shape of ['rect','oval','circle']) {
   const page=await browser.newPage({viewport:{width:1600,height:1200},deviceScaleFactor:1})
@@ -60,15 +79,15 @@ try {
   await page.goto(url); await page.waitForFunction(()=>!!window.applyDesign)
   const image='data:image/svg+xml;base64,'+Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30"><rect width="30" height="30" fill="#222222"/></svg>').toString('base64')
   const opening={id:'one',shape,xCm:5,yCm:5,widthCm:30,heightCm:30,imageUrl:image}
-  await page.evaluate(({mode,opening,image})=>window.applyDesign({art:{widthCm:30,heightCm:30,imageUrl:image},mats:{selectedMat1:'m',mode,openings:[opening]}}),{mode,opening,image})
+  await page.evaluate(({mode,opening,image})=>window.applyDesign({art:{widthCm:30,heightCm:30,imageUrl:image},mats:{selectedMat1:'m',mode,locks:[false,false,false],openings:[opening]}}),{mode,opening,image})
   await page.getByLabel('Mat 1 Left (cm)',{exact:true}).fill('9')
   await page.getByText('+ Add second mat',{exact:true}).click()
   await page.locator('select').filter({has:page.locator('option[value="m2"]')}).nth(1).selectOption('m2')
   await page.getByText('+ Add third mat',{exact:true}).click()
   await page.locator('select').filter({has:page.locator('option[value="m3"]')}).nth(2).selectOption('m3')
   const board=page.getByTestId('mat-layers')
-  assert.equal(await page.getByLabel('Mat 2 Left (cm)',{exact:true}).inputValue(),'2')
-  assert.equal(await page.getByLabel('Mat 3 Left (cm)',{exact:true}).inputValue(),'1')
+  assert.equal(await page.getByLabel('Mat 2 Left (mm)',{exact:true}).inputValue(),'20')
+  assert.equal(await page.getByLabel('Mat 3 Left (mm)',{exact:true}).inputValue(),'10')
   assert.equal(await board.getAttribute('viewBox'),'0 0 50 46')
   const png=PNG.sync.read(await board.screenshot({path:path.join(output,`${mode}-${shape}.png`)}))
   const sample=(x,y)=>{ const px=Math.floor(x/50*png.width),py=Math.floor(y/46*png.height),i=(py*png.width+px)*4; return [...png.data.subarray(i,i+3)] }

@@ -3,10 +3,12 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import VisualizerApp from '@/VisualizerApp'
 import { toPng } from 'html-to-image'
+import * as exporters from '@/lib/exporters'
 import type { Catalog } from '@/lib/store'
+import type { VisualizerDesign } from '@/lib/visualizerScene'
 
 type Opening = { id: string; shape: 'rect' | 'oval' | 'circle'; xCm: number; yCm: number; widthCm: number; heightCm: number; imageUrl?: string }
-type Design = { art: { widthCm: number; heightCm: number; imageUrl: string }; mats: { mode: string; openings: Opening[]; selectedMat1: string; mat1BorderCm: number } }
+type Design = { visualizerDesign: VisualizerDesign; art: { widthCm: number; heightCm: number; imageUrl: string }; mats: { mode: string; openings: Opening[]; selectedMat1: string; mat1BorderCm: number } }
 const state = vi.hoisted(() => ({ catalog: null as Catalog | null, current: null as Design | null, preset: {} as Record<string, unknown>, jobs: [] as unknown[], quotes: [] as unknown[], room: null as Record<string, unknown> | null }))
 const customers = [{ id: 'stage-b-customer', firstName: 'Test', lastName: 'Customer', email: 'test@example.test' }]
 vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: state.catalog }) }))
@@ -30,7 +32,8 @@ beforeEach(() => {
     glazing: [{ id: 'g', name: 'Glass', pricePerSqM: 8 }], settings: { currencyCode: 'GBP', marginMultiplier: 1.25, labourBase: 10, taxRatePct: 20 } } as Catalog
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
-const apply = () => fireEvent.click(screen.getByText('Apply fixture'))
+// Earlier fixtures represent the old independently editable controls. Explicitly retain that state.
+const apply = () => { const mats = state.preset.mats as { locks?: boolean[] } | undefined; if (mats && !mats.locks) mats.locks = [false, false, false]; fireEvent.click(screen.getByText('Apply fixture')) }
 const switchMode = (mode: 'basic' | 'pro') => {
   const select = screen.getByRole('option', { name: 'Pro (multi-opening)' }).parentElement!
   fireEvent.change(select, { target: { value: mode } })
@@ -44,6 +47,82 @@ const fixtureOpenings = (): Opening[] => [
 ]
 
 
+it('provides locked defaults, unit-aware controls and positional deletion through the UI', () => {
+  state.catalog!.mats!.push({ id: 'm2', name: 'Blue', color: '#0000ff', pricePerSqM: 6 }, { id: 'm3', name: 'Red', color: '#ff0000', pricePerSqM: 7 })
+  render(<VisualizerApp />)
+  fireEvent.change(screen.getByLabelText('Mat 1 material'), { target: { value: 'm' } })
+  fireEvent.click(screen.getByText('+ Add second mat'))
+  fireEvent.change(screen.getByLabelText('Mat 2 material'), { target: { value: 'm2' } })
+  fireEvent.click(screen.getByText('+ Add third mat'))
+  fireEvent.change(screen.getByLabelText('Mat 3 material'), { target: { value: 'm3' } })
+  expect((screen.getByLabelText('Mat 2 Left (mm)') as HTMLInputElement).value).toBe('20')
+  fireEvent.change(screen.getByLabelText('Mat 1 Left (cm)'), { target: { value: '6' } })
+  expect((screen.getByLabelText('Mat 1 Top (cm)') as HTMLInputElement).value).toBe('6')
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock Mat 2 borders' }))
+  fireEvent.change(screen.getByLabelText('Mat 2 Left (mm)'), { target: { value: '40' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Lock Mat 2 borders' }))
+  expect((screen.getByLabelText('Mat 2 Top (mm)') as HTMLInputElement).value).toBe('20')
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Mat 2' }))
+  expect((screen.getByLabelText('Mat 2 material') as HTMLSelectElement).value).toBe('m3')
+  expect((screen.getByLabelText('Mat 2 Left (mm)') as HTMLInputElement).value).toBe('40')
+  fireEvent.change(screen.getByLabelText('Mat 3 material'), { target: { value: 'm2' } })
+  expect((screen.getByLabelText('Mat 3 Left (mm)') as HTMLInputElement).value).toBe('10')
+})
+it('retains both artwork models and all opening images in Basic document snapshots', async () => {
+  render(<VisualizerApp />)
+  state.preset = { art: { imageUrl: 'data:basic-original' }, mats: { mode: 'pro', selectedMat1: 'm', openings: fixtureOpenings() } }; apply()
+  switchMode('basic')
+  expect(screen.getByAltText('artwork').getAttribute('src')).toBe('data:basic-original')
+  fireEvent.change(screen.getByText('Existing customer').parentElement!.querySelector('select')!, { target: { value: 'stage-b-customer' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add to Jobs' }))
+  await waitFor(() => expect(state.jobs).toHaveLength(1))
+  const job = state.jobs[0] as { details: { mats: { openings: Opening[] }; visualizerDesign: { basic: { imageUrl: string }; pro: { openings: Opening[] } } } }
+  expect(job.details.mats.openings).toEqual(fixtureOpenings())
+  expect(job.details.visualizerDesign.pro.openings).toEqual(fixtureOpenings())
+  expect(job.details.visualizerDesign.basic.imageUrl).toBe('data:basic-original')
+  switchMode('pro'); expect(state.current!.mats.openings).toEqual(fixtureOpenings())
+})
+
+it('expands a pilot shared cut-out when an opening is dragged beyond the initial layout', () => {
+  render(<VisualizerApp />)
+  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { selectedMat1: 'm', layoutModel: 'shared-group-v1', mode: 'pro', openings: [{ id: 'one', shape: 'rect', xCm: 5, yCm: 5, widthCm: 10, heightCm: 10, imageUrl: 'data:a' }] } }; apply()
+  fireEvent.mouseDown(openingElement(), { clientX: 0, clientY: 0 })
+  fireEvent.mouseMove(window, { clientX: 10000, clientY: 0 })
+  fireEvent.mouseUp(window)
+  expect(state.current!.mats.openings[0].xCm).toBeGreaterThan(45)
+  expect(Number(screen.getByTestId('mat-layers').getAttribute('viewBox')!.split(' ')[2])).toBeGreaterThan(50)
+})
+
+it('supports precise opening spacing without changing the other images or mat measurements', () => {
+  render(<VisualizerApp />)
+  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { selectedMat1: 'm', layoutModel: 'shared-group-v1', mode: 'pro', openings: fixtureOpenings() } }; apply()
+  fireEvent.change(screen.getByLabelText('Opening 2 X (cm)'), { target: { value: '75' } })
+  expect(state.current!.mats.openings[1].xCm).toBe(75)
+  expect(state.current!.mats.openings[0]).toEqual(fixtureOpenings()[0])
+})
+
+it('retains independent Basic artwork size and Pro layout size through edits and switching', () => {
+  render(<VisualizerApp />)
+  switchMode('pro')
+  fireEvent.change(screen.getByLabelText('Width (cm)'), { target: { value: '60' } }); fireEvent.blur(screen.getByLabelText('Width (cm)'))
+  switchMode('basic')
+  expect(screen.getByLabelText('Width (cm)').getAttribute('value')).toBe('40.0')
+  fireEvent.change(screen.getByLabelText('Width (cm)'), { target: { value: '45' } }); fireEvent.blur(screen.getByLabelText('Width (cm)'))
+  switchMode('pro')
+  expect(screen.getByLabelText('Width (cm)').getAttribute('value')).toBe('60.0')
+  expect(state.current!.visualizerDesign.basic.widthCm).toBe(45)
+  expect(state.current!.visualizerDesign.pro.layout?.widthCm).toBe(60)
+  state.preset = structuredClone(state.current) as unknown as Record<string, unknown>; apply()
+  expect(state.current!.visualizerDesign.pro.layout?.widthCm).toBe(60)
+})
+
+it('refuses to export ambiguous legacy geometry as though it were a valid design', () => {
+  const exported = vi.spyOn(exporters, 'exportNodeAsPng').mockResolvedValue()
+  render(<VisualizerApp />)
+  state.preset = { mats: { geometryVersion: 2, selectedMat1: 'm', selectedMat2: 'm2', borders: [5,5,5].map(n => ({ top: n, bottom: n, left: n, right: n })) } }; apply()
+  fireEvent.click(screen.getByRole('button', { name: 'Export image ▾' })); fireEvent.click(screen.getByRole('button', { name: 'PNG' }))
+  expect(exported).not.toHaveBeenCalled()
+})
 it('updates four physical borders immediately and keeps the input mounted on hover', () => {
   render(<VisualizerApp />)
   state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { selectedMat1: 'm', mode: 'pro', openings: fixtureOpenings() } }; apply()
@@ -145,15 +224,16 @@ it.each(['basic', 'pro'] as const)('retains incremental reveals after editing th
   // Material options occur in every mat select; target the third slot directly.
   const selects = screen.getAllByRole('option', { name: 'Red' }).map(o => o.parentElement!)
   fireEvent.change(selects[2], { target: { value: 'm3' } })
-  expect((screen.getByLabelText('Mat 2 Left (cm)') as HTMLInputElement).value).toBe('2')
-  expect((screen.getByLabelText('Mat 3 Left (cm)') as HTMLInputElement).value).toBe('1')
+  expect((screen.getByLabelText('Mat 2 Left (mm)') as HTMLInputElement).value).toBe('20')
+  expect((screen.getByLabelText('Mat 3 Left (mm)') as HTMLInputElement).value).toBe('10')
   expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 60 46')
   expect(screen.getByTestId('mat-layers').querySelectorAll('[data-mat-layer]')).toHaveLength(3)
-  fireEvent.change(screen.getByLabelText('Mat 2 Right (cm)'), { target: { value: '4' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Unlock Mat 2 borders' }))
+  fireEvent.change(screen.getByLabelText('Mat 2 Right (mm)'), { target: { value: '40' } })
   fireEvent.change(selects[1], { target: { value: 'mat0' } })
-  expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 56 42')
+  expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 60 44')
   fireEvent.change(selects[1], { target: { value: 'm2' } })
-  expect((screen.getByLabelText('Mat 2 Right (cm)') as HTMLInputElement).value).toBe('4')
+  expect((screen.getByLabelText('Mat 2 Right (mm)') as HTMLInputElement).value).toBe('40')
   const saved = structuredClone(state.current!)
   expect((saved.mats as unknown as { geometryVersion: number }).geometryVersion).toBe(3)
   state.preset = saved; apply()
@@ -165,7 +245,7 @@ it('converts valid version 2 presets without moving or resizing their openings',
   render(<VisualizerApp />)
   state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { geometryVersion: 2, selectedMat1: 'm', selectedMat2: 'm2',
     borders: [5, 7, 7].map(n => ({ top: n, bottom: n, left: n, right: n })), mode: 'pro', proOrigin: { x: 7, y: 7 }, openings: fixtureOpenings() } }; apply()
-  expect((screen.getByLabelText('Mat 2 Left (cm)') as HTMLInputElement).value).toBe('2')
+  expect((screen.getByLabelText('Mat 2 Left (mm)') as HTMLInputElement).value).toBe('20')
   expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 54 44')
   expect(state.current!.mats.openings).toEqual(fixtureOpenings())
 })
@@ -183,13 +263,13 @@ it('renders nested reveal apertures for multiple mats without summing physical d
   state.catalog!.mats!.push({ id: 'm2', name: 'Blue mat', color: '#0000ff', pricePerSqM: 6 })
   render(<VisualizerApp />)
   state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { selectedMat1: 'm', selectedMat2: 'm2', mat1BorderCm: 5, mat2BorderCm: 2, mode: 'basic' } }; apply()
-  expect((screen.getByLabelText('Mat 2 Left (cm)') as HTMLInputElement).value).toBe('2')
+  expect((screen.getByLabelText('Mat 2 Left (mm)') as HTMLInputElement).value).toBe('20')
   expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 54 44')
   const masks = screen.getByTestId('mat-layers').querySelectorAll('mask')
   expect(masks).toHaveLength(2)
   expect(masks[0].querySelectorAll('rect')[1].getAttribute('x')).toBe('7')
   expect(masks[1].querySelectorAll('rect')[1].getAttribute('x')).toBe('5')
-  fireEvent.change(screen.getByLabelText('Mat 2 Left (cm)'), { target: { value: '4' } })
+  fireEvent.change(screen.getByLabelText('Mat 2 Left (mm)'), { target: { value: '40' } })
   expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 56 44')
   switchMode('pro')
   expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 56 44')

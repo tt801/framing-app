@@ -22,6 +22,8 @@ export type RoomMockupProps = {
   artworkUrl: string   // dataURL/blob URL of artwork or framed composite
   width?: number
   height?: number
+  // A Visualizer composite already contains the authoritative mat/opening scene.
+  compositeIncludesOpenings?: boolean
   // Pro overlays (optional)
   openings?: MatOpening[]
   // Needed to convert cm -> px relative to the artwork drawn in the room
@@ -37,6 +39,7 @@ export default function RoomMockup({
   width = 900,
   height = 600,
   openings = [],
+  compositeIncludesOpenings = false,
   artSizeCm,
   onOpeningsChange,
   backdrop,
@@ -70,6 +73,8 @@ export default function RoomMockup({
     stateRef.current = state
   }, [state])
 
+  const compositeOpeningsRef = useRef(compositeIncludesOpenings)
+  compositeOpeningsRef.current = compositeIncludesOpenings
   const openingsRef = useRef(openings)
   useEffect(() => {
     openingsRef.current = openings
@@ -191,6 +196,7 @@ export default function RoomMockup({
   useEffect(() => {
     let cancelled = false
     const cache = openingImgCache.current
+    if (compositeIncludesOpenings) { cache.clear(); return }
     const urls = new Set<string>()
     openings.forEach(o => { if (o.imageUrl) urls.add(o.imageUrl) })
 
@@ -220,10 +226,10 @@ export default function RoomMockup({
 
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openings.map(o => o.imageUrl).join('|'), companyAccountId, userId])
+  }, [openings.map(o => o.imageUrl).join('|'), companyAccountId, userId, compositeIncludesOpenings])
 
   // redraw on state or openings change
-  useEffect(() => { draw() }, [state, openings])
+  useEffect(() => { draw() }, [state, openings, compositeIncludesOpenings])
 
   // ----------------- STATE UPDATE HELPERS -----------------
 
@@ -447,7 +453,7 @@ export default function RoomMockup({
 
     // --- PRO overlay: multiple mat openings rendered in artwork plane ---
     const openingsNow = openingsRef.current
-    if (openingsNow.length) {
+    if (!compositeOpeningsRef.current && openingsNow.length) {
       openingsNow.forEach(o => {
         const isCircle = o.shape === 'circle'
         const ox = -drawW / 2 + o.xCm * pxPerCmX
