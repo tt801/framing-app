@@ -43,6 +43,13 @@ it('grows on every edge to contain moving openings without mutating saved coordi
   expect(scene.layers[1].cutouts[0].widthCm).toBe(138)
   expect(data).toEqual(original)
 })
+it('paints Basic Mat 1 outside Mat 2 outside Mat 3 without changing measurements', () => {
+  const scene = visualizerScene({ ...input, mode: 'basic' })
+  const materialAt = (x: number) => scene.layers.reduce((painted, layer) => layer.cutouts.some(hole => x >= hole.xCm && x < hole.xCm + hole.widthCm) ? painted : layer.slot, -1)
+  expect([0.5, 5.5, 7.5].map(materialAt)).toEqual([0, 1, 2])
+  expect(scene.internal).toEqual({ width: 56, height: 46 })
+  expect(scene.openings[0]).toMatchObject({ xCm: 8, yCm: 8, widthCm: 40, heightCm: 30 })
+})
 it('uses the same cumulative asymmetric dimensions in Basic and Pro', () => {
   const borders = [{ top: 2, bottom: 4, left: 3, right: 5 }, uniformBorders(2), uniformBorders(1)]
   const basic = visualizerScene({ ...input, mode: 'basic', borders })

@@ -47,6 +47,98 @@ const fixtureOpenings = (): Opening[] => [
 ]
 
 
+it('keeps a historical multi-mat Pro design read-only until explicit single-board adoption', async () => {
+  const exported = vi.spyOn(exporters, 'exportNodeAsPng').mockResolvedValue()
+  state.catalog!.mats!.push({ id: 'm2', name: 'Blue', color: '#0000ff', pricePerSqM: 6 })
+  render(<VisualizerApp />)
+  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { mode: 'pro', layoutModel: 'shared-group-v1', selectedMat1: 'm', selectedMat2: 'm2', proOrigin: { x: 5, y: 5 }, openings: fixtureOpenings() } }; apply()
+  const retained = structuredClone(state.current!.visualizerDesign)
+  expect((screen.getByLabelText('Mat 2 material') as HTMLSelectElement).disabled).toBe(true)
+  fireEvent.mouseDown(openingElement(), { clientX: 0, clientY: 0 }); fireEvent.mouseMove(window, { clientX: 100, clientY: 0 }); fireEvent.mouseUp(window)
+  expect(state.current!.mats.openings).toEqual(retained.pro.openings)
+  fireEvent.mouseEnter(openingElement())
+  expect(handles()).toHaveLength(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Export image ▾' })); fireEvent.click(screen.getByRole('button', { name: 'PNG' }))
+  expect(exported).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Review and adopt single-board layout' }))
+  expect(state.current!.visualizerDesign.layoutModel).toBe('single-board-v1')
+  expect(state.current!.visualizerDesign.mats).toEqual(retained.mats)
+  expect(state.current!.mats.openings).toEqual(retained.pro.openings)
+  fireEvent.click(screen.getByRole('button', { name: 'Export image ▾' })); fireEvent.click(screen.getByRole('button', { name: 'PNG' }))
+  await waitFor(() => expect(exported).toHaveBeenCalledTimes(1))
+})
+it.each(['rect', 'oval', 'circle'] as const)('centres the rendered %s opening on either axis without moving other artwork', shape => {
+  render(<VisualizerApp />)
+  const openings = fixtureOpenings(), index = openings.findIndex(o => o.shape === shape), original = openings[index]
+  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { mode: 'pro', layoutModel: 'single-board-v1', selectedMat1: 'm', proOrigin: { x: 5, y: 5 }, openings } }; apply()
+  fireEvent.click(screen.getByRole('button', { name: `Centre opening ${index + 1} horizontally` }))
+  expect(state.current!.mats.openings[index]).toMatchObject({ xCm: 5 + (40 - original.widthCm) / 2, yCm: original.yCm })
+  fireEvent.click(screen.getByRole('button', { name: `Centre opening ${index + 1} vertically` }))
+  expect(state.current!.mats.openings[index].yCm).toBe(5 + (30 - original.heightCm) / 2)
+  const positioned = openingElement(index).querySelector<HTMLElement>('[data-opening-x]')!
+  expect(Number(positioned.dataset.openingX)).toBe(state.current!.mats.openings[index].xCm)
+  fireEvent.click(screen.getByRole('button', { name: `Centre opening ${index + 1}` }))
+  expect(state.current!.mats.openings.filter(o => o.id !== original.id)).toEqual(openings.filter(o => o.id !== original.id))
+  expect(state.current!.mats.openings[index].imageUrl).toBe(original.imageUrl)
+  expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 50 40')
+})
+it.each(['', 'data:assigned'])('seeds only an unassigned first Pro aperture (%s)', imageUrl => {
+  render(<VisualizerApp />)
+  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:original' }, mats: { mode: 'basic', layoutModel: 'single-board-v1', selectedMat1: 'm', openings: [{ ...fixtureOpenings()[0], imageUrl }] } }; apply()
+  switchMode('pro')
+  expect(state.current!.mats.openings).toHaveLength(1)
+  expect(state.current!.mats.openings[0].imageUrl).toBe(imageUrl || 'data:original')
+  expect(screen.getByAltText('artwork').getAttribute('src')).toBe(imageUrl || 'data:original')
+})
+it('renders Basic cut-edge bevels but never insets artwork in the single-board Pro apertures', () => {
+  render(<VisualizerApp />)
+  fireEvent.change(screen.getByLabelText('Mat 1 material'), { target: { value: 'm' } })
+  expect(screen.getByTestId('mat-layers').querySelectorAll('[data-mat-bevel]')).toHaveLength(1)
+  switchMode('pro')
+  for (const shape of ['Rectangle', 'Oval', 'Circle']) fireEvent.click(screen.getByRole('button', { name: '+ ' + shape }))
+  for (const opening of screen.getAllByTitle('Drag to move. Use handles to resize.')) {
+    const artwork = opening.querySelector<HTMLElement>('[data-opening-x]')!
+    expect(artwork.style.inset).toBe('0')
+    expect(opening.children).toHaveLength(1)
+  }
+})
+it('clears only the Pro board without promoting or deleting retained Basic mats', () => {
+  state.catalog!.mats!.push({ id: 'm2', name: 'Blue', pricePerSqM: 6 }, { id: 'm3', name: 'Red', pricePerSqM: 7 })
+  render(<VisualizerApp />)
+  state.preset = { mats: { layoutModel: 'single-board-v1', mode: 'basic', selectedMat1: 'm', selectedMat2: 'm2', selectedMat3: 'm3' } }; apply()
+  const retained = structuredClone(state.current!.visualizerDesign.mats)
+  switchMode('pro'); fireEvent.click(screen.getByRole('button', { name: 'Remove Mat 1' }))
+  expect(state.current!.visualizerDesign.mats[0].materialId).toBe('mat0')
+  expect(state.current!.visualizerDesign.mats.slice(1)).toEqual(retained.slice(1))
+  expect(screen.getByTestId('mat-layers').querySelectorAll('[data-mat-layer]')).toHaveLength(0)
+  switchMode('basic')
+  expect(state.current!.visualizerDesign.mats.slice(1)).toEqual(retained.slice(1))
+})
+it('uses one catalogue board in Pro pricing, geometry and saved mirrors while retaining Basic decorative slots', async () => {
+  state.catalog!.mats!.push({ id: 'm2', name: 'Blue', color: '#0000ff', pricePerSqM: 6 }, { id: 'm3', name: 'Red', color: '#ff0000', pricePerSqM: 7 })
+  render(<VisualizerApp />)
+  for (const [index, id] of ['m', 'm2', 'm3'].entries()) {
+    if (index) fireEvent.click(screen.getByText(index === 1 ? '+ Add second mat' : '+ Add third mat'))
+    fireEvent.change(screen.getByLabelText(`Mat ${index + 1} material`), { target: { value: id } })
+  }
+  const retained = structuredClone(state.current!.visualizerDesign.mats)
+  switchMode('pro')
+  expect(screen.queryByLabelText('Mat 2 material')).toBeNull()
+  expect(screen.queryByLabelText('Mat 3 material')).toBeNull()
+  expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 50 40')
+  expect(screen.getByTestId('mat-layers').querySelectorAll('[data-mat-layer]')).toHaveLength(1)
+  fireEvent.change(screen.getByText('Existing customer').parentElement!.querySelector('select')!, { target: { value: 'stage-b-customer' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add to Jobs' }))
+  await waitFor(() => expect(state.jobs).toHaveLength(1))
+  const job = state.jobs[0] as { details: { mats: { hasMat2: boolean }; visualizerDesign: VisualizerDesign }; pricingSnapshot: { items: { key: string }[] } }
+  expect(job.details.mats.hasMat2).toBe(false)
+  expect(job.pricingSnapshot.items.filter(item => /^mat\d/.test(item.key))).toHaveLength(1)
+  expect(job.details.visualizerDesign.mats).toEqual(retained)
+  state.preset = structuredClone(state.current) as unknown as Record<string, unknown>; apply()
+  switchMode('basic')
+  expect(state.current!.visualizerDesign.mats).toEqual(retained)
+  expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 56 46')
+})
 it('provides locked defaults, unit-aware controls and positional deletion through the UI', () => {
   state.catalog!.mats!.push({ id: 'm2', name: 'Blue', color: '#0000ff', pricePerSqM: 6 }, { id: 'm3', name: 'Red', color: '#ff0000', pricePerSqM: 7 })
   render(<VisualizerApp />)
@@ -83,9 +175,9 @@ it('retains both artwork models and all opening images in Basic document snapsho
   switchMode('pro'); expect(state.current!.mats.openings).toEqual(fixtureOpenings())
 })
 
-it('expands a pilot shared cut-out when an opening is dragged beyond the initial layout', () => {
+it('expands a single-board cut-out when an opening is dragged beyond the initial layout', () => {
   render(<VisualizerApp />)
-  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { selectedMat1: 'm', layoutModel: 'shared-group-v1', mode: 'pro', openings: [{ id: 'one', shape: 'rect', xCm: 5, yCm: 5, widthCm: 10, heightCm: 10, imageUrl: 'data:a' }] } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { selectedMat1: 'm', layoutModel: 'single-board-v1', mode: 'pro', openings: [{ id: 'one', shape: 'rect', xCm: 5, yCm: 5, widthCm: 10, heightCm: 10, imageUrl: 'data:a' }] } }; apply()
   fireEvent.mouseDown(openingElement(), { clientX: 0, clientY: 0 })
   fireEvent.mouseMove(window, { clientX: 10000, clientY: 0 })
   fireEvent.mouseUp(window)
@@ -95,7 +187,7 @@ it('expands a pilot shared cut-out when an opening is dragged beyond the initial
 
 it('supports precise opening spacing without changing the other images or mat measurements', () => {
   render(<VisualizerApp />)
-  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { selectedMat1: 'm', layoutModel: 'shared-group-v1', mode: 'pro', openings: fixtureOpenings() } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { selectedMat1: 'm', layoutModel: 'single-board-v1', mode: 'pro', openings: fixtureOpenings() } }; apply()
   fireEvent.change(screen.getByLabelText('Opening 2 X (cm)'), { target: { value: '75' } })
   expect(state.current!.mats.openings[1].xCm).toBe(75)
   expect(state.current!.mats.openings[0]).toEqual(fixtureOpenings()[0])
@@ -125,7 +217,7 @@ it('refuses to export ambiguous legacy geometry as though it were a valid design
 })
 it('updates four physical borders immediately and keeps the input mounted on hover', () => {
   render(<VisualizerApp />)
-  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { selectedMat1: 'm', mode: 'pro', openings: fixtureOpenings() } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { layoutModel: 'single-board-v1', selectedMat1: 'm', mode: 'pro', openings: fixtureOpenings() } }; apply()
   const input = screen.getByLabelText('Mat 1 Left (cm)') as HTMLInputElement
   input.focus()
   fireEvent.change(input, { target: { value: '9' } })
@@ -140,7 +232,7 @@ it('updates four physical borders immediately and keeps the input mounted on hov
 
 it.each(['basic', 'pro'] as const)('renders asymmetric layers in %s using the same board geometry', mode => {
   render(<VisualizerApp />)
-  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { selectedMat1: 'm', mode, openings: [{ id: 'one', shape: 'rect', xCm: 5, yCm: 5, widthCm: 40, heightCm: 30, imageUrl: 'data:main' }] } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { layoutModel: 'single-board-v1', selectedMat1: 'm', mode, openings: [{ id: 'one', shape: 'rect', xCm: 5, yCm: 5, widthCm: 40, heightCm: 30, imageUrl: 'data:main' }] } }; apply()
   fireEvent.change(screen.getByLabelText('Mat 1 Left (cm)'), { target: { value: '9' } })
   const board = screen.getByTestId('mat-layers')
   expect(board.getAttribute('viewBox')).toBe('0 0 54 40')
@@ -152,7 +244,7 @@ it.each(['rect', 'oval', 'circle'] as const)('keeps %s handles throughout draggi
   vi.useFakeTimers()
   try {
     render(<VisualizerApp />)
-    state.preset = { art: { imageUrl: 'data:main' }, mats: { mode: 'pro', openings: [{ id: 'one', shape, xCm: 5, yCm: 5, widthCm: 10, heightCm: 10 }] } }; apply()
+    state.preset = { art: { imageUrl: 'data:main' }, mats: { layoutModel: 'single-board-v1', mode: 'pro', openings: [{ id: 'one', shape, xCm: 5, yCm: 5, widthCm: 10, heightCm: 10 }] } }; apply()
     fireEvent.mouseEnter(openingElement())
     fireEvent.mouseDown(screen.getByTitle('Drag to resize (SE)'), { clientX: 100, clientY: 100 })
     fireEvent.mouseLeave(openingElement())
@@ -184,13 +276,13 @@ it.each(['rect', 'oval', 'circle'] as const)('keeps %s handles throughout draggi
 it('grows Pro board dimensions to contain the declared multi-opening layout without changing saved openings', () => {
   render(<VisualizerApp />)
   const openings = [{ id: 'wide', shape: 'rect', xCm: 5, yCm: 5, widthCm: 60, heightCm: 30, imageUrl: 'data:wide' }]
-  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { selectedMat1: 'm', mode: 'pro', openings } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { layoutModel: 'single-board-v1', selectedMat1: 'm', mode: 'pro', openings } }; apply()
   expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 70 40')
   expect(state.current!.mats.openings).toEqual(openings)
 })
 it('saves asymmetric distances, frame dimensions and unmodified opening images into Quote and Job specifications', async () => {
   render(<VisualizerApp />)
-  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { selectedMat1: 'm', mode: 'pro', openings: fixtureOpenings() } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { layoutModel: 'single-board-v1', selectedMat1: 'm', mode: 'pro', openings: fixtureOpenings() } }; apply()
   fireEvent.change(screen.getByLabelText('Mat 1 Left (cm)'), { target: { value: '9' } })
   fireEvent.change(screen.getByLabelText('Mat 1 Bottom (cm)'), { target: { value: '8' } })
   fireEvent.change(screen.getByText('Existing customer').parentElement!.querySelector('select')!, { target: { value: 'stage-b-customer' } })
@@ -212,10 +304,10 @@ it('saves asymmetric distances, frame dimensions and unmodified opening images i
   expect(state.current).toEqual(saved)
 })
 
-it.each(['basic', 'pro'] as const)('retains incremental reveals after editing then enabling mats in %s', mode => {
+it.each(['basic'] as const)('retains incremental reveals after editing then enabling mats in %s', mode => {
   state.catalog!.mats!.push({ id: 'm2', name: 'Blue', color: '#0000ff', pricePerSqM: 6 }, { id: 'm3', name: 'Red', color: '#ff0000', pricePerSqM: 7 })
   render(<VisualizerApp />)
-  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { selectedMat1: 'm', mode, openings: fixtureOpenings() } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { layoutModel: 'single-board-v1', selectedMat1: 'm', mode, openings: fixtureOpenings() } }; apply()
   fireEvent.change(screen.getByLabelText('Mat 1 Left (cm)'), { target: { value: '9' } })
   fireEvent.click(screen.getByText('+ Add second mat'))
   const selectMat = (name: string, value: string) => fireEvent.change(screen.getAllByRole('option', { name })[1].parentElement!, { target: { value } })
@@ -273,21 +365,24 @@ it('renders nested reveal apertures for multiple mats without summing physical d
   expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 56 44')
   switchMode('pro')
   expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 56 44')
+  fireEvent.click(screen.getByRole('button', { name: 'Review and adopt single-board layout' }))
+  expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 50 40')
   expect(screen.getAllByAltText('artwork')).toHaveLength(1)
 })
-it('constrains movement to the layout rather than consuming asymmetric borders', () => {
+it('expands the single board on movement without consuming asymmetric borders', () => {
   render(<VisualizerApp />)
-  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { selectedMat1: 'm', mode: 'pro', openings: [{ id: 'one', shape: 'rect', xCm: 5, yCm: 5, widthCm: 10, heightCm: 10 }] } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30 }, mats: { layoutModel: 'single-board-v1', selectedMat1: 'm', mode: 'pro', openings: [{ id: 'one', shape: 'rect', xCm: 5, yCm: 5, widthCm: 10, heightCm: 10 }] } }; apply()
   fireEvent.change(screen.getByLabelText('Mat 1 Left (cm)'), { target: { value: '9' } })
   fireEvent.mouseDown(openingElement(), { clientX: 0, clientY: 0 })
   fireEvent.mouseMove(window, { clientX: 10000, clientY: 0 })
   fireEvent.mouseUp(window)
-  expect(state.current!.mats.openings[0].xCm).toBe(35)
-  expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 54 40')
+  const x = state.current!.mats.openings[0].xCm
+  expect(x).toBeGreaterThan(45)
+  expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe(`0 0 ${x + 19} 40`)
 })
 it('maps Pro overlays into the composite frame coordinates for the room preview', () => {
   render(<VisualizerApp />)
-  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, frame: { faceWidthCm: 2 }, mats: { selectedMat1: 'm', mode: 'pro', openings: fixtureOpenings() } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, frame: { faceWidthCm: 2 }, mats: { layoutModel: 'single-board-v1', selectedMat1: 'm', mode: 'pro', openings: fixtureOpenings() } }; apply()
   fireEvent.change(screen.getByLabelText('Mat 1 Left (cm)'), { target: { value: '9' } })
   fireEvent.click(screen.getByRole('button', { name: 'Room preview' }))
   expect(state.room!.artSizeCm).toEqual({ widthCm: 58, heightCm: 44 })

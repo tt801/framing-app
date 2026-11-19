@@ -142,8 +142,8 @@ try {
   assert.equal(await page.evaluate(()=>window.currentDesign.visualizerDesign.basic.widthCm),40)
   const before=await page.evaluate(()=>structuredClone(window.currentDesign))
   let picture=await painted(page,'pro-shared-mixed-openings')
-  for(const c of ['0,204,102','0,0,255','255,0,0','34,34,34','68,68,68','102,102,102'])assert.ok(picture.counts[c]>100,c)
-  assert.deepEqual(await page.getByTestId('mat-layers').locator('mask').evaluateAll(ms=>ms.map(m=>m.children.length-1)),[3,1,1])
+  for(const c of ['0,204,102','34,34,34','68,68,68','102,102,102'])assert.ok(picture.counts[c]>100,c)
+  assert.deepEqual(await page.getByTestId('mat-layers').locator('mask').evaluateAll(ms=>ms.map(m=>m.children.length-1)),[3])
   // Between first and second artwork openings, the primary board must remain visible.
   const x=Math.floor(24/picture.box[2]*picture.png.width),y=Math.floor(14/picture.box[3]*picture.png.height),i=(y*picture.png.width+x)*4
   assert.deepEqual([...picture.png.data.subarray(i,i+3)],[0,204,102])
@@ -190,29 +190,29 @@ try {
   assert.deepEqual(job.details.mats.openings,resized);assert.deepEqual(job.details.visualizerDesign.pro.openings,resized)
   assert.equal(job.details.visualizerDesign.basic.imageUrl,basicOriginal);assert.equal(job.details.visualizerDesign.mode,'basic')
   assert.deepEqual(quote.jobSpecification.details,job.details);assert.deepEqual(quote.pricingSnapshot,job.pricingSnapshot);assert.deepEqual(invoice.pricingSnapshot,job.pricingSnapshot)
-  assert.deepEqual(errors,[]);results.push({workflow:'Pro',mixedShapes:true,independentFileUploads:true,sharedCutouts:true,primaryVisibleBetween:true,losslessModeSwitching:true,dragResize:true,handleLifecycle:true,matRemovalPreservesArtwork:true,reload:true,retainedModelsInDocuments:true,exports:['PNG','JPG','PDF'],handlesAbsentFromExport:true});await page.close()
+  assert.deepEqual(errors,[]);results.push({workflow:'Pro',mixedShapes:true,independentFileUploads:true,singleBoardCutouts:true,primaryVisibleBetween:true,losslessModeSwitching:true,dragResize:true,handleLifecycle:true,matRemovalPreservesArtwork:true,reload:true,retainedModelsInDocuments:true,exports:['PNG','JPG','PDF'],handlesAbsentFromExport:true});await page.close()
  }
  {
   const {page,errors}=await open();const art='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="#222222"/></svg>')
   await page.evaluate(art=>window.applyDesign({art:{widthCm:40,heightCm:30,imageUrl:art},mats:{mode:'pro',geometryVersion:2,selectedMat1:'m',selectedMat2:'m2',selectedMat3:'m3',borders:[5,5,5].map(n=>({top:n,bottom:n,left:n,right:n})),origin:{x:5,y:5},openings:[{id:'legacy',shape:'rect',xCm:5,yCm:5,widthCm:2,heightCm:2,imageUrl:art}]}}),art)
-  assert.match(await page.getByRole('status').innerText(),/coincident/);assert.equal(await page.getByRole('button',{name:'Review and adopt shared-cut-out layout',exact:true}).isDisabled(),true)
-  await page.getByLabel('Mat 2 Left (mm)',{exact:true}).fill('20');await page.getByLabel('Mat 3 Left (mm)',{exact:true}).fill('10');await page.getByRole('button',{name:'Review and adopt shared-cut-out layout',exact:true}).click()
+  assert.match((await page.getByRole('status').allTextContents()).join(' '),/coincident/);assert.equal(await page.getByLabel('Mat 2 Left (mm)',{exact:true}).isDisabled(),true)
+  const originalSlots=await page.evaluate(()=>structuredClone(window.currentDesign.visualizerDesign.mats));await page.getByRole('button',{name:'Review and adopt single-board layout',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.currentDesign.visualizerDesign.mats),originalSlots)
   assert.equal(await page.getByRole('status').count(),0)
   await page.evaluate(art=>window.applyDesign({art:{widthCm:40,heightCm:30,imageUrl:art},mats:{mode:'pro',geometryVersion:3,selectedMat1:'m',selectedMat2:'m2',selectedMat3:'m3',borders:[5,2,1].map(n=>({top:n,bottom:n,left:n,right:n})),origin:{x:5,y:5},openings:[{id:'legacy',shape:'rect',xCm:0,yCm:0,widthCm:2,heightCm:2,imageUrl:art}]}}),art)
-  assert.equal(await page.getByRole('button',{name:'Remove Mat 1',exact:true}).isDisabled(),true);await page.getByRole('button',{name:'Review and adopt shared-cut-out layout',exact:true}).click()
+  assert.equal(await page.getByRole('button',{name:'Remove Mat 1',exact:true}).isDisabled(),true);await page.getByRole('button',{name:'Review and adopt single-board layout',exact:true}).click()
   await page.getByRole('button',{name:'Remove Mat 1',exact:true}).click();assert.equal(await page.getByAltText('artwork',{exact:true}).getAttribute('src'),art)
   const picture=await painted(page,'legacy-explicit-adoption-and-removal');assert.ok(picture.counts['34,34,34']>16,'the 2 cm historical artwork must remain painted');assert.deepEqual(errors,[]);results.push({workflow:'Historical review',coincidentBordersRequireReview:true,explicitAdoption:true,legacyCoordinatesAndArtworkRetained:true});await page.close()
  }
  {
   const {page,errors}=await open();const mode=page.locator('select').filter({has:page.locator('option[value="pro"]')});await mode.selectOption('pro');await page.getByRole('button',{name:'+ Rectangle',exact:true}).click()
   const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'Select image for this opening',exact:true}).click();await(await chooser).setFiles(file('#222222'));await page.waitForFunction(()=>!!window.currentDesign.mats.openings[0].imageUrl)
-  await addMats(page);const opening=await page.evaluate(()=>structuredClone(window.currentDesign.mats.openings[0]))
+  await mode.selectOption('basic');await addMats(page);await mode.selectOption('pro');const opening=await page.evaluate(()=>structuredClone(window.currentDesign.mats.openings[0]))
   await mode.selectOption('basic');assert.equal(await page.evaluate(()=>window.currentDesign.art.imageUrl),'');assert.equal(await page.getByText('Basic has no original artwork.',{exact:false}).count(),1)
   await page.locator('select').filter({has:page.locator('option[value="c"]')}).selectOption('c');await page.getByRole('button',{name:'Add to Jobs',exact:true}).click();await page.waitForFunction(()=>window.documents?.length===1)
   assert.deepEqual(await page.evaluate(()=>window.documents[0].payload.details.visualizerDesign.pro.openings[0]),opening)
   await page.getByText('Save fixture',{exact:true}).click();await page.reload();await page.waitForFunction(()=>!!window.currentDesign);await page.getByText('Load fixture',{exact:true}).click();await mode.selectOption('pro')
-  for(let n=0;n<3;n++){await page.getByRole('button',{name:'Remove Mat 1',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings[0]),opening);assert.equal(await page.getByAltText('artwork',{exact:true}).count(),1)}
-  const picture=await painted(page,'pro-first-all-mats-removed');assert.ok(picture.counts['34,34,34']>100);assert.deepEqual(errors,[]);results.push({workflow:'Pro-first upload',noBasicImage:true,basicJobRetainsProImage:true,saveInBasicReloadInPro:true,removingAllMatsRetainsArtwork:true});await page.close()
+  await page.getByRole('button',{name:'Remove Mat 1',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings[0]),opening);assert.equal(await page.getByAltText('artwork',{exact:true}).count(),1)
+  const picture=await painted(page,'pro-first-all-mats-removed');assert.ok(picture.counts['34,34,34']>100);assert.deepEqual(errors,[]);results.push({workflow:'Pro-first upload',noBasicImage:true,basicJobRetainsProImage:true,saveInBasicReloadInPro:true,removingProBoardRetainsArtwork:true});await page.close()
  }
  console.log(JSON.stringify({passed:results.length,results},null,2));writeFileSync(path.join(output,'results.json'),JSON.stringify(results,null,2))
 }finally{await browser?.close();await server.close()}

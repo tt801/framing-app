@@ -79,7 +79,7 @@ try {
   await page.goto(url); await page.waitForFunction(()=>!!window.applyDesign)
   const image='data:image/svg+xml;base64,'+Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30"><rect width="30" height="30" fill="#222222"/></svg>').toString('base64')
   const opening={id:'one',shape,xCm:5,yCm:5,widthCm:30,heightCm:30,imageUrl:image}
-  await page.evaluate(({mode,opening,image})=>window.applyDesign({art:{widthCm:30,heightCm:30,imageUrl:image},mats:{selectedMat1:'m',mode,locks:[false,false,false],openings:[opening]}}),{mode,opening,image})
+  await page.evaluate(({mode,opening,image})=>window.applyDesign({art:{widthCm:30,heightCm:30,imageUrl:image},mats:{layoutModel:'single-board-v1',selectedMat1:'m',mode:'basic',locks:[false,false,false],openings:[opening]}}),{mode,opening,image})
   await page.getByLabel('Mat 1 Left (cm)',{exact:true}).fill('9')
   await page.getByText('+ Add second mat',{exact:true}).click()
   await page.locator('select').filter({has:page.locator('option[value="m2"]')}).nth(1).selectOption('m2')
@@ -88,12 +88,13 @@ try {
   const board=page.getByTestId('mat-layers')
   assert.equal(await page.getByLabel('Mat 2 Left (mm)',{exact:true}).inputValue(),'20')
   assert.equal(await page.getByLabel('Mat 3 Left (mm)',{exact:true}).inputValue(),'10')
-  assert.equal(await board.getAttribute('viewBox'),'0 0 50 46')
+  if(mode==='pro')await page.locator('select').filter({has:page.locator('option[value="pro"]')}).selectOption('pro')
+  const w=mode==='pro'?44:50,h=mode==='pro'?40:46
+  assert.equal(await board.getAttribute('viewBox'),`0 0 ${w} ${h}`)
   const png=PNG.sync.read(await board.screenshot({path:path.join(output,`${mode}-${shape}.png`)}))
-  const sample=(x,y)=>{ const px=Math.floor(x/50*png.width),py=Math.floor(y/46*png.height),i=(py*png.width+px)*4; return [...png.data.subarray(i,i+3)] }
+  const sample=(x,y)=>{ const px=Math.floor(x/w*png.width),py=Math.floor(y/h*png.height),i=(py*png.width+px)*4; return [...png.data.subarray(i,i+3)] }
   assert.deepEqual(sample(4.5,23),[0,204,102],'Mat 1 must be painted green')
-  assert.deepEqual(sample(10,23),[0,0,255],'Mat 2 must be painted blue')
-  assert.deepEqual(sample(11.5,23),[255,0,0],'Mat 3 must be painted red')
+  if(mode==='basic'){assert.deepEqual(sample(10,23),[0,0,255],'Mat 2 must be painted blue');assert.deepEqual(sample(11.5,23),[255,0,0],'Mat 3 must be painted red')}else{assert.equal(await board.locator('[data-mat-layer]').count(),1);assert.equal(await page.getByLabel('Mat 2 material',{exact:true}).count(),0)}
   const saved=await page.evaluate(()=>structuredClone(window.currentDesign))
   assert.deepEqual(saved.mats.openings,[opening]); assert.equal(saved.mats.geometryVersion,3)
   await page.getByText('Save fixture',{exact:true}).click()
@@ -114,7 +115,7 @@ try {
    assert.equal(await page.getByTitle('Drag to resize (SE)',{exact:true}).count(),0)
   }
   assert.deepEqual(errors,[]); assert.deepEqual(external,[])
-  results.push({mode,shape,paintedColours:3,persistedRoundTrip:true,openingPreserved:true,handleLifecycle:mode==='pro',pageErrors:errors.length,externalRequests:external.length})
+  results.push({mode,shape,paintedColours:mode==='pro'?1:3,persistedRoundTrip:true,openingPreserved:true,handleLifecycle:mode==='pro',pageErrors:errors.length,externalRequests:external.length})
   await page.close()
  }
  // Multi-opening paint, asymmetric sides, mode round-trips and real creation payloads.
@@ -126,15 +127,15 @@ try {
   const increments=[{top:2,bottom:4,left:3,right:5},{top:1,bottom:2,left:1,right:2},{top:2,bottom:2,left:2,right:2}]
   const images=['#222222','#444444','#666666'].map(fill=>'data:image/svg+xml;base64,'+Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="${fill}"/></svg>`).toString('base64'))
   const openings=['rect','oval','circle'].map((shape,i)=>({id:'multi-'+i,shape,xCm:6+18*i,yCm:5,widthCm:10,heightCm:10,imageUrl:images[i]}))
-  await page.evaluate(({increments,openings})=>window.applyDesign({art:{widthCm:60,heightCm:30},mats:{geometryVersion:3,borders:increments,selectedMat1:'m',selectedMat2:'m2',selectedMat3:'m3',mode:'pro',proOrigin:{x:6,y:5},openings}}),{increments,openings})
+  await page.evaluate(({increments,openings})=>window.applyDesign({art:{widthCm:60,heightCm:30},mats:{layoutModel:'single-board-v1',geometryVersion:3,borders:increments,selectedMat1:'m',selectedMat2:'m2',selectedMat3:'m3',mode:'pro',proOrigin:{x:6,y:5},openings}}),{increments,openings})
   await page.waitForFunction(()=>window.currentDesign.mats.selectedMat3==='m3')
-  assert.equal(await page.getByTestId('mat-layers').getAttribute('viewBox'),'0 0 75 43')
+  assert.equal(await page.getByTestId('mat-layers').getAttribute('viewBox'),'0 0 68 36')
   assert.equal(await page.getByAltText('artwork',{exact:true}).count(),3)
   assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings),openings)
   const png=PNG.sync.read(await page.getByTestId('mat-layers').screenshot({path:path.join(output,'pro-multi-opening.png')}))
   const counts=new Map(['0,204,102','0,0,255','255,0,0'].map(c=>[c,0]))
   for(let i=0;i<png.data.length;i+=4){const colour=[...png.data.subarray(i,i+3)].join(',');if(counts.has(colour))counts.set(colour,counts.get(colour)+1)}
-  for(const [colour,pixels] of counts)assert.ok(pixels>100,`${colour} must have visible painted pixels`)
+  assert.ok(counts.get('0,204,102')>100);assert.equal(counts.get('0,0,255'),0);assert.equal(counts.get('255,0,0'),0)
   const modeSelect=page.locator('select').filter({has:page.locator('option[value="pro"]')})
   await modeSelect.selectOption('basic'); await modeSelect.selectOption('pro')
   assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings),openings)
@@ -145,18 +146,19 @@ try {
   const quote=documents.find(d=>d.kind==='quote').payload,job=documents.find(d=>d.kind==='job').payload,invoice=documents.find(d=>d.kind==='invoice').payload
   assert.deepEqual(job.details.mats.openings,openings)
   assert.deepEqual(job.details.mats.borders,increments)
-  assert.deepEqual(job.details.dims.visible,{widthCm:75,heightCm:43})
-  assert.deepEqual(job.details.dims.external,{widthCm:79,heightCm:47})
+  assert.deepEqual(job.details.dims.visible,{widthCm:68,heightCm:36})
+  assert.deepEqual(job.details.dims.external,{widthCm:72,heightCm:40})
   assert.deepEqual(job.details.mats,job.mats)
   assert.deepEqual(JSON.parse(job.detailsJson),job.details)
   assert.deepEqual(quote.jobSpecification.details,job.details)
   assert.deepEqual(quote.pricingSnapshot,job.pricingSnapshot)
   assert.deepEqual(invoice.pricingSnapshot,job.pricingSnapshot)
   const snapshot=job.pricingSnapshot
-  assert.equal(snapshot.items.find(i=>i.key==='frame').materialQuantity,2.36)
-  for(const key of ['glazing','mat1','mat2','mat3']) assert.equal(snapshot.items.find(i=>i.key===key).materialQuantity,0.3225)
+  assert.equal(snapshot.items.find(i=>i.key==='frame').materialQuantity,2.08)
+  for(const key of ['glazing','mat1']) assert.equal(snapshot.items.find(i=>i.key===key).materialQuantity,0.2448)
+  for(const key of ['mat2','mat3'])assert.equal(snapshot.items.find(i=>i.key===key),undefined)
   assert.deepEqual(errors,[])
-  results.push({mode:'pro',shape:'multi-opening',paintedColours:3,openingPreserved:true,modeRoundTrip:true,creationPayloads:3,pricingGeometry:true,pageErrors:0})
+  results.push({mode:'pro',shape:'multi-opening',paintedColours:1,openingPreserved:true,modeRoundTrip:true,creationPayloads:3,pricingGeometry:true,pageErrors:0})
   await page.close()
  }
  console.log(JSON.stringify({passed:results.length,results},null,2))

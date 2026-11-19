@@ -2,7 +2,8 @@ import { matGeometry, isMatBorders, type MatBorders } from './matGeometry'
 import type { MatSlot } from './visualizerMats'
 export type OpeningShape = 'rect' | 'oval' | 'circle'
 export type DesignOpening = { id: string; shape: OpeningShape; xCm: number; yCm: number; widthCm: number; heightCm: number; imageUrl?: string }
-export type LayoutModel = 'shared-group-v1' | 'legacy-individual-v1'
+export type LayoutModel = 'single-board-v1' | 'shared-group-v1' | 'legacy-individual-v1'
+export const effectiveMatActivity = (mode: 'basic' | 'pro', model: LayoutModel, active: boolean[]) => active.map((enabled, i) => enabled && !(mode === 'pro' && model === 'single-board-v1' && i > 0))
 export type VisualizerDesign = {
   version: 1; layoutModel: LayoutModel; mode: 'basic' | 'pro'
   basic: { widthCm: number; heightCm: number; imageUrl: string }
@@ -33,10 +34,10 @@ export function decodeVisualizerPreset(value: unknown): { state: Data; issue: st
     if ((mats.mode !== undefined && mats.mode !== 'basic' && mats.mode !== 'pro') ||
       (mats.proOrigin !== undefined && !validPoint(mats.proOrigin)) || (mats.openings !== undefined && !validOpenings(mats.openings)) ||
       [art.widthCm, art.heightCm].some(n => n !== undefined && (typeof n !== 'number' || !Number.isFinite(n) || n <= 0))) return fail()
-    return model !== undefined && model !== 'shared-group-v1' && model !== 'legacy-individual-v1' ? fail() : { state, issue: null }
+    return model !== undefined && model !== 'single-board-v1' && model !== 'shared-group-v1' && model !== 'legacy-individual-v1' ? fail() : { state, issue: null }
   }
   const d = record(state.visualizerDesign), basic = record(d.basic), pro = record(d.pro)
-  if (d.version !== 1 || !['basic', 'pro'].includes(String(d.mode)) || !['shared-group-v1', 'legacy-individual-v1'].includes(String(d.layoutModel)) ||
+  if (d.version !== 1 || !['basic', 'pro'].includes(String(d.mode)) || !['single-board-v1', 'shared-group-v1', 'legacy-individual-v1'].includes(String(d.layoutModel)) ||
     ![basic.widthCm, basic.heightCm].every(n => typeof n === 'number' && Number.isFinite(n) && n > 0) || typeof basic.imageUrl !== 'string' ||
     !validPoint(pro.origin) || !Array.isArray(pro.openings) || !Array.isArray(d.mats) || d.mats.length !== 3) return fail()
   if (!d.mats.every(s => typeof record(s).materialId === 'string' && typeof record(s).locked === 'boolean' && isMatBorders(record(s).borders))) return fail()
@@ -51,7 +52,7 @@ export function decodeVisualizerPreset(value: unknown): { state: Data; issue: st
   if (['widthCm', 'heightCm'].some(key => oldDimensions[key] !== undefined && !same(oldDimensions[key], art[key])) ||
     (state.artworkUrl !== undefined && !same(state.artworkUrl, basic.imageUrl))) return fail()
   if (slots.some((slot, i) => {
-    const enabled = slot.materialId !== 'mat0', nested = record(oldMats[`mat${i + 1}`])
+    const enabled = effectiveMatActivity(d.mode as 'basic' | 'pro', d.layoutModel as LayoutModel, slots.map(s => s.materialId !== 'mat0'))[i], nested = record(oldMats[`mat${i + 1}`])
     return (oldMats[`hasMat${i + 1}`] !== undefined && oldMats[`hasMat${i + 1}`] !== enabled) ||
       (enabled && oldMats[`mat${i + 1}`] === null) ||
       (enabled && nested.id !== undefined && nested.id !== slot.materialId) ||
@@ -68,14 +69,15 @@ type SceneInput = { mode: 'basic' | 'pro'; layoutModel: LayoutModel; width: numb
   borders: MatBorders[]; active: boolean[]; origin: { x: number; y: number } | null; openings: DesignOpening[] }
 /** One scene, in centimetres. Source coordinates/images are never modified by a border change. */
 export function visualizerScene(input: SceneInput) {
-  const { mode, layoutModel, width, height, face, borders, active } = input
+  const { mode, layoutModel, width, height, face, borders } = input
+  const active = effectiveMatActivity(mode, layoutModel, input.active)
   const basicGeometry = matGeometry(width, height, face, borders, active)
   const anchor = input.origin ?? { x: basicGeometry.total.left, y: basicGeometry.total.top }
   const invalidOpening = mode === 'pro' && input.openings.some(o => !['rect', 'oval', 'circle'].includes(o.shape) ||
     ![o.xCm, o.yCm, o.widthCm, o.heightCm].every(Number.isFinite) || o.widthCm <= 0 || o.heightCm <= 0 ||
     (o.shape === 'circle' && o.widthCm !== o.heightCm))
   const source = mode === 'pro' && !invalidOpening ? input.openings : []
-  const shared = layoutModel === 'shared-group-v1'
+  const shared = layoutModel !== 'legacy-individual-v1'
   const legacyBoundsIssue = !shared && mode === 'pro' && source.some(o => o.xCm < anchor.x || o.yCm < anchor.y)
   const minX = mode === 'pro' && shared ? Math.min(anchor.x, ...source.map(o => o.xCm)) : anchor.x
   const minY = mode === 'pro' && shared ? Math.min(anchor.y, ...source.map(o => o.yCm)) : anchor.y
@@ -85,9 +87,9 @@ export function visualizerScene(input: SceneInput) {
   const offset = { x: geometry.total.left - minX, y: geometry.total.top - minY }
   const openings: DesignOpening[] = mode === 'pro' ? source.map(o => ({ ...o, xCm: o.xCm + offset.x, yCm: o.yCm + offset.y }))
     : [{ id: 'basic', shape: 'rect', xCm: geometry.total.left, yCm: geometry.total.top, widthCm: width, heightCm: height }]
-  const ordered = shared ? geometry.layers : [...geometry.layers].reverse()
+  const ordered = shared && mode === 'pro' ? geometry.layers : [...geometry.layers].reverse()
   const layers = ordered.map((layer, index) => {
-    if (!shared) return { slot: layer.slot, cutouts: openings.map(o => ({ ...o,
+    if (!shared || mode === 'basic') return { slot: layer.slot, cutouts: openings.map(o => ({ ...o,
       xCm: o.xCm - (geometry.total.left - layer.borders.left), yCm: o.yCm - (geometry.total.top - layer.borders.top),
       widthCm: o.widthCm + geometry.total.left + geometry.total.right - layer.borders.left - layer.borders.right,
       heightCm: o.heightCm + geometry.total.top + geometry.total.bottom - layer.borders.top - layer.borders.bottom })) }

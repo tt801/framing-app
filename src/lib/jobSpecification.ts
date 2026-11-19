@@ -58,7 +58,7 @@ export function jobSpecificationFields(value: unknown): { label: string; value: 
       ? "Incremental: Mat 1 from artwork/layout opening; Mat 2 from Mat 1 inner edge; Mat 3 from Mat 2 inner edge. Enabled sides are summed."
       : mats.geometryVersion === 2 ? "Stage B absolute aperture-to-internal-frame-edge distances; lower mat values already include reveals."
       : "Unknown mat geometry version — review required." }] : []),
-    ...(mats.layoutModel !== undefined ? [{ label: "Mat cut-outs", value: mats.layoutModel === 'shared-group-v1'
+    ...(mats.layoutModel !== undefined ? [{ label: "Mat cut-outs", value: mats.layoutModel === 'single-board-v1' ? (mats.mode === 'pro' ? 'Single catalogue board with individual openings; decorative mats inactive in Pro.' : 'Mat 1 outermost; Mat 2 below; Mat 3 innermost. Incremental cut edges.') : mats.layoutModel === 'shared-group-v1'
       ? "Primary mat: individual openings; decorative mats: one shared group cut-out."
       : "Historical individual cut-outs preserved." }] : []),
     ...(mats.mode !== undefined ? [{ label: "Design mode", value: mats.mode === 'pro' ? 'Pro' : 'Basic' }] : []),

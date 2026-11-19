@@ -6,7 +6,7 @@ import { toPng } from 'html-to-image'
 import type { Catalog } from '@/lib/store'
 
 type Opening = { id: string; shape: 'rect' | 'oval' | 'circle'; xCm: number; yCm: number; widthCm: number; heightCm: number; imageUrl?: string }
-type Design = { art: { widthCm: number; heightCm: number; imageUrl: string }; mats: { mode: string; openings: Opening[]; selectedMat1: string; mat1BorderCm: number } }
+type Design = { art: { widthCm: number; heightCm: number; imageUrl: string }; mats: { layoutModel: 'single-board-v1', mode: string; openings: Opening[]; selectedMat1: string; mat1BorderCm: number } }
 const state = vi.hoisted(() => ({ catalog: null as Catalog | null, current: null as Design | null, preset: {} as Record<string, unknown> }))
 const customers: never[] = []
 vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: state.catalog }) }))
@@ -53,7 +53,7 @@ const fixtureOpenings = (): Opening[] => [
 it.each(['rect', 'oval', 'circle'] as const)('keeps selected %s handles after pointer leave and excludes them from customer captures', shape => {
   render(<VisualizerApp />)
   const openings = fixtureOpenings()
-  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { selectedMat1: 'm', mode: 'pro', openings } }
+  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { layoutModel: 'single-board-v1', selectedMat1: 'm', mode: 'pro', openings } }
   apply()
   const index = openings.findIndex(o => o.shape === shape)
   fireEvent.mouseEnter(openingElement(index))
@@ -74,7 +74,7 @@ it.each(['rect', 'oval', 'circle'] as const)('keeps selected %s handles after po
 
 it('switches handle selection without hover and removes handles with a deleted opening', () => {
   render(<VisualizerApp />)
-  state.preset = { mats: { mode: 'pro', openings: fixtureOpenings() } }; apply()
+  state.preset = { mats: { layoutModel: 'single-board-v1', mode: 'pro', openings: fixtureOpenings() } }; apply()
   fireEvent.mouseDown(openingElement(0)); fireEvent.mouseUp(window)
   expect(handles()).toHaveLength(8)
   fireEvent.mouseDown(openingElement(1)); fireEvent.mouseUp(window)
@@ -85,10 +85,11 @@ it('switches handle selection without hover and removes handles with a deleted o
 })
 
 
-it('keeps an upload visible when its FileReader finishes after switching to Pro', () => {
+it.each([false, true])('assigns a late Basic upload after switching to Pro (existing empty aperture: %s)', existing => {
   const readers: FileReader[] = []
   vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (this: FileReader) { readers.push(this) })
   render(<VisualizerApp />)
+  if (existing) { state.preset = { mats: { layoutModel: 'single-board-v1', mode: 'basic', openings: [{ ...fixtureOpenings()[0], imageUrl: '' }] } }; apply() }
   fireEvent.change(document.getElementById('artUpload')!, { target: { files: [new File(['image'], 'art.png', { type: 'image/png' })] } })
   switchMode('pro')
   Object.defineProperty(readers[0], 'result', { value: 'data:image/png;base64,DEFERRED' })
@@ -99,7 +100,7 @@ it('keeps an upload visible when its FileReader finishes after switching to Pro'
 it('preserves populated and empty opening images through main uploads, mat changes and Basic/Pro round trips', async () => {
   render(<VisualizerApp />)
   const openings = fixtureOpenings()
-  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { mode: 'basic', openings } }; apply()
+  state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { layoutModel: 'single-board-v1', mode: 'basic', openings } }; apply()
   switchMode('pro')
   expect(state.current!.mats.openings).toEqual(openings)
   await upload()
@@ -116,7 +117,7 @@ it('preserves populated and empty opening images through main uploads, mat chang
 it.each(['rect', 'oval', 'circle'] as const)('still resizes a selected %s without changing other openings or images', shape => {
   render(<VisualizerApp />)
   const openings = fixtureOpenings()
-  state.preset = { mats: { mode: 'pro', openings } }; apply()
+  state.preset = { mats: { layoutModel: 'single-board-v1', mode: 'pro', openings } }; apply()
   const index = openings.findIndex(o => o.shape === shape)
   fireEvent.mouseDown(openingElement(index)); fireEvent.mouseUp(window)
   fireEvent.mouseDown(screen.getByTitle('Drag to resize (SE)'), { clientX: 100, clientY: 100 })
@@ -144,7 +145,7 @@ it('does not recreate an explicitly deleted final opening on an ordinary rerende
 it('only changes the explicitly chosen opening image with the per-opening picker', async () => {
   render(<VisualizerApp />)
   const openings = fixtureOpenings()
-  state.preset = { mats: { mode: 'pro', openings } }; apply()
+  state.preset = { mats: { layoutModel: 'single-board-v1', mode: 'pro', openings } }; apply()
   fireEvent.click(screen.getByText('Select image for this opening'))
   const input = Array.from(document.querySelectorAll<HTMLInputElement>('input[type=file]')).find(el => el.id !== 'artUpload')!
   fireEvent.change(input, { target: { files: [new File(['selected image'], 'chosen.png', { type: 'image/png' })] } })

@@ -137,6 +137,8 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
     }
     const geometryChanged = changedFields.some(field => /^mat[123](State|Border|Top|Bottom|Left|Right)$/.test(field.key) || ['artWidth', 'artHeight', 'faceWidth'].includes(field.key))
     const oldGeometry = jobMatState(current ?? {})
+    if (oldGeometry.mats.mode === 'pro' && oldGeometry.mats.layoutModel === 'single-board-v1' && changedFields.some(field => /^mat[23]/.test(field.key)))
+      throw new Error('Decorative mats are inactive in Pro; retain their Basic settings unchanged.')
     if (geometryChanged && savedJobDetails(current ?? {}).visualizerDesign !== undefined) {
       const decoded = decodeVisualizerPreset(savedJobDetails(current ?? {}))
       if (decoded.issue) throw new Error(decoded.issue)
@@ -160,7 +162,7 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
       const oldTotal = matGeometry(width, height, face, oldGeometry.restored.borders, oldGeometry.active).total
       const origin = isRecord(mats.proOrigin) ? mats.proOrigin : { x: oldTotal.left, y: oldTotal.top }
       const openings = Array.isArray(mats.openings) ? mats.openings.filter(isRecord) : []
-      const geometry = visualizerScene({ mode: mats.mode === 'pro' ? 'pro' : 'basic', layoutModel: mats.layoutModel === 'shared-group-v1' ? 'shared-group-v1' : 'legacy-individual-v1',
+      const geometry = visualizerScene({ mode: mats.mode === 'pro' ? 'pro' : 'basic', layoutModel: mats.layoutModel === 'single-board-v1' ? 'single-board-v1' : mats.layoutModel === 'shared-group-v1' ? 'shared-group-v1' : 'legacy-individual-v1',
         width, height, face, borders: increments, active, origin: { x: Number(origin.x), y: Number(origin.y) }, openings: openings as unknown as DesignOpening[] })
       if (geometry.issue) throw new Error('Saved dimensions need review before changing mat geometry.')
       mats.geometryVersion = MAT_GEOMETRY_VERSION
@@ -181,6 +183,7 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
         else { design.basic.widthCm = width; design.basic.heightCm = height }
         if (mats.mode === 'pro') design.pro.origin = { x: Number(origin.x), y: Number(origin.y) }
         design.mats = design.mats.map((slot, i) => {
+          if (design.mode === 'pro' && design.layoutModel === 'single-board-v1' && i > 0) return slot;
           const cached = isRecord(mats[`mat${i + 1}`]) ? mats[`mat${i + 1}`] as Data : {}
           const materialId = !active[i] ? 'mat0' : slot.materialId !== 'mat0' ? slot.materialId : cached.id
           if (typeof materialId !== 'string' || !materialId || (active[i] && materialId === 'mat0')) throw new Error('Mat material identity needs review before enabling this slot.')

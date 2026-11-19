@@ -2,7 +2,7 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { matGeometry, restoreMatBorders, MAT_GEOMETRY_VERSION, MAT_COINCIDENT_REVIEW_ISSUE, matSides, type MatBorders } from '@/lib/matGeometry';
 import { matColour, createMatSlots, selectMatMaterial, editMatSide, restoreMatLocks, matDisplayValue, matPhysicalValue, matUnit } from '@/lib/visualizerMats';
-import { visualizerScene, layoutDimensionForExternal, decodeVisualizerPreset, type VisualizerDesign, type LayoutModel } from '@/lib/visualizerScene';
+import { effectiveMatActivity, visualizerScene, layoutDimensionForExternal, decodeVisualizerPreset, type VisualizerDesign, type LayoutModel } from '@/lib/visualizerScene';
 
 const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({
     title,
@@ -351,7 +351,7 @@ export default function VisualizerApp() {
   const [matSlots, setMatSlots] = useState(createMatSlots);
   const [selectedMat1, selectedMat2, selectedMat3] = matSlots.map(slot => slot.materialId);
   const borders = useMemo(() => matSlots.map(slot => slot.borders), [matSlots]);
-  const [layoutModel, setLayoutModel] = useState<LayoutModel>("shared-group-v1");
+  const [layoutModel, setLayoutModel] = useState<LayoutModel>("single-board-v1");
   const [reviewableMats, setReviewableMats] = useState(false);
   const [matRestoreIssue, setMatRestoreIssue] = useState<string | null>(null);
   const [designLoadIssue, setDesignLoadIssue] = useState<string | null>(null);
@@ -359,9 +359,7 @@ export default function VisualizerApp() {
   const [showMat2, setShowMat2] = useState(false);
   const [showMat3, setShowMat3] = useState(false);
 
-  const hasMat1 = selectedMat1 !== "mat0";
-  const hasMat2 = selectedMat2 !== "mat0";
-  const hasMat3 = selectedMat3 !== "mat0";
+  const [hasMat1, hasMat2, hasMat3] = effectiveMatActivity(mode, layoutModel, [selectedMat1, selectedMat2, selectedMat3].map(id => id !== 'mat0'));
 
   const [openings, setOpenings] = useState<MatOpening[]>([]);
   const activeMats = [hasMat1, hasMat2, hasMat3];
@@ -370,6 +368,8 @@ export default function VisualizerApp() {
   const origin = geometry.layoutOrigin;
   const { layoutWidth, layoutHeight } = geometry;
   const legacyLayoutIssue = geometry.legacyBoundsIssue;
+  const historicalPro = mode === 'pro' && layoutModel !== 'single-board-v1';
+  const historicalProIssue = historicalPro ? 'Historical Pro design preserved. Review and adopt the single-board layout before editing, pricing, saving or exporting a new copy.' : null;
   const totalBorder = geometry.total.left;
   const proOffset = geometry.offset;
   const visualizerDesign: VisualizerDesign = { version: 1, layoutModel, mode, basic: { widthCm: basicWcm, heightCm: basicHcm, imageUrl: artworkUrl },
@@ -420,7 +420,7 @@ export default function VisualizerApp() {
         allowZeroPrice: catalog?.settings?.foamBackerAllowZeroPrice }
     : backerList.find(board => board.id === backerMaterialId);
   const supplierSelectionIssue = effectiveCatalogue.selectionIssue([
-    selectedFrame, selectedMat1, selectedMat2, selectedMat3, selectedGlazingId,
+    selectedFrame, ...(hasMat1 ? [selectedMat1] : []), ...(hasMat2 ? [selectedMat2] : []), ...(hasMat3 ? [selectedMat3] : []), selectedGlazingId,
     ...(includePrint ? [printMaterialId] : []),
     ...(includeBacker ? [backerMaterialId] : []),
   ]);
@@ -485,7 +485,7 @@ export default function VisualizerApp() {
 
   // ---------- Dimension input handlers (now used onBlur / Enter) ----------
   function handleDimensionChange(axis: "width" | "height", raw: string) {
-    if (legacyLayoutIssue) { toast("Review and adopt this historical layout before changing geometry.", "error"); return; }
+    if (historicalPro || legacyLayoutIssue) { toast("Review and adopt this historical layout before changing geometry.", "error"); return; }
     const trimmed = raw.trim();
     if (!trimmed) return;
 
@@ -506,7 +506,7 @@ export default function VisualizerApp() {
   }
 
   function handleMatBorderChange(which: number, side: keyof MatBorders, value: number) {
-    if (legacyLayoutIssue) return;
+    if (historicalPro || legacyLayoutIssue) return;
     setMatSlots(current => editMatSide(current, which, side, value));
   }
 
@@ -527,7 +527,7 @@ export default function VisualizerApp() {
   ];
   let pricingIssue = catalogLoading || settingsLoading ? 'Catalogue and pricing settings are loading.'
     : catalogError || settingsError ? 'Could not load catalogue or pricing settings. Retry before creating a priced document.'
-    : designLoadIssue || matRestoreIssue || (legacyLayoutIssue ? 'Legacy opening coordinates need review before changing geometry.' : null) || geometry.issue || pricingSettingsIssue({ labourBase, marginMultiplier }) || materialIssues.find(Boolean) || supplierSelectionIssue;
+    : designLoadIssue || historicalProIssue || matRestoreIssue || (legacyLayoutIssue ? 'Legacy opening coordinates need review before changing geometry.' : null) || geometry.issue || pricingSettingsIssue({ labourBase, marginMultiplier }) || materialIssues.find(Boolean) || supplierSelectionIssue;
   // Invalid selections have no commercial result. Never display or persist fabricated zero totals.
   const pricingSnapshot = (() => {
     if (pricingIssue) return null;
@@ -713,7 +713,7 @@ export default function VisualizerApp() {
       const dyPx = e.clientY - d.startY;
       const dx = dxPx / d.scale;
       const dy = dyPx / d.scale;
-      if (layoutModel === 'shared-group-v1') {
+      if (layoutModel !== 'legacy-individual-v1') {
         setOpenings(arr => arr.map(o => {
           if (o.id !== d.id) return o;
           if (d.kind === 'move') return { ...o, xCm: snapToGrid((d.ox ?? 0) + dx), yCm: snapToGrid((d.oy ?? 0) + dy) };
@@ -896,6 +896,7 @@ export default function VisualizerApp() {
 
   const startMove = (e: React.MouseEvent, o: MatOpening) => {
     e.preventDefault();
+    if (historicalPro) return;
     setSelectedOpeningId(o.id);
     revealHandles(o.id);
     setDrag({
@@ -918,6 +919,7 @@ export default function VisualizerApp() {
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    if (historicalPro) return;
     setSelectedOpeningId(o.id);
     revealHandles(o.id);
     setDrag({
@@ -1068,18 +1070,28 @@ export default function VisualizerApp() {
   }
 
   // FileReader may finish after a mode/layout change; initialize from the current design.
-  const proLayoutRef = useRef({ mode, openings, artWcm, artHcm, totalBorder, topBorder: geometry.total.top });
-  proLayoutRef.current = { mode, openings, artWcm, artHcm, totalBorder, topBorder: geometry.total.top };
+  const proLayoutRef = useRef({ mode, layoutModel, openings, artWcm, artHcm, totalBorder, topBorder: geometry.total.top });
+  proLayoutRef.current = { mode, layoutModel, openings, artWcm, artHcm, totalBorder, topBorder: geometry.total.top };
 
-  // Seed only an empty Pro layout from the explicitly uploaded Basic artwork.
-  // Never resolve an existing opening's image from the main artwork as a fallback.
-  function initializeProOpening(imageUrl: string) {
+  // Seed only an unassigned first opening (or an empty layout), including a late FileReader.
+  // Historical Pro layouts require explicit adoption; never overwrite an assigned image.
+  function initializeProOpening(imageUrl: string, adopting = false) {
     const layout = proLayoutRef.current;
-    if (!imageUrl || layout.openings.length) return;
+    if (!imageUrl || (layout.layoutModel !== 'single-board-v1' && !adopting)) return;
+    if (layout.openings.length) {
+      if (!layout.openings[0].imageUrl) setOpenings(current => current.map((opening, i) => i === 0 && !opening.imageUrl ? { ...opening, imageUrl } : opening));
+      return;
+    }
     setProOrigin({ x: layout.totalBorder, y: layout.topBorder });
     const opening: MatOpening = { id: rid(), shape: 'rect', xCm: layout.totalBorder, yCm: layout.topBorder,
       widthCm: layout.artWcm, heightCm: layout.artHcm, imageUrl };
     setOpenings(current => current.length ? current : [opening]);
+  }
+
+  function chooseMatMaterial(index: number, materialId: string) {
+    setMatSlots(current => mode === 'pro' && layoutModel === 'single-board-v1'
+      ? current.map((slot, i) => i === index && i === 0 ? { ...slot, materialId } : slot)
+      : selectMatMaterial(current, index, materialId));
   }
 
   function changeMatMode(next: 'basic' | 'pro') {
@@ -1105,6 +1117,7 @@ export default function VisualizerApp() {
 
   // Pro-mode opening image helpers
   function requestOpeningImage(id: string) {
+    if (historicalPro) return;
     setOpeningImageTargetId(id);
     openingImageInputRef.current?.click();
   }
@@ -1600,7 +1613,7 @@ export default function VisualizerApp() {
         setTextureScalePct(Number(s.frame.textureScalePct));
       }
 
-      setLayoutModel(s?.mats?.layoutModel === "shared-group-v1" ? "shared-group-v1" : "legacy-individual-v1");
+      setLayoutModel(s?.mats?.layoutModel === 'single-board-v1' ? 'single-board-v1' : s?.mats?.layoutModel === 'shared-group-v1' ? 'shared-group-v1' : 'legacy-individual-v1');
       const active = [s?.mats?.selectedMat1, s?.mats?.selectedMat2, s?.mats?.selectedMat3].map(id => !!id && id !== 'mat0');
       const restored = restoreMatBorders(s?.mats, active);
       const locks = restoreMatLocks(restored.borders, s?.mats?.locks);
@@ -1657,7 +1670,7 @@ export default function VisualizerApp() {
   const runExport = async (format: "PNG" | "JPG" | "PDF") => {
     setExportMenuOpen(false);
     if (exportPendingRef.current) return;
-    const reviewIssue = designLoadIssue || matRestoreIssue || geometry.issue || (legacyLayoutIssue ? 'Review the historical layout before exporting.' : null);
+    const reviewIssue = designLoadIssue || historicalProIssue || matRestoreIssue || geometry.issue || (legacyLayoutIssue ? 'Review the historical layout before exporting.' : null);
     if (reviewIssue) { toast(reviewIssue, 'error', 0); return; }
     const node = previewRef.current;
     if (!node) {
@@ -1707,6 +1720,8 @@ export default function VisualizerApp() {
             : <ellipse key={o.id} cx={o.xCm + o.widthCm / 2} cy={o.yCm + o.heightCm / 2} rx={o.widthCm / 2} ry={o.heightCm / 2} fill="black" />)}
         </mask></defs>
         <rect width={visibleWcm} height={visibleHcm} fill={matColours[layer.slot]} mask={`url(#${id})`} />
+        {mode === 'basic' && layer.cutouts.map(o => <rect key={o.id} data-mat-bevel={layer.slot + 1}
+          x={o.xCm} y={o.yCm} width={o.widthCm} height={o.heightCm} fill="none" stroke="#e8e2d8" strokeWidth={Math.min(0.08, 1.25 / scale)} />)}
       </g>;
     })}
   </svg>;
@@ -1986,12 +2001,14 @@ export default function VisualizerApp() {
             {(matRestoreIssue || geometry.issue) && <p role="status" className="text-sm text-amber-800">{matRestoreIssue || geometry.issue}</p>}
             <p className="text-xs text-slate-500">Each side is incremental: Mat 1 is relative to the artwork/layout opening; Mat 2 is relative to Mat 1’s inner edge; Mat 3 is relative to Mat 2’s inner edge. Enabled contributions are added on each side.</p>
             {mode === 'basic' && !artworkUrl && openings.some(o => !!o.imageUrl) && <p className="text-xs text-slate-500 mb-2">Basic has no original artwork. Your Pro openings and images are retained; switch to Pro to view them.</p>}
-            {layoutModel === 'legacy-individual-v1' && <div className="rounded border p-2 text-xs text-amber-900">
-              <p>Historical individual-cut-out layout preserved. Adopting the pilot layout changes decorative cut-outs, not saved opening coordinates or images. Review measurements before saving a new copy.</p>
-              <button type="button" className="rounded border p-2 mt-2" disabled={!!matRestoreIssue && (!reviewableMats || matSlots.some(s => s.materialId !== 'mat0' && matSides.every(side => s.borders[side] === 0)))}
-                onClick={() => { setLayoutModel('shared-group-v1'); setMatRestoreIssue(null); setReviewableMats(false); }}>Review and adopt shared-cut-out layout</button>
+            {layoutModel !== 'single-board-v1' && <div role="status" className="rounded border p-2 text-xs text-amber-900">
+              <p>Historical Pro configuration preserved. Adopt the single-board pilot explicitly to deactivate decorative mats in Pro. Opening coordinates, images and Basic mat settings are retained. Review the changed dimensions and save a new copy.</p>
+              <button type="button" className="rounded border p-2 mt-2" disabled={!!matRestoreIssue && !reviewableMats}
+                onClick={() => { setLayoutModel('single-board-v1'); setMatRestoreIssue(null); setReviewableMats(false); if (mode === 'pro') initializeProOpening(artworkUrl, true); }}>Review and adopt single-board layout</button>
             </div>}
+            <fieldset disabled={historicalPro}>
             {matSlots.map((slot, index) => {
+              if (mode === 'pro' && layoutModel === 'single-board-v1' && index > 0) return null;
               const shown = index === 0 || (index === 1 ? showMat2 : showMat3) || slot.materialId !== 'mat0';
               if (!shown) return <button key={index} type="button" className="mt-3 rounded-lg border border-dashed px-3 py-2 text-sm"
                 onClick={() => index === 1 ? setShowMat2(true) : setShowMat3(true)}>+ Add {index === 1 ? 'second' : 'third'} mat</button>;
@@ -2000,7 +2017,7 @@ export default function VisualizerApp() {
               return <div key={index} className="mt-3 border-t border-slate-200 pt-3 space-y-2">
                 <label className="block text-sm font-medium text-slate-700">Mat {index + 1}{index === 0 ? ' (primary)' : ' (decorative)'}</label>
                 <select aria-label={`Mat ${index + 1} material`} className="w-full rounded-lg border p-2 bg-white text-sm" value={slot.materialId}
-                  disabled={legacyLayoutIssue} onChange={e => setMatSlots(current => selectMatMaterial(current, index, e.target.value))}>
+                  disabled={historicalPro || legacyLayoutIssue} onChange={e => chooseMatMaterial(index, e.target.value)}>
                   {slot.materialId !== 'mat0' && (!material || slot.materialId.startsWith('supplier:')) && <option value={slot.materialId} disabled>Unavailable mat — select a material</option>}
                   <option value="mat0">None</option>
                   {(catalog?.mats || []).filter(m => m.id !== 'mat0' && !m.id.startsWith('supplier:')).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -2010,7 +2027,7 @@ export default function VisualizerApp() {
                     <button type="button" aria-label={`${slot.locked ? 'Unlock' : 'Lock'} Mat ${index + 1} borders`} className="rounded border px-2 py-1 text-xs"
                       onClick={() => setMatSlots(current => current.map((s, i) => i === index ? { ...s, locked: !s.locked } : s))}>{slot.locked ? 'Locked' : 'Unlocked'}</button>
                     <button type="button" disabled={legacyLayoutIssue} aria-label={`Remove Mat ${index + 1}`} className="rounded border px-2 py-1 text-xs"
-                      onClick={() => setMatSlots(current => selectMatMaterial(current, index, 'mat0'))}>Remove</button>
+                      onClick={() => chooseMatMaterial(index, 'mat0')}>Remove</button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {matSides.map(side => <BorderInput key={`${side}-${unit}`} label={`Mat ${index + 1} ${side[0].toUpperCase() + side.slice(1)} (${displayUnit})`}
@@ -2091,7 +2108,7 @@ export default function VisualizerApp() {
                   {openings.map((o, index) => (
                     <div
                       key={o.id}
-                      className={`flex items-center justify-between rounded border px-2 py-1 text-xs bg-white ${
+                      className={`flex flex-wrap items-center justify-between gap-1 rounded border px-2 py-1 text-xs bg-white ${
                         selectedOpeningId === o.id
                           ? "border-emerald-500"
                           : "border-slate-300"
@@ -2109,7 +2126,7 @@ export default function VisualizerApp() {
                           {Math.round(o.yCm)}
                         </span>
                       </button>
-                      {layoutModel === 'shared-group-v1' && <div className="grid grid-cols-2 gap-1 w-full mt-2">
+                      {layoutModel !== 'legacy-individual-v1' && <div className="grid grid-cols-2 gap-1 w-full mt-2">
                         {(['xCm', 'yCm', 'widthCm', 'heightCm'] as const).map(field => <label key={field} className="text-[10px]">
                           {field.replace('Cm', '')}<input type="number" step="0.1" aria-label={`Opening ${index + 1} ${field === 'xCm' ? 'X' : field === 'yCm' ? 'Y' : field === 'widthCm' ? 'width' : 'height'} (cm)`}
                             className="block w-full rounded border p-1" value={o[field]}
@@ -2117,6 +2134,16 @@ export default function VisualizerApp() {
                               setOpenings(current => current.map(opening => opening.id !== o.id ? opening : { ...opening, [field]: value,
                                 ...(opening.shape === 'circle' && (field === 'widthCm' || field === 'heightCm') ? { widthCm: value, heightCm: value } : {}) })); }} />
                         </label>)}
+                      </div>}
+                      {layoutModel === 'single-board-v1' && <div className="flex flex-wrap gap-1 w-full">
+                        {(['horizontally', 'vertically', 'both'] as const).map(axis => <button key={axis} type="button"
+                          aria-label={`Centre opening ${index + 1}${axis === 'both' ? '' : ' ' + axis}`} className="rounded border p-1"
+                          onClick={() => {
+                            setProOrigin({ ...geometry.layoutOrigin }); setProLayoutSize({ widthCm: layoutWidth, heightCm: layoutHeight });
+                            setOpenings(current => current.map(opening => opening.id !== o.id ? opening : { ...opening,
+                              ...(axis !== 'vertically' ? { xCm: geometry.layoutOrigin.x + (layoutWidth - opening.widthCm) / 2 } : {}),
+                              ...(axis !== 'horizontally' ? { yCm: geometry.layoutOrigin.y + (layoutHeight - opening.heightCm) / 2 } : {}) }));
+                          }}>{axis === 'both' ? 'Centre both' : `Centre ${axis}`}</button>)}
                       </div>}
                       <div className="flex items-center gap-1">
                         {o.imageUrl && (
@@ -2157,6 +2184,7 @@ export default function VisualizerApp() {
               </div>
             )}
 
+            </fieldset>
             {/* Backer inside Mat panel */}
             <div className="mt-3 border-t border-slate-200 pt-3">
               <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -2404,7 +2432,8 @@ export default function VisualizerApp() {
                       top: px(faceWidthCm),
                       right: px(faceWidthCm),
                       bottom: px(faceWidthCm),
-                      background: "#fff",
+                      // Match the single-board surface behind aperture antialiasing in browser/PDF rasterisation.
+                      background: mode === 'pro' && layoutModel === 'single-board-v1' && hasMat1 ? matColours[0] : '#fff',
                       borderRadius: 0,
                       overflow: "hidden",
                     }}
@@ -2428,7 +2457,7 @@ export default function VisualizerApp() {
                           ? "50% / 50%"
                           : "0px";
 
-                        const bevelPx = layoutModel === 'shared-group-v1' ? Math.min(bevelThicknessPx, w / 10, h / 10) : bevelThicknessPx;
+                        const bevelPx = layoutModel === 'single-board-v1' ? 0 : layoutModel === 'shared-group-v1' ? Math.min(bevelThicknessPx, w / 10, h / 10) : bevelThicknessPx;
                         const bevelColor = "#f5f0e6";
 
                         return (
@@ -2437,7 +2466,7 @@ export default function VisualizerApp() {
                             onMouseDown={(e) =>
                               startMove(e, o)
                             }
-                            onMouseEnter={() => { setHoveredOpeningId(o.id); revealHandles(o.id); }}
+                            onMouseEnter={() => { if (!historicalPro) { setHoveredOpeningId(o.id); revealHandles(o.id); } }}
                             onMouseLeave={() =>
                               setHoveredOpeningId(null)
                             }
@@ -2452,8 +2481,8 @@ export default function VisualizerApp() {
                             }}
                             title="Drag to move. Use handles to resize."
                           >
-                            {/* Bevel ring */}
-                            <div
+                            {/* Preserve historical previews; new Pro apertures have no artwork inset. */}
+                            {layoutModel !== 'single-board-v1' && <div
                               style={{
                                 position: "absolute",
                                 inset: 0,
@@ -2463,7 +2492,7 @@ export default function VisualizerApp() {
                                   "inset 0 0 3px rgba(0,0,0,0.35)",
                                 pointerEvents: "none",
                               }}
-                            />
+                            />}
 
                             {/* Artwork inset */}
                             <div data-opening-x={o.xCm + proOffset.x}
@@ -2792,7 +2821,7 @@ export default function VisualizerApp() {
         {/* RIGHT */}
         <aside className="space-y-3">
           <PresetControls
-            saveIssue={designLoadIssue || matRestoreIssue || geometry.issue || (legacyLayoutIssue ? "Review the legacy layout before saving." : null)}
+            saveIssue={designLoadIssue || historicalProIssue || matRestoreIssue || geometry.issue || (legacyLayoutIssue ? "Review the legacy layout before saving." : null)}
             companyName={billing.companyName}
             customerKey={customerKey}
             hasSavedCustomer={Boolean(selectedCustomerId && selectedCustomerId !== "__new__")}
