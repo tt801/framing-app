@@ -11,6 +11,7 @@ type Props = {
   hasSavedCustomer: boolean;
   ensureCustomerId: () => Promise<string>;
   currentState: any;
+  saveIssue?: string | null;
   onApply: (preset: VisualizerPreset) => void;
 };
 
@@ -21,7 +22,7 @@ function PresetScope({ customerKey, children }: { customerKey: string; children:
   return children(useCompanyPresets(customerKey));
 }
 
-export default function PresetControls({ companyName, customerKey, hasSavedCustomer, ensureCustomerId, currentState, onApply }: Props) {
+export default function PresetControls({ companyName, customerKey, hasSavedCustomer, ensureCustomerId, currentState, onApply, saveIssue }: Props) {
   const { companyAccountId, userId } = useBillingAccess();
   const scopeRef = useRef({ companyAccountId, userId, companyName, customerKey, version: 0 });
   if (scopeRef.current.companyAccountId !== companyAccountId || scopeRef.current.userId !== userId ||
@@ -58,7 +59,7 @@ export default function PresetControls({ companyName, customerKey, hasSavedCusto
   }, [deleteDialog, scope]);
 
   async function savePreset(save: PresetStore["save"]) {
-    if (checkingScope === scope || dialogRef.current) return;
+    if (saveIssue || checkingScope === scope || dialogRef.current) return;
     const scopeAtStart = scope;
     const request = { scope };
     if (customerRequest.current?.scope === scope) return;
@@ -90,6 +91,7 @@ export default function PresetControls({ companyName, customerKey, hasSavedCusto
   }
 
   async function saveNamedPreset(session: SaveDialog, name: string): Promise<string | void> {
+    if (saveIssue) return saveIssue;
     if (!current(session.scope) || dialogRef.current !== session) return;
     const result = await session.save({ id: "", name, state: session.state });
     if (!current(session.scope) || dialogRef.current !== session) return;
@@ -131,7 +133,7 @@ export default function PresetControls({ companyName, customerKey, hasSavedCusto
   }
 
   return <PresetScope key={scope.version} customerKey={customerKey}>{({ presets, loading, error, save, remove }) => <div className="bg-white/95 rounded-2xl shadow-sm ring-1 ring-emerald-100 p-4">
-    <div className="flex items-center justify-between mb-3"><div><h3 className="font-semibold text-slate-900">Presets</h3><p className="text-xs text-slate-500">Save this exact setup for reuse.</p></div><div className="relative"><button ref={saveButton} type="button" disabled={checkingScope === scope} className="relative inline-flex items-center justify-between gap-1 rounded-lg px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm whitespace-nowrap disabled:opacity-50" onClick={() => { void savePreset(save); }}>Save preset</button></div></div>
+    <div className="flex items-center justify-between mb-3"><div><h3 className="font-semibold text-slate-900">Presets</h3><p className="text-xs text-slate-500">Save this exact setup for reuse.</p></div><div className="relative"><button ref={saveButton} type="button" disabled={Boolean(saveIssue) || checkingScope === scope} title={saveIssue || undefined} className="relative inline-flex items-center justify-between gap-1 rounded-lg px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm whitespace-nowrap disabled:opacity-50" onClick={() => { void savePreset(save); }}>Save preset</button></div></div>
     {nameDialog?.scope === scope && <PresetNameDialog key={scope.version} returnFocus={saveButton.current}
       onCancel={() => { dialogRef.current = null; setNameDialog(null); }}
       onSave={name => saveNamedPreset(nameDialog, name)} />}

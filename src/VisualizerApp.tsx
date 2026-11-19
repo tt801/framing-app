@@ -1,6 +1,6 @@
 ﻿// src/VisualizerApp.tsx
 import React, { useMemo, useRef, useState, useEffect } from "react";
-import { matGeometry, normalizeMatBorders, matSides, type MatBorders } from '@/lib/matGeometry';
+import { matGeometry, restoreMatBorders, defaultMatBorders, MAT_GEOMETRY_VERSION, matSides, type MatBorders } from '@/lib/matGeometry';
 
 const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({
     title,
@@ -345,10 +345,9 @@ export default function VisualizerApp() {
   const [selectedMat2, setSelectedMat2] = useState<string>("mat0");
   const [selectedMat3, setSelectedMat3] = useState<string>("mat0");
 
-  // Core mat borders in cm (single source of truth)
-  const [mat1BorderCm, setMat1BorderCm] = useState(5);
-  const [mat2BorderCm, setMat2BorderCm] = useState(2);
-  const [mat3BorderCm, setMat3BorderCm] = useState(1);
+  // Independent incremental measurements survive disabling/re-enabling each material slot.
+  const [borders, setBorders] = useState<MatBorders[]>(defaultMatBorders);
+  const [matRestoreIssue, setMatRestoreIssue] = useState<string | null>(null);
 
   const [showMat2, setShowMat2] = useState(false);
   const [showMat3, setShowMat3] = useState(false);
@@ -358,10 +357,7 @@ export default function VisualizerApp() {
   const hasMat3 = selectedMat3 !== "mat0";
 
   const [openings, setOpenings] = useState<MatOpening[]>([]);
-  // New distances are absolute; legacy bands are normalized only at the boundary.
-  const [savedBorders, setSavedBorders] = useState<MatBorders[] | undefined>();
   const activeMats = [hasMat1, hasMat2, hasMat3];
-  const borders = normalizeMatBorders([mat1BorderCm, mat2BorderCm, mat3BorderCm], activeMats, savedBorders);
   const [proOrigin, setProOrigin] = useState<{ x: number; y: number } | null>(null);
   const baseGeometry = matGeometry(artWcm, artHcm, faceWidthCm, borders, activeMats);
   const origin = proOrigin ?? { x: baseGeometry.total.left, y: baseGeometry.total.top };
@@ -500,7 +496,7 @@ export default function VisualizerApp() {
   }
 
   function handleMatBorderChange(which: number, side: keyof MatBorders, value: number) {
-    setSavedBorders(borders.map((b, i) => i === which ? { ...b, [side]: value } : b));
+    setBorders(current => current.map((b, i) => i === which ? { ...b, [side]: value } : b));
   }
 
   // ---------- Pricing: one immutable commercial result for all creation paths ----------
@@ -520,7 +516,7 @@ export default function VisualizerApp() {
   ];
   let pricingIssue = catalogLoading || settingsLoading ? 'Catalogue and pricing settings are loading.'
     : catalogError || settingsError ? 'Could not load catalogue or pricing settings. Retry before creating a priced document.'
-    : geometry.issue || pricingSettingsIssue({ labourBase, marginMultiplier }) || materialIssues.find(Boolean) || supplierSelectionIssue;
+    : matRestoreIssue || geometry.issue || pricingSettingsIssue({ labourBase, marginMultiplier }) || materialIssues.find(Boolean) || supplierSelectionIssue;
   // Invalid selections have no commercial result. Never display or persist fabricated zero totals.
   const pricingSnapshot = (() => {
     if (pricingIssue) return null;
@@ -608,10 +604,7 @@ export default function VisualizerApp() {
     selectedMat1,
     selectedMat2,
     selectedMat3,
-    mat1BorderCm,
-    mat2BorderCm,
-    mat3BorderCm,
-    savedBorders,
+    borders,
     mode,
     openings,
     outerWcm,
@@ -1282,7 +1275,8 @@ export default function VisualizerApp() {
       artworkUrl,
       dims: dimsNested,
       mats: {
-        geometryVersion: 2,
+        geometryVersion: MAT_GEOMETRY_VERSION,
+        borders: borders.map(b => ({ ...b })),
         proOrigin,
         hasMat1,
         hasMat2,
@@ -1353,7 +1347,8 @@ export default function VisualizerApp() {
       },
       glazing: { id: selectedGlazingId || "", name: glazingName },
       mats: {
-        geometryVersion: 2,
+        geometryVersion: MAT_GEOMETRY_VERSION,
+        borders: borders.map(b => ({ ...b })),
         proOrigin,
         hasMat1,
         hasMat2,
@@ -1531,11 +1526,8 @@ export default function VisualizerApp() {
         selectedMat1,
         selectedMat2,
         selectedMat3,
-        mat1BorderCm,
-        mat2BorderCm,
-        mat3BorderCm,
-        geometryVersion: 2,
-        borders,
+        geometryVersion: MAT_GEOMETRY_VERSION,
+        borders: borders.map(b => ({ ...b })),
         proOrigin,
         openings,
         mode,
@@ -1570,14 +1562,11 @@ export default function VisualizerApp() {
       setSelectedMat1(String(s?.mats?.selectedMat1 || "mat0"));
       setSelectedMat2(String(s?.mats?.selectedMat2 || "mat0"));
       setSelectedMat3(String(s?.mats?.selectedMat3 || "mat0"));
-      setMat1BorderCm(Number.isFinite(s?.mats?.mat1BorderCm) ? Number(s.mats.mat1BorderCm) : 5);
-      setMat2BorderCm(Number.isFinite(s?.mats?.mat2BorderCm) ? Number(s.mats.mat2BorderCm) : 2);
-      setMat3BorderCm(Number.isFinite(s?.mats?.mat3BorderCm) ? Number(s.mats.mat3BorderCm) : 1);
-
       const active = [s?.mats?.selectedMat1, s?.mats?.selectedMat2, s?.mats?.selectedMat3].map(id => !!id && id !== 'mat0');
-      const restored = normalizeMatBorders([s?.mats?.mat1BorderCm ?? 5, s?.mats?.mat2BorderCm ?? 2, s?.mats?.mat3BorderCm ?? 1], active, s?.mats?.borders);
-      setSavedBorders(s?.mats?.borders ? restored : undefined);
-      const restoredGeometry = matGeometry(Number(s?.art?.widthCm) || 40, Number(s?.art?.heightCm) || 30, 0, restored, active);
+      const restored = restoreMatBorders(s?.mats, active);
+      setBorders(restored.borders);
+      setMatRestoreIssue(restored.issue);
+      const restoredGeometry = matGeometry(Number(s?.art?.widthCm) || 40, Number(s?.art?.heightCm) || 30, 0, restored.borders, active);
       setProOrigin(s?.mats?.proOrigin && Number.isFinite(s.mats.proOrigin.x) && Number.isFinite(s.mats.proOrigin.y)
         ? s.mats.proOrigin : { x: restoredGeometry.total.left, y: restoredGeometry.total.top });
       setDrag(null); setSelectedOpeningId(null); setHoveredOpeningId(null); setHandleOpeningId(null); setHandlePhase('hidden');
@@ -1977,9 +1966,9 @@ export default function VisualizerApp() {
               </select>
             </div>
 
-            {geometry.issue && <p role="alert" className="text-sm text-amber-800">{geometry.issue}</p>}
+            {(matRestoreIssue || geometry.issue) && <p role="status" className="text-sm text-amber-800">{matRestoreIssue || geometry.issue}</p>}
             {legacyLayoutIssue && <p role="status" className="text-sm text-amber-800">This saved layout has openings in its border area. Positions are preserved; review the layout before changing its measurements.</p>}
-            <p className="text-xs text-slate-500">Borders are aperture-to-internal-frame-edge distances. Lower mat values include the reveals; they are not added again.</p>
+            <p className="text-xs text-slate-500">Each side is incremental: Mat 1 is relative to the artwork/layout opening; Mat 2 is relative to Mat 1’s inner edge; Mat 3 is relative to Mat 2’s inner edge. Enabled contributions are added on each side.</p>
             {/* Mat 1 */}
             <div className="grid gap-2">
               <label className="block text-sm font-medium text-slate-700">
@@ -2863,6 +2852,7 @@ export default function VisualizerApp() {
         {/* RIGHT */}
         <aside className="space-y-3">
           <PresetControls
+            saveIssue={matRestoreIssue || geometry.issue}
             companyName={billing.companyName}
             customerKey={customerKey}
             hasSavedCustomer={Boolean(selectedCustomerId && selectedCustomerId !== "__new__")}

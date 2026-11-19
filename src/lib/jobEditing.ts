@@ -1,7 +1,7 @@
 import type { Customer } from './customers'
 import type { Job, JobChecklistItem } from './jobs'
 import { isRecord } from './persistedRows'
-import { matSides } from './matGeometry'
+import { matSides, matGeometry, restoreMatBorders, MAT_GEOMETRY_VERSION, type MatBorders } from './matGeometry'
 
 type Data = Record<string, unknown>
 type WorkshopField = { key: string; label: string; kind: 'text' | 'number' | 'state'; paths: string[] }
@@ -53,7 +53,12 @@ function set(root: Data, path: string, value: unknown) {
 }
 export type JobDetailsDraft = {
   customerId: string; description: string; workInstructions: string; jobType: string; dueDate: string; notes: string
-  checklist: JobChecklistItem[]; spec: Record<string, string>
+  checklist: JobChecklistItem[]; spec: Record<string, string>; matMeasurementNote?: string
+}
+function jobMatState(job: Partial<Job>) {
+  const mats = { ...(isRecord(job.mats) ? job.mats : {}), ...(isRecord(savedJobDetails(job).mats) ? savedJobDetails(job).mats as Data : {}) }
+  const active = [1, 2, 3].map(i => typeof mats[`hasMat${i}`] === 'boolean' ? Boolean(mats[`hasMat${i}`]) : isRecord(mats[`mat${i}`]))
+  return { mats, active, restored: restoreMatBorders(mats, active) }
 }
 export function jobDetailsDraft(job: Partial<Job> = {}): JobDetailsDraft {
   const saved = { ...job, details: savedJobDetails(job) }
@@ -62,7 +67,15 @@ export function jobDetailsDraft(job: Partial<Job> = {}): JobDetailsDraft {
     return [field.key, field.kind === 'state' ? value === true ? 'on' : value === false ? 'off' : ''
       : typeof value === 'string' || typeof value === 'number' ? String(value) : '']
   }))
-  return { customerId: job.customerId ?? job.customer?.id ?? '', description: job.description ?? '',
+  const { mats, restored } = jobMatState(job)
+  if (mats.geometryVersion !== undefined && !restored.issue) {
+    restored.borders.forEach((b, slot) => {
+      spec[`mat${slot + 1}Border`] = ''
+      for (const side of matSides) spec[`mat${slot + 1}${side[0].toUpperCase() + side.slice(1)}`] = String(b[side])
+    })
+  }
+  return { matMeasurementNote: restored.issue || (mats.geometryVersion !== undefined ? 'Incremental sides: Mat 1 from artwork/layout opening; Mat 2 from Mat 1 inner edge; Mat 3 from Mat 2 inner edge.' : undefined),
+    customerId: job.customerId ?? job.customer?.id ?? '', description: job.description ?? '',
     workInstructions: job.workInstructions ?? '', jobType: job.jobType ?? 'customer',
     dueDate: (job.dueDate ?? job.dueDateISO ?? '').split('T')[0], notes: job.notes ?? '',
     checklist: copy(job.checklist ?? []), spec }
@@ -71,7 +84,7 @@ export function jobDetailsDraft(job: Partial<Job> = {}): JobDetailsDraft {
 export function visibleWorkshopFields(draft: JobDetailsDraft) {
   return workshopFields.filter(field => {
     const match = /^mat([123])(Border|Top|Bottom|Left|Right)$/.exec(field.key)
-    if (!match) return true
+    if (!match) return !(draft.matMeasurementNote && ['visibleWidth', 'visibleHeight'].includes(field.key))
     const physical = ['Top', 'Bottom', 'Left', 'Right'].some(side => draft.spec[`mat${match[1]}${side}`] !== '')
     return match[2] === 'Border' ? !physical : physical
   })
@@ -120,6 +133,52 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
       // Remove stale equivalent aliases so clearing a value cannot reveal an older fallback.
       for (const path of field.paths) set(result, path, undefined)
       if (value !== undefined) set(result, field.paths[0], value)
+    }
+    const geometryChanged = changedFields.some(field => /^mat[123](State|Border|Top|Bottom|Left|Right)$/.test(field.key) || ['artWidth', 'artHeight', 'faceWidth'].includes(field.key))
+    const oldGeometry = jobMatState(current ?? {})
+    if (oldGeometry.mats.geometryVersion !== undefined && changedFields.some(field => ['visibleWidth', 'visibleHeight'].includes(field.key)))
+      throw new Error('Internal dimensions are derived from the artwork/layout and incremental mats; edit those measurements instead.')
+    if (geometryChanged && oldGeometry.restored.issue) throw new Error(oldGeometry.restored.issue)
+    if (geometryChanged && oldGeometry.mats.geometryVersion !== undefined) {
+      const mats = { ...oldGeometry.mats, ...(isRecord(result.details.mats) ? result.details.mats : {}) }
+      const increments: MatBorders[] = [1, 2, 3].map(i => Object.fromEntries(matSides.map(side => {
+        const raw = draft.spec[`mat${i}${side[0].toUpperCase() + side.slice(1)}`]
+        if (raw === '' || raw === undefined) throw new Error('Incremental mat measurements must be complete; review all four sides.')
+        return [side, Number(raw)]
+      })) as MatBorders)
+      const active = [1, 2, 3].map((i, slot) => draft.spec[`mat${i}State`] === 'on' || (draft.spec[`mat${i}State`] === '' && oldGeometry.active[slot]))
+      const dims = isRecord(result.details.dims) ? result.details.dims : {}
+      const art = isRecord(dims.art) ? dims.art : {}
+      const width = Number(art.widthCm), height = Number(art.heightCm)
+      const face = Number(dims.frameFaceWidthCm ?? get(result as Data, 'frame.faceWidthCm'))
+      // Keep saved opening space and its anchor; border edits only change the display transform.
+      const oldTotal = matGeometry(width, height, face, oldGeometry.restored.borders, oldGeometry.active).total
+      const origin = isRecord(mats.proOrigin) ? mats.proOrigin : { x: oldTotal.left, y: oldTotal.top }
+      const openings = Array.isArray(mats.openings) ? mats.openings.filter(isRecord) : []
+      const layoutWidth = mats.mode === 'pro' ? Math.max(width, ...openings.map(o => Number(o.xCm) + Number(o.widthCm) - Number(origin.x))) : width
+      const layoutHeight = mats.mode === 'pro' ? Math.max(height, ...openings.map(o => Number(o.yCm) + Number(o.heightCm) - Number(origin.y))) : height
+      const geometry = matGeometry(layoutWidth, layoutHeight, face, increments, active)
+      if (geometry.issue) throw new Error('Saved dimensions need review before changing mat geometry.')
+      mats.geometryVersion = MAT_GEOMETRY_VERSION
+      mats.borders = increments
+      if (mats.mode === 'pro') mats.proOrigin = origin
+      increments.forEach((b, slot) => {
+        const key = `mat${slot + 1}`
+        mats[`hasMat${slot + 1}`] = active[slot]
+        if (isRecord(mats[key]) || active[slot]) {
+          const material = { ...(isRecord(mats[key]) ? mats[key] as Data : {}), borders: { ...b } }
+          delete (material as Data).borderCm
+          mats[key] = material
+        }
+      })
+      result.details.mats = mats
+      result.mats = copy(mats)
+      dims.visible = { widthCm: geometry.internal.width, heightCm: geometry.internal.height }
+      dims.external = { widthCm: geometry.external.width, heightCm: geometry.external.height }
+      result.details.dims = dims
+      // Keep legacy dimension aliases coherent without touching any commercial fields.
+      result.dims = { ...(isRecord(result.dims) ? result.dims : {}), ...copy(dims), visWcm: geometry.internal.width, visHcm: geometry.internal.height }
+      result.artwork = { ...(isRecord(result.artwork) ? result.artwork : {}), visibleWidthCm: geometry.internal.width, visibleHeightCm: geometry.internal.height }
     }
     result.detailsJson = JSON.stringify(result.details)
   }

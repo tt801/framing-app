@@ -18,7 +18,11 @@ vi.mock('@/lib/supabase', () => ({ supabase: {
     return query
   },
 } }))
-const design = { mats: [{ border: 3 }], openings: [{ id: 'one' }, { id: 'two' }], artwork: { widthCm: 40 } }
+const design = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:saved-artwork' }, mats: { geometryVersion: 3,
+  selectedMat1: 'm1', selectedMat2: 'm2', selectedMat3: 'mat0', mode: 'pro', proOrigin: { x: 6, y: 3 },
+  borders: [{ top: 2, bottom: 4, left: 3, right: 5 }, { top: 1, bottom: 2, left: 3, right: 2 }, { top: 2, bottom: 2, left: 2, right: 2 }],
+  openings: [{ id: 'one', shape: 'oval', xCm: 6, yCm: 3, widthCm: 10, heightCm: 12, imageUrl: 'data:opening-one' },
+    { id: 'two', shape: 'circle', xCm: 24, yCm: 3, widthCm: 8, heightCm: 8, imageUrl: 'data:opening-two' }] } }
 const access = (companyAccountId: string): BillingAccess => ({ readOnly: false, hasFullAccess: true, canUsePremiumFeatures: true, isFounder: false, isPastDue: false, statusMessage: '', companyAccountId, companyName: 'Same name', userId: 'user' })
 const row = (name: string) => ({ id: name, name, state: design, created_at: '2026-11-01T00:00:00Z', revision: 1 })
 const view = (company = 'company-a', customer = 'customer-a') => <BillingAccessProvider value={access(company)}><PresetControls companyName="Same name" customerKey={customer} hasSavedCustomer ensureCustomerId={async () => customer} currentState={design} onApply={vi.fn()} /></BillingAccessProvider>
@@ -34,6 +38,17 @@ beforeEach(() => {
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute('open') } })
 })
 afterEach(() => { cleanup(); for (const toast of useToast.getState().toasts) useToast.getState().remove(toast.id) })
+
+it('refuses to save a review-only geometry preview without calling customer or persistence writes', async () => {
+  const ensure = vi.fn(async () => 'customer-a')
+  render(<BillingAccessProvider value={access('company-a')}><PresetControls companyName="Same name" customerKey="customer-a" hasSavedCustomer
+    ensureCustomerId={ensure} currentState={design} onApply={vi.fn()} saveIssue="Saved mat geometry needs review" /></BillingAccessProvider>)
+  expect((screen.getByRole('button', { name: 'Save preset' }) as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Save preset' }))
+  expect(ensure).not.toHaveBeenCalled()
+  expect(db.rpc).not.toHaveBeenCalled()
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
 
 it.each(['customer', 'company'])('keeps a late persisted preset out of the newly selected %s list using the real hook', async change => {
   let resolve!: (value: any) => void
@@ -59,6 +74,24 @@ it('retains the existing hook list update and RPC payload on confirmed success',
   })
   expect(db.rpc.mock.calls[0][1].p_state).toBe(design)
   expect(useToast.getState().toasts[0]?.message).toBe('Preset saved.')
+})
+
+it('reloads the persisted versioned mat design through the real hook without losing inactive sides or opening images', async () => {
+  db.rpc.mockImplementation(async (_name: string, args: { p_state: typeof design; p_name: string }) => {
+    const saved = { ...row(args.p_name), state: structuredClone(args.p_state) }
+    db.rows.set('company-a:customer-a', [saved])
+    return { data: saved, error: null }
+  })
+  const first = render(view()); await start()
+  await screen.findByText('Persisted design')
+  first.unmount()
+  const apply = vi.fn()
+  render(<BillingAccessProvider value={access('company-a')}><PresetControls companyName="Same name" customerKey="customer-a" hasSavedCustomer
+    ensureCustomerId={async () => 'customer-a'} currentState={{}} onApply={apply} /></BillingAccessProvider>)
+  await screen.findByText('Persisted design')
+  fireEvent.click(screen.getByRole('button', { name: 'Load' }))
+  expect(apply).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: design }))
+  expect(db.rpc).toHaveBeenCalledTimes(1)
 })
 
 it('deletes only the confirmed ID and revision, updates the list, and focuses the stable panel action', async () => {

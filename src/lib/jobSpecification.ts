@@ -54,6 +54,10 @@ export function jobSpecificationFields(value: unknown): { label: string; value: 
     { label: "Visible dimensions", value: dimensions(visible.widthCm ?? job.visibleWcm, visible.heightCm ?? job.visibleHcm) },
     { label: "Frame", value: text(frame.name) ?? text(job.frameName) ?? text(frame.profile) ?? NOT_RECORDED },
     { label: "Frame face width", value: measurement(dims.frameFaceWidthCm ?? frame.faceWidthCm ?? job.faceWidthCm) ?? NOT_RECORDED },
+    ...(mats.geometryVersion !== undefined || Array.isArray(mats.borders) || [1, 2, 3].some(i => record(mats[`mat${i}`]).borders !== undefined) ? [{ label: "Mat measurements", value: mats.geometryVersion === 3
+      ? "Incremental: Mat 1 from artwork/layout opening; Mat 2 from Mat 1 inner edge; Mat 3 from Mat 2 inner edge. Enabled sides are summed."
+      : mats.geometryVersion === 2 ? "Stage B absolute aperture-to-internal-frame-edge distances; lower mat values already include reveals."
+      : "Unknown mat geometry version — review required." }] : []),
     { label: "Mat 1", value: mat(1) },
     { label: "Additional mats", value: additionalMats },
     { label: "Glazing", value: text(glazing.name) ?? text(job.glazingName) ?? text(frame.glazing) ?? NOT_RECORDED },

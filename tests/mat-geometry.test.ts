@@ -1,9 +1,9 @@
 import { expect, it } from 'vitest'
-import { matGeometry, normalizeMatBorders } from '@/lib/matGeometry'
+import { matGeometry, normalizeMatBorders, restoreMatBorders } from '@/lib/matGeometry'
 
 it('converts incremental legacy layers into physical aperture distances', () => {
   const borders = normalizeMatBorders([5, 2, 1], [true, true, true])
-  expect(borders.map(b => b.left)).toEqual([5, 7, 8])
+  expect(borders.map(b => b.left)).toEqual([5, 2, 1])
   const g = matGeometry(40, 30, 2, borders, [true, true, true])
   expect(g.internal).toEqual({ width: 56, height: 46 })
   expect(g.external).toEqual({ width: 60, height: 50 })
@@ -11,19 +11,20 @@ it('converts incremental legacy layers into physical aperture distances', () => 
 })
 it('does not double-count four-sided physical distances across three mats', () => {
   const b = [{ top: 2, bottom: 4, left: 3, right: 5 }, { top: 3, bottom: 6, left: 4, right: 7 }, { top: 5, bottom: 8, left: 6, right: 9 }]
-  const g = matGeometry(40, 30, 2, b, [true, true, true])
+  const restored = restoreMatBorders({ geometryVersion: 2, borders: b }, [true, true, true])
+  const g = matGeometry(40, 30, 2, restored.borders, [true, true, true])
   expect(g.internal).toEqual({ width: 55, height: 43 })
   expect(g.external).toEqual({ width: 59, height: 47 })
   expect(g.layers.map(l => l.aperture.width)).toEqual([47, 44, 40])
   expect(g.issue).toBeNull()
 })
 it('ignores disabled slots when converting scalar bands', () => {
-  expect(normalizeMatBorders([5, 2, 1], [false, true, true]).map(b => b.top)).toEqual([0, 2, 3])
+  expect(normalizeMatBorders([5, 2, 1], [false, true, true]).map(b => b.top)).toEqual([5, 2, 1])
 })
 it('identifies crossing apertures without silently correcting the values', () => {
   const b = [{ top: 5, bottom: 5, left: 5, right: 5 }, { top: 3, bottom: 6, left: 6, right: 6 }]
-  const g = matGeometry(40, 30, 2, b, [true, true])
-  expect(g.issue).toMatch(/lower mat/)
+  const restored = restoreMatBorders({ geometryVersion: 2, borders: b }, [true, true, false])
+  expect(restored.issue).toMatch(/review/)
   expect(b[1].top).toBe(3)
 })
 it('supports explicitly zero four-sided borders', () => {

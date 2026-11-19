@@ -52,6 +52,7 @@ export default function JobDetailsForm({ job, customers, checklistTemplate, disa
       }}>
       <h2 id="job-details-title" className="text-lg font-semibold mb-2">{job ? 'Edit Job Details' : 'New Job'}</h2>
       <p className="text-sm text-slate-600 mb-4">Workshop changes do not reprice a quote or invoice. Blank specification fields mean Not recorded.</p>
+      {initial.matMeasurementNote && <p role="status" className="text-sm text-amber-800 mb-3">{initial.matMeasurementNote}</p>}
       <form onSubmit={submit} noValidate>
         <fieldset disabled={saving || disabled} className="space-y-4">
           <div className="grid sm:grid-cols-2 gap-3">

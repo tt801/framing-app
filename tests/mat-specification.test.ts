@@ -11,7 +11,7 @@ it('retains legacy scalar descriptions without inventing new measurements', () =
   expect(jobSpecificationFields({ details: { mats: { mat1: { name: 'Legacy', borderCm: 5 } } } }).find(f => f.label === 'Mat 1')!.value).toBe('Legacy — 5 cm border')
 })
 it('round trips four-sided workshop measurements without repricing historical agreements', () => {
-  const job = { description: 'Frame', jobType: 'internal', pricingSnapshot: { total: 123 }, details: { mats: { mat1: { name: 'Green', borders: { top: 3, bottom: 8, left: 4, right: 6 } } } } }
+  const job = { description: 'Frame', jobType: 'internal', pricingSnapshot: { total: 123 }, details: { dims: { art: { widthCm: 40, heightCm: 30 }, frameFaceWidthCm: 2 }, mats: { geometryVersion: 3, hasMat1: true, hasMat2: false, hasMat3: false, borders: [{ top: 3, bottom: 8, left: 4, right: 6 }, { top: 2, bottom: 2, left: 2, right: 2 }, { top: 1, bottom: 1, left: 1, right: 1 }], mat1: { name: 'Green', borders: { top: 3, bottom: 8, left: 4, right: 6 } } } } }
   const draft = jobDetailsDraft(job as never)
   expect(draft.spec.mat1Left).toBe('4')
   draft.spec.mat1Left = '9'
