@@ -26,6 +26,27 @@ function BorderInput({ label, value, onChange }: { label: string; value: number;
     onBlur={() => setDraft(String(value))} /></label>;
 }
 
+// Paint only on the mat side of the existing aperture. The shared inner vertices
+// never inset the artwork or change any scene/measurement geometry.
+function BasicMatBevel({ x, y, width, height, depth, layer, mask }: {
+  x: number; y: number; width: number; height: number; depth: number; layer: number; mask: string;
+}) {
+  const r = x + width, b = y + height;
+  const l0 = x - depth, t0 = y - depth, r0 = r + depth, b0 = b + depth;
+  const faces = [
+    ['top', '#968771', `${l0},${t0} ${r0},${t0} ${r},${y} ${x},${y}`],
+    ['right', '#ddd0b8', `${r0},${t0} ${r0},${b0} ${r},${b} ${r},${y}`],
+    ['bottom', '#efe3cb', `${r0},${b0} ${l0},${b0} ${x},${b} ${r},${b}`],
+    ['left', '#b0a18a', `${l0},${b0} ${l0},${t0} ${x},${y} ${x},${b}`],
+  ];
+  return <g data-mat-bevel={layer} mask={mask}>
+    {/* A core underpaint prevents antialiasing pinholes at the shared mitres. */}
+    <path fill="#b0a18a" fillRule="evenodd"
+      d={`M${l0},${t0}H${r0}V${b0}H${l0}Z M${x},${y}H${r}V${b}H${x}Z`} />
+    {faces.map(([side, fill, points]) => <polygon key={side} data-bevel-face={side} fill={fill} points={points} />)}
+  </g>;
+}
+
 type HandleKey = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 const Handle = ({
     o,
@@ -1722,6 +1743,7 @@ export default function VisualizerApp() {
   // The scene owns aperture geometry; the renderer only paints it.
   const matMaskId = React.useId().replace(/:/g, '');
   const matLayers = <svg data-testid="mat-layers" aria-hidden="true" viewBox={`0 0 ${visibleWcm} ${visibleHcm}`}
+    preserveAspectRatio={mode === 'basic' ? 'none' : undefined}
     style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
     {geometry.layers.map(layer => {
       const id = `${matMaskId}-${layer.slot}`;
@@ -1733,13 +1755,16 @@ export default function VisualizerApp() {
             : <ellipse key={o.id} cx={o.xCm + o.widthCm / 2} cy={o.yCm + o.heightCm / 2} rx={o.widthCm / 2} ry={o.heightCm / 2} fill="black" />)}
         </mask></defs>
         <rect width={visibleWcm} height={visibleHcm} fill={matColours[layer.slot]} mask={`url(#${id})`} />
-        {mode === 'basic' && layer.cutouts.map(o => <rect key={o.id} data-mat-bevel={layer.slot + 1}
-          x={o.xCm} y={o.yCm} width={o.widthCm} height={o.heightCm} fill="none" stroke="#e8e2d8" strokeWidth={Math.min(0.08, 1.25 / scale)} />)}
+        {mode === 'basic' && layer.cutouts.map(o => <BasicMatBevel key={o.id} layer={layer.slot + 1}
+          x={o.xCm} y={o.yCm} width={o.widthCm} height={o.heightCm}
+          depth={Math.max(0.18, 2 / scale)} mask={`url(#${id})`} />)}
       </g>;
     })}
   </svg>;
-  const basicMatMarkup = <div data-opening-x={geometry.total.left} style={{ position: 'absolute', left: geometry.total.left * scale,
-    top: geometry.total.top * scale, width: artWcm * scale, height: artHcm * scale, background: '#fff', overflow: 'hidden' }}>
+  // Match the Basic SVG's proportional paint coordinates despite frame pixel rounding.
+  // The aperture and artwork still use exactly the same scene dimensions/position.
+  const basicMatMarkup = <div data-opening-x={geometry.total.left} style={{ position: 'absolute', left: `${geometry.total.left / visibleWcm * 100}%`,
+    top: `${geometry.total.top / visibleHcm * 100}%`, width: `${artWcm / visibleWcm * 100}%`, height: `${artHcm / visibleHcm * 100}%`, background: '#fff', overflow: 'hidden' }}>
     {artworkUrl ? <img src={artworkUrl} alt="artwork" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
       : <div className="flex items-center justify-center h-full"><span className="text-neutral-700 text-sm">{openings.some(o => o.imageUrl) ? 'Basic artwork is empty. Your opening images are retained in Pro Mode.' : 'Upload an image to preview'}</span></div>}
   </div>;
@@ -2029,9 +2054,18 @@ export default function VisualizerApp() {
                   {(catalog?.mats || []).filter(m => m.id !== 'mat0' && !m.id.startsWith('supplier:')).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
                 {slot.materialId !== 'mat0' && <>
-                  <div className="flex gap-2">
-                    <button type="button" aria-label={`${slot.locked ? 'Unlock' : 'Lock'} Mat ${index + 1} borders`} className="rounded border px-2 py-1 text-xs"
-                      onClick={() => setMatSlots(current => current.map((s, i) => i === index ? { ...s, locked: !s.locked } : s))}>{slot.locked ? 'Locked' : 'Unlocked'}</button>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" aria-label={`${slot.locked ? 'Unlock' : 'Lock'} Mat ${index + 1} borders`} aria-pressed={slot.locked}
+                      title={slot.locked ? 'Locked: editing one edge changes all four' : 'Unlocked: edit each edge independently'}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                      style={{ color: slot.locked ? '#064e3b' : '#78350f', backgroundColor: slot.locked ? '#ecfdf5' : '#fffbeb', borderColor: slot.locked ? '#047857' : '#b45309' }}
+                      onClick={() => setMatSlots(current => current.map((s, i) => i === index ? { ...s, locked: !s.locked } : s))}>
+                      <svg data-mat-lock-icon={slot.locked ? 'locked' : 'unlocked'} aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="5" y="10" width="14" height="11" rx="2" />
+                        <path d={slot.locked ? 'M8 10V6a4 4 0 0 1 8 0v4' : 'M8 10V6a4 4 0 0 1 8 0'} />
+                      </svg>
+                      <span>{slot.locked ? 'Locked' : 'Unlocked'}</span>
+                    </button>
                     <button type="button" disabled={legacyLayoutIssue} aria-label={`Remove Mat ${index + 1}`} className="rounded border px-2 py-1 text-xs"
                       onClick={() => chooseMatMaterial(index, 'mat0')}>Remove</button>
                   </div>

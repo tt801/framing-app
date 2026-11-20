@@ -219,6 +219,57 @@ it('uses one catalogue board in Pro pricing, geometry and saved mirrors while re
   expect(state.current!.visualizerDesign.mats).toEqual(retained)
   expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe('0 0 56 46')
 })
+it('paints four joined shaded Basic bevel faces outside each unchanged aperture', () => {
+  state.catalog!.mats!.push({ id: 'm2', name: 'Dark', color: '#112233', pricePerSqM: 6 }, { id: 'm3', name: 'Light', color: '#eeeedd', pricePerSqM: 7 })
+  render(<VisualizerApp />)
+  fireEvent.change(screen.getByLabelText('Mat 1 material'), { target: { value: 'm' } })
+  for (const [n, word] of [[2, 'second'], [3, 'third']] as const) {
+    fireEvent.click(screen.getByText(`+ Add ${word} mat`))
+    fireEvent.change(screen.getByLabelText(`Mat ${n} material`), { target: { value: `m${n}` } })
+  }
+  const svg = screen.getByTestId('mat-layers')
+  expect(svg.getAttribute('viewBox')).toBe('0 0 56 46')
+  const bevels = svg.querySelectorAll('[data-mat-bevel]')
+  expect(bevels).toHaveLength(3)
+  for (const bevel of bevels) {
+    const faces = [...bevel.querySelectorAll('[data-bevel-face]')]
+    expect(faces).toHaveLength(4)
+    expect(new Set(faces.map(f => f.getAttribute('fill'))).size).toBe(4)
+    expect(bevel.querySelector('[stroke]')).toBeNull()
+    const points = (name: string) => bevel.querySelector(`[data-bevel-face="${name}"]`)!.getAttribute('points')!.trim().split(/\s+/).map(p => p.split(',').map(Number))
+    const [top, right, bottom, left] = ['top', 'right', 'bottom', 'left'].map(points)
+    expect(top[1]).toEqual(right[0]); expect(top[2]).toEqual(right[3])
+    expect(right[1]).toEqual(bottom[0]); expect(right[2]).toEqual(bottom[3])
+    expect(bottom[1]).toEqual(left[0]); expect(bottom[2]).toEqual(left[3])
+    expect(left[1]).toEqual(top[0]); expect(left[2]).toEqual(top[3])
+    const aperture = bevel.parentElement!.querySelector('mask rect[fill="black"]')!
+    const [x, y, w, h] = ['x', 'y', 'width', 'height'].map(a => Number(aperture.getAttribute(a)))
+    expect([top[3], top[2], bottom[3], bottom[2]]).toEqual([[x, y], [x + w, y], [x + w, y + h], [x, y + h]])
+  }
+})
+it('labels each independent Basic lock with its state and a lock icon without equalising on relock', () => {
+  state.catalog!.mats!.push({ id: 'm2', name: 'Blue', color: '#0000ff', pricePerSqM: 6 }, { id: 'm3', name: 'Red', color: '#ff0000', pricePerSqM: 7 })
+  render(<VisualizerApp />)
+  fireEvent.change(screen.getByLabelText('Mat 1 material'), { target: { value: 'm' } })
+  for (const [n, word] of [[2, 'second'], [3, 'third']] as const) {
+    fireEvent.click(screen.getByText(`+ Add ${word} mat`))
+    fireEvent.change(screen.getByLabelText(`Mat ${n} material`), { target: { value: `m${n}` } })
+  }
+  for (const n of [1, 2, 3]) {
+    const button = screen.getByRole('button', { name: `Unlock Mat ${n} borders` })
+    expect(button.getAttribute('aria-pressed')).toBe('true')
+    expect(button.textContent).toBe('Locked')
+    expect(button.querySelector('svg[data-mat-lock-icon="locked"]')).not.toBeNull()
+    fireEvent.click(button)
+    const unlocked = screen.getByRole('button', { name: `Lock Mat ${n} borders` })
+    expect(unlocked.getAttribute('aria-pressed')).toBe('false')
+    expect(unlocked.querySelector('svg[data-mat-lock-icon="unlocked"]')).not.toBeNull()
+    fireEvent.change(screen.getByLabelText(`Mat ${n} Left (${n === 1 ? 'cm' : 'mm'})`), { target: { value: n === 1 ? '9' : '90' } })
+    const before = structuredClone(state.current!.visualizerDesign.basic)
+    fireEvent.click(unlocked)
+    expect(state.current!.visualizerDesign.basic.mats!.map((m: { borders: unknown }) => m.borders)).toEqual(before.mats!.map((m: { borders: unknown }) => m.borders))
+  }
+})
 it('provides locked defaults, unit-aware controls and positional deletion through the UI', () => {
   state.catalog!.mats!.push({ id: 'm2', name: 'Blue', color: '#0000ff', pricePerSqM: 6 }, { id: 'm3', name: 'Red', color: '#ff0000', pricePerSqM: 7 })
   render(<VisualizerApp />)
