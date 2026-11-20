@@ -17,6 +17,8 @@ mkdirSync(output, { recursive: true })
 const mocks = new Set(['@/lib/store', '@/lib/quotes', '@/lib/jobs', '@/lib/invoices', '@/lib/customers', '@/lib/layout', '@/lib/billingAccess', '@/lib/effectiveSupplierAccess', '@/components/PresetControls', 'html-to-image', '@/lib/supabase'])
 const fixtureModule = `
 import React from 'react';
+import { independentFixture } from '${path.join(root, 'tests/helpers/visualizerWorkspaceFixture.ts')}';
+window.independentFixture = independentFixture;
 const catalog = { frames: [{id:'f',name:'Frame',faceWidthCm:2,pricePerMeter:10}],
  mats:[{id:'mat0',name:'None',pricePerSqM:0},{id:'m',name:'Green',color:'#00cc66',pricePerSqM:5},{id:'m2',name:'Blue',color:'#0000ff',pricePerSqM:6},{id:'m3',name:'Red',color:'#ff0000',pricePerSqM:7}],
  glazing:[{id:'g',name:'Glass',pricePerSqM:8}],settings:{currencyCode:'GBP',marginMultiplier:1.25,labourBase:10,taxRatePct:20}};
@@ -79,7 +81,7 @@ try {
   await page.goto(url); await page.waitForFunction(()=>!!window.applyDesign)
   const image='data:image/svg+xml;base64,'+Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30"><rect width="30" height="30" fill="#222222"/></svg>').toString('base64')
   const opening={id:'one',shape,xCm:5,yCm:5,widthCm:30,heightCm:30,imageUrl:image}
-  await page.evaluate(({mode,opening,image})=>window.applyDesign({art:{widthCm:30,heightCm:30,imageUrl:image},mats:{layoutModel:'single-board-v1',selectedMat1:'m',mode:'basic',locks:[false,false,false],openings:[opening]}}),{mode,opening,image})
+  await page.evaluate(({mode,opening,image})=>window.applyDesign(window.independentFixture({art:{widthCm:30,heightCm:30,imageUrl:image},mats:{layoutModel:'single-board-v1',selectedMat1:'m',mode:'basic',locks:[false,false,false],openings:[opening]}})),{mode,opening,image})
   await page.getByLabel('Mat 1 Left (cm)',{exact:true}).fill('9')
   await page.getByText('+ Add second mat',{exact:true}).click()
   await page.locator('select').filter({has:page.locator('option[value="m2"]')}).nth(1).selectOption('m2')
@@ -88,7 +90,7 @@ try {
   const board=page.getByTestId('mat-layers')
   assert.equal(await page.getByLabel('Mat 2 Left (mm)',{exact:true}).inputValue(),'20')
   assert.equal(await page.getByLabel('Mat 3 Left (mm)',{exact:true}).inputValue(),'10')
-  if(mode==='pro')await page.locator('select').filter({has:page.locator('option[value="pro"]')}).selectOption('pro')
+  if(mode==='pro'){await page.locator('select').filter({has:page.locator('option[value="pro"]')}).selectOption('pro'); await page.getByLabel('Pro mat material',{exact:true}).selectOption('m'); await page.getByRole('button',{name:'Unlock Pro mat borders',exact:true}).click(); await page.getByLabel('Pro mat Left (cm)',{exact:true}).fill('9')}
   const w=mode==='pro'?44:50,h=mode==='pro'?40:46
   assert.equal(await board.getAttribute('viewBox'),`0 0 ${w} ${h}`)
   const png=PNG.sync.read(await board.screenshot({path:path.join(output,`${mode}-${shape}.png`)}))
@@ -100,7 +102,7 @@ try {
   await page.getByText('Save fixture',{exact:true}).click()
   await page.reload(); await page.waitForFunction(()=>!!window.applyDesign)
   await page.getByText('Load fixture',{exact:true}).click()
-  await page.waitForFunction(()=>window.currentDesign.mats.selectedMat3==='m3')
+  await page.waitForFunction(()=>window.currentDesign.visualizerDesign.basic.mats[2].materialId==='m3')
   assert.deepEqual(await page.evaluate(()=>window.currentDesign),saved)
   if(mode==='pro') {
    const target=page.getByTitle('Drag to move. Use handles to resize.',{exact:true})
@@ -127,8 +129,8 @@ try {
   const increments=[{top:2,bottom:4,left:3,right:5},{top:1,bottom:2,left:1,right:2},{top:2,bottom:2,left:2,right:2}]
   const images=['#222222','#444444','#666666'].map(fill=>'data:image/svg+xml;base64,'+Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="${fill}"/></svg>`).toString('base64'))
   const openings=['rect','oval','circle'].map((shape,i)=>({id:'multi-'+i,shape,xCm:6+18*i,yCm:5,widthCm:10,heightCm:10,imageUrl:images[i]}))
-  await page.evaluate(({increments,openings})=>window.applyDesign({art:{widthCm:60,heightCm:30},mats:{layoutModel:'single-board-v1',geometryVersion:3,borders:increments,selectedMat1:'m',selectedMat2:'m2',selectedMat3:'m3',mode:'pro',proOrigin:{x:6,y:5},openings}}),{increments,openings})
-  await page.waitForFunction(()=>window.currentDesign.mats.selectedMat3==='m3')
+  await page.evaluate(({increments,openings})=>window.applyDesign(window.independentFixture({art:{widthCm:60,heightCm:30},mats:{layoutModel:'single-board-v1',geometryVersion:3,borders:increments,selectedMat1:'m',selectedMat2:'m2',selectedMat3:'m3',mode:'pro',proOrigin:{x:6,y:5},openings}})),{increments,openings})
+  await page.waitForFunction(()=>window.currentDesign.visualizerDesign.basic.mats[2].materialId==='m3')
   assert.equal(await page.getByTestId('mat-layers').getAttribute('viewBox'),'0 0 68 36')
   assert.equal(await page.getByAltText('artwork',{exact:true}).count(),3)
   assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings),openings)
@@ -145,7 +147,7 @@ try {
   const documents=await page.evaluate(()=>JSON.parse(JSON.stringify(window.documents)))
   const quote=documents.find(d=>d.kind==='quote').payload,job=documents.find(d=>d.kind==='job').payload,invoice=documents.find(d=>d.kind==='invoice').payload
   assert.deepEqual(job.details.mats.openings,openings)
-  assert.deepEqual(job.details.mats.borders,increments)
+  assert.deepEqual(job.details.mats.borders[0],increments[0]); assert.deepEqual(job.details.visualizerDesign.basic.mats.map(s=>s.borders),increments)
   assert.deepEqual(job.details.dims.visible,{widthCm:68,heightCm:36})
   assert.deepEqual(job.details.dims.external,{widthCm:72,heightCm:40})
   assert.deepEqual(job.details.mats,job.mats)

@@ -132,6 +132,8 @@ try {
   const {page,errors}=await open();await page.locator('#artUpload').setInputFiles(file('#222222'));await page.waitForFunction(()=>window.currentDesign.art.imageUrl);await addMats(page)
   const basicOriginal=await page.evaluate(()=>window.currentDesign.art.imageUrl)
   const mode=page.locator('select').filter({has:page.locator('option[value="pro"]')});await mode.selectOption('pro')
+  assert.equal(await page.getByAltText('artwork',{exact:true}).count(),0); await page.getByLabel('Pro mat material',{exact:true}).selectOption('m'); await page.getByRole('button',{name:'+ Rectangle',exact:true}).click();
+  const firstImage=page.waitForEvent('filechooser'); await page.getByRole('button',{name:'Select image for this opening',exact:true}).click(); await(await firstImage).setFiles(file('#222222')); await page.waitForFunction(()=>!!window.currentDesign.mats.openings[0].imageUrl)
   const set=async(n,field,value)=>page.getByLabel(`Opening ${n} ${field} (cm)`,{exact:true}).fill(String(value))
   await set(1,'width',12);await set(1,'height',12);await set(1,'X',0);await set(1,'Y',0)
   for(const [shape,n,x,colour] of [['Oval',2,20,'#444444'],['Circle',3,38,'#666666']]){
@@ -180,7 +182,7 @@ try {
   await page.mouse.move(box.x+6,box.y+6);await page.mouse.down();await page.mouse.move(box.x+60,box.y+65);await page.waitForTimeout(2800);assert.equal(await handle.count(),1);await page.mouse.up();await page.mouse.move(0,0);await page.waitForTimeout(2750);assert.equal(await handle.count(),0)
   const resized=await page.evaluate(()=>window.currentDesign.mats.openings);assert.ok(resized[0].widthCm>before.mats.openings[0].widthCm);assert.equal(resized[1].imageUrl,before.mats.openings[1].imageUrl)
   assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.borders),before.mats.borders)
-  await page.getByRole('button',{name:'Remove Mat 1',exact:true}).click();assert.equal(await page.getByAltText('artwork',{exact:true}).count(),3)
+  await page.getByRole('button',{name:'Remove Pro mat',exact:true}).click();assert.equal(await page.getByAltText('artwork',{exact:true}).count(),3)
   const saved=await page.evaluate(()=>structuredClone(window.currentDesign));await page.getByText('Save fixture',{exact:true}).click();await page.reload();await page.waitForFunction(()=>!!window.currentDesign);await page.getByText('Load fixture',{exact:true}).click();await page.waitForFunction(()=>window.currentDesign.mats.mode==='pro');assert.deepEqual(await page.evaluate(()=>window.currentDesign),saved)
   await mode.selectOption('basic');await page.locator('select').filter({has:page.locator('option[value="c"]')}).selectOption('c')
   for(const name of ['Add to Quotes','Add to Jobs','Add to Invoices'])await page.getByRole('button',{name,exact:true}).click()
@@ -195,23 +197,23 @@ try {
  {
   const {page,errors}=await open();const art='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="#222222"/></svg>')
   await page.evaluate(art=>window.applyDesign({art:{widthCm:40,heightCm:30,imageUrl:art},mats:{mode:'pro',geometryVersion:2,selectedMat1:'m',selectedMat2:'m2',selectedMat3:'m3',borders:[5,5,5].map(n=>({top:n,bottom:n,left:n,right:n})),origin:{x:5,y:5},openings:[{id:'legacy',shape:'rect',xCm:5,yCm:5,widthCm:2,heightCm:2,imageUrl:art}]}}),art)
-  assert.match((await page.getByRole('status').allTextContents()).join(' '),/coincident/);assert.equal(await page.getByLabel('Mat 2 Left (mm)',{exact:true}).isDisabled(),true)
-  const originalSlots=await page.evaluate(()=>structuredClone(window.currentDesign.visualizerDesign.mats));await page.getByRole('button',{name:'Review and adopt single-board layout',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.currentDesign.visualizerDesign.mats),originalSlots)
+  assert.match((await page.getByRole('status').allTextContents()).join(' '),/coincident/);assert.equal(await page.getByLabel('Mat 2 Left (mm)',{exact:true}).count(),0); assert.equal(await page.getByLabel('Pro mat material',{exact:true}).isDisabled(),true)
+  const originalSlots=await page.evaluate(()=>structuredClone(window.currentDesign.visualizerDesign.mats));await page.getByRole('button',{name:'Review and adopt single-board layout',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.currentDesign.visualizerDesign.basic.mats),originalSlots)
   assert.equal(await page.getByRole('status').count(),0)
   await page.evaluate(art=>window.applyDesign({art:{widthCm:40,heightCm:30,imageUrl:art},mats:{mode:'pro',geometryVersion:3,selectedMat1:'m',selectedMat2:'m2',selectedMat3:'m3',borders:[5,2,1].map(n=>({top:n,bottom:n,left:n,right:n})),origin:{x:5,y:5},openings:[{id:'legacy',shape:'rect',xCm:0,yCm:0,widthCm:2,heightCm:2,imageUrl:art}]}}),art)
-  assert.equal(await page.getByRole('button',{name:'Remove Mat 1',exact:true}).isDisabled(),true);await page.getByRole('button',{name:'Review and adopt single-board layout',exact:true}).click()
-  await page.getByRole('button',{name:'Remove Mat 1',exact:true}).click();assert.equal(await page.getByAltText('artwork',{exact:true}).getAttribute('src'),art)
+  assert.equal(await page.getByRole('button',{name:'Remove Pro mat',exact:true}).isDisabled(),true);await page.getByRole('button',{name:'Review and adopt single-board layout',exact:true}).click()
+  await page.getByRole('button',{name:'Remove Pro mat',exact:true}).click();assert.equal(await page.getByAltText('artwork',{exact:true}).getAttribute('src'),art)
   const picture=await painted(page,'legacy-explicit-adoption-and-removal');assert.ok(picture.counts['34,34,34']>16,'the 2 cm historical artwork must remain painted');assert.deepEqual(errors,[]);results.push({workflow:'Historical review',coincidentBordersRequireReview:true,explicitAdoption:true,legacyCoordinatesAndArtworkRetained:true});await page.close()
  }
  {
-  const {page,errors}=await open();const mode=page.locator('select').filter({has:page.locator('option[value="pro"]')});await mode.selectOption('pro');await page.getByRole('button',{name:'+ Rectangle',exact:true}).click()
+  const {page,errors}=await open();const mode=page.locator('select').filter({has:page.locator('option[value="pro"]')});await mode.selectOption('pro');await page.getByRole('button',{name:'+ Rectangle',exact:true}).click(); await page.getByLabel('Pro mat material',{exact:true}).selectOption('m')
   const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'Select image for this opening',exact:true}).click();await(await chooser).setFiles(file('#222222'));await page.waitForFunction(()=>!!window.currentDesign.mats.openings[0].imageUrl)
   await mode.selectOption('basic');await addMats(page);await mode.selectOption('pro');const opening=await page.evaluate(()=>structuredClone(window.currentDesign.mats.openings[0]))
   await mode.selectOption('basic');assert.equal(await page.evaluate(()=>window.currentDesign.art.imageUrl),'');assert.equal(await page.getByText('Basic has no original artwork.',{exact:false}).count(),1)
   await page.locator('select').filter({has:page.locator('option[value="c"]')}).selectOption('c');await page.getByRole('button',{name:'Add to Jobs',exact:true}).click();await page.waitForFunction(()=>window.documents?.length===1)
   assert.deepEqual(await page.evaluate(()=>window.documents[0].payload.details.visualizerDesign.pro.openings[0]),opening)
   await page.getByText('Save fixture',{exact:true}).click();await page.reload();await page.waitForFunction(()=>!!window.currentDesign);await page.getByText('Load fixture',{exact:true}).click();await mode.selectOption('pro')
-  await page.getByRole('button',{name:'Remove Mat 1',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings[0]),opening);assert.equal(await page.getByAltText('artwork',{exact:true}).count(),1)
+  await page.getByRole('button',{name:'Remove Pro mat',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings[0]),opening);assert.equal(await page.getByAltText('artwork',{exact:true}).count(),1)
   const picture=await painted(page,'pro-first-all-mats-removed');assert.ok(picture.counts['34,34,34']>100);assert.deepEqual(errors,[]);results.push({workflow:'Pro-first upload',noBasicImage:true,basicJobRetainsProImage:true,saveInBasicReloadInPro:true,removingProBoardRetainsArtwork:true});await page.close()
  }
  console.log(JSON.stringify({passed:results.length,results},null,2));writeFileSync(path.join(output,'results.json'),JSON.stringify(results,null,2))

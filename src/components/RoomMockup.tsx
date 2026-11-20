@@ -31,6 +31,8 @@ export type RoomMockupProps = {
   // notify parent when openings move (enable drag)
   onOpeningsChange?: (next: MatOpening[]) => void
   // high-level backdrop choice from Visualizer tab (studio / living / gallery / office)
+  workspaceState?: RoomPreviewState
+  onWorkspaceStateChange?: (next: RoomPreviewState) => void
   backdrop?: BackdropKind
 }
 
@@ -42,9 +44,10 @@ export default function RoomMockup({
   compositeIncludesOpenings = false,
   artSizeCm,
   onOpeningsChange,
-  backdrop,
+  backdrop, workspaceState, onWorkspaceStateChange,
 }: RoomMockupProps) {
-  const [state, setState] = useState<RoomPreviewState>(() => loadRoomPreview())
+  const [state, setState] = useState<RoomPreviewState>(() => workspaceState ?? loadRoomPreview())
+  useEffect(() => { onWorkspaceStateChange?.(state) }, [state, onWorkspaceStateChange])
   const [loading, setLoading] = useState(false)
   const toast = useToast(s => s.add)
   const { companyAccountId, userId } = useBillingAccess()
@@ -234,13 +237,14 @@ export default function RoomMockup({
   // ----------------- STATE UPDATE HELPERS -----------------
 
   function update(patch: Partial<RoomPreviewState>) {
+    if (!exportMounted.current) return
     setState(prev => {
       const next: RoomPreviewState = {
         ...prev,
         ...patch,
         frame: patch.frame ? { ...prev.frame, ...patch.frame } : prev.frame,
       }
-      saveRoomPreview(next)
+      if (!onWorkspaceStateChange) saveRoomPreview(next)
       return next
     })
   }

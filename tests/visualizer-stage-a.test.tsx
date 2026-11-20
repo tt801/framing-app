@@ -4,9 +4,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import VisualizerApp from '@/VisualizerApp'
 import { toPng } from 'html-to-image'
 import type { Catalog } from '@/lib/store'
+import type { VisualizerDesign } from '@/lib/visualizerScene'
+import { independentFixture } from './helpers/visualizerWorkspaceFixture'
 
 type Opening = { id: string; shape: 'rect' | 'oval' | 'circle'; xCm: number; yCm: number; widthCm: number; heightCm: number; imageUrl?: string }
-type Design = { art: { widthCm: number; heightCm: number; imageUrl: string }; mats: { layoutModel: 'single-board-v1', mode: string; openings: Opening[]; selectedMat1: string; mat1BorderCm: number } }
+type Design = { visualizerDesign: VisualizerDesign; art: { widthCm: number; heightCm: number; imageUrl: string }; mats: { layoutModel: 'single-board-v1', mode: string; openings: Opening[]; selectedMat1: string; mat1BorderCm: number } }
 const state = vi.hoisted(() => ({ catalog: null as Catalog | null, current: null as Design | null, preset: {} as Record<string, unknown> }))
 const customers: never[] = []
 vi.mock('@/lib/store', () => ({ useCatalog: () => ({ catalog: state.catalog }) }))
@@ -30,7 +32,7 @@ beforeEach(() => {
     glazing: [{ id: 'g', name: 'Glass', pricePerSqM: 8 }], settings: { currencyCode: 'GBP', marginMultiplier: 1.25, labourBase: 10, taxRatePct: 20 } } as Catalog
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
-const apply = () => fireEvent.click(screen.getByText('Apply fixture'))
+const apply = () => { if (!state.preset.visualizerDesign) state.preset = independentFixture(state.preset); fireEvent.click(screen.getByText('Apply fixture')) }
 const switchMode = (mode: 'basic' | 'pro') => {
   const select = screen.getByRole('option', { name: 'Pro (multi-opening)' }).parentElement!
   fireEvent.change(select, { target: { value: mode } })
@@ -94,7 +96,9 @@ it.each([false, true])('assigns a late Basic upload after switching to Pro (exis
   switchMode('pro')
   Object.defineProperty(readers[0], 'result', { value: 'data:image/png;base64,DEFERRED' })
   act(() => readers[0].dispatchEvent(new ProgressEvent('load')))
-  expect(screen.getByAltText('artwork').getAttribute('src')).toBe('data:image/png;base64,DEFERRED')
+  expect(screen.queryByAltText('artwork')).toBeNull()
+  expect(state.current!.visualizerDesign.basic.imageUrl).toBe('data:image/png;base64,DEFERRED')
+  expect(state.current!.mats.openings.every(o => !o.imageUrl)).toBe(true)
 })
 
 it('preserves populated and empty opening images through main uploads, mat changes and Basic/Pro round trips', async () => {
@@ -103,8 +107,8 @@ it('preserves populated and empty opening images through main uploads, mat chang
   state.preset = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:main' }, mats: { layoutModel: 'single-board-v1', mode: 'basic', openings } }; apply()
   switchMode('pro')
   expect(state.current!.mats.openings).toEqual(openings)
-  await upload()
-  fireEvent.change(screen.getByRole('option', { name: 'Green mat' }).parentElement!, { target: { value: 'm' } })
+  switchMode('basic'); await upload(); switchMode('pro')
+  fireEvent.change(screen.getByLabelText('Pro mat material'), { target: { value: 'm' } })
   switchMode('basic'); switchMode('pro')
   expect(state.current!.mats.openings).toEqual(openings)
   expect(screen.getAllByAltText('artwork').map(image => image.getAttribute('src'))).toEqual(openings.slice(0, 2).map(o => o.imageUrl))
@@ -135,7 +139,7 @@ it.each(['rect', 'oval', 'circle'] as const)('still resizes a selected %s withou
 
 it('does not recreate an explicitly deleted final opening on an ordinary rerender', async () => {
   render(<VisualizerApp />)
-  await upload(); switchMode('pro')
+  await upload(); switchMode('pro'); fireEvent.click(screen.getByRole('button', { name: '+ Rectangle' }))
   fireEvent.click(screen.getByTitle('Delete'))
   expect(state.current!.mats.openings).toEqual([])
   fireEvent.change(screen.getByRole('option', { name: 'Green mat' }).parentElement!, { target: { value: 'm' } })
@@ -153,28 +157,30 @@ it('only changes the explicitly chosen opening image with the per-opening picker
   expect(state.current!.mats.openings.slice(0, 2)).toEqual(openings.slice(0, 2))
 })
 
-it('initializes an empty Pro layout when artwork is uploaded after entering Pro', async () => {
-  render(<VisualizerApp />)
-  switchMode('pro')
-  const imageUrl = await upload()
-  expect(screen.getByAltText('artwork').getAttribute('src')).toBe(imageUrl)
-  expect(state.current!.mats.openings).toHaveLength(1)
+it('uploads Pro artwork only through an explicitly created opening', async () => {
+  render(<VisualizerApp />); switchMode('pro')
+  expect(document.getElementById('artUpload')).toBeNull()
+  expect(state.current!.mats.openings).toEqual([])
+  fireEvent.click(screen.getByRole('button', { name: '+ Rectangle' }))
+  fireEvent.click(screen.getByText('Select image for this opening'))
+  fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [new File(['pro'], 'pro.png', { type: 'image/png' })] } })
+  await waitFor(() => expect(state.current!.mats.openings[0].imageUrl).toMatch(/^data:/))
+  expect(state.current!.visualizerDesign.basic.imageUrl).toBe('')
 })
-
-it('keeps uploaded Basic artwork visible through the mat on entering Pro without changing dimensions or totals', async () => {
+it('enters an empty Pro workspace and restores unchanged Basic pixels, dimensions and totals', async () => {
   render(<VisualizerApp />)
   const imageUrl = await upload()
-  const select = screen.getByRole('option', { name: 'Green mat' }).parentElement!
-  fireEvent.change(select, { target: { value: 'm' } })
-  expect(screen.getByAltText('artwork').getAttribute('src')).toBe(imageUrl)
+  fireEvent.change(screen.getByLabelText('Mat 1 material'), { target: { value: 'm' } })
+  const basic = structuredClone(state.current!.visualizerDesign.basic)
   const subtotal = screen.getByText('Subtotal').nextElementSibling!.textContent
+  const viewBox = screen.getByTestId('mat-layers').getAttribute('viewBox')
   switchMode('pro')
+  expect(screen.queryByAltText('artwork')).toBeNull()
+  expect(state.current!.mats.openings).toEqual([])
+  expect(state.current!.mats.selectedMat1).toBe('mat0')
+  switchMode('basic')
+  expect(state.current!.visualizerDesign.basic).toEqual(basic)
   expect(screen.getByAltText('artwork').getAttribute('src')).toBe(imageUrl)
-  expect(state.current!.mats.openings).toHaveLength(1)
-  expect(state.current!.mats.openings[0]).toMatchObject({ shape: 'rect', xCm: 5, yCm: 5, widthCm: 40, heightCm: 30, imageUrl })
+  expect(screen.getByTestId('mat-layers').getAttribute('viewBox')).toBe(viewBox)
   expect(screen.getByText('Subtotal').nextElementSibling!.textContent).toBe(subtotal)
-  const saved = structuredClone(state.current!.mats.openings)
-  switchMode('basic'); switchMode('pro')
-  expect(state.current!.mats.openings).toEqual(saved)
-  expect(state.current!.art).toMatchObject({ widthCm: 40, heightCm: 30, imageUrl })
 })

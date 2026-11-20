@@ -1,6 +1,7 @@
 import React from 'react'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { createRoomPreview } from '@/lib/roomPreview'
 import RoomMockup, { type MatOpening } from '@/components/RoomMockup'
 
 const scope = vi.hoisted(() => ({ companyAccountId: 'company-a', userId: 'user-a' }))
@@ -53,6 +54,33 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear() })
 
+it('keeps workspace Room backgrounds separate from legacy global preferences', () => {
+  localStorage.setItem('frameit:roompreview:v1', JSON.stringify({ ...createRoomPreview(), bgDataUrl: 'legacy-wall' }))
+  const basic = { ...createRoomPreview(), bgDataUrl: 'basic-wall' }, pro = createRoomPreview()
+  const changed = vi.fn()
+  const view = render(<RoomMockup key="basic" artworkUrl="" workspaceState={basic} onWorkspaceStateChange={changed} />)
+  image('basic-wall').load(); expect(drawn).toContain(image('basic-wall'))
+  view.rerender(<RoomMockup key="pro" artworkUrl="" workspaceState={pro} onWorkspaceStateChange={changed} />)
+  expect(drawn).toEqual([])
+  expect(ControlledImage.requests.some(i => i.src === 'legacy-wall')).toBe(false)
+  expect(changed).toHaveBeenLastCalledWith(pro)
+  view.rerender(<RoomMockup key="basic-again" artworkUrl="" workspaceState={basic} onWorkspaceStateChange={changed} />)
+  image('basic-wall').load(); expect(drawn).toContain(image('basic-wall'))
+})
+it('cannot publish a pending background upload after its workspace is cleared and remounted', () => {
+  const readers: FileReader[] = []
+  vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (this: FileReader) { readers.push(this) })
+  const changed = vi.fn(), blank = createRoomPreview()
+  const view = render(<RoomMockup key="before" artworkUrl="" workspaceState={blank} onWorkspaceStateChange={changed} />)
+  fireEvent.change(view.container.querySelector('input[type=file]')!, { target: { files: [new File(['wall'], 'wall.png', { type: 'image/png' })] } })
+  view.rerender(<RoomMockup key="cleared" artworkUrl="" workspaceState={blank} onWorkspaceStateChange={changed} />)
+  changed.mockClear(); clear.mockClear()
+  Object.defineProperty(readers[0], 'result', { value: 'data:late-wall' })
+  act(() => { readers[0].onload?.({ target: readers[0] } as ProgressEvent<FileReader>) })
+  image('data:late-wall').load()
+  expect(changed).not.toHaveBeenCalled(); expect(clear).not.toHaveBeenCalled()
+  expect(localStorage.getItem('frameit:roompreview:v1')).toBeNull()
+})
 it('uses the authoritative composite without loading or repainting a second opening model', () => {
   render(<RoomMockup artworkUrl="scene-composite" compositeIncludesOpenings openings={[opening('individual-image')]} />)
   expect(ControlledImage.requests.map(img => img.src)).toEqual(['scene-composite'])

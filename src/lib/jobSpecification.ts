@@ -16,6 +16,8 @@ const measurement = (value: unknown): string | undefined =>
 export function jobSpecificationFields(value: unknown): { label: string; value: string }[] {
   const job = record(value);
   const details = savedJobDetails(job);
+  const independent = record(details.visualizerDesign).version === 2;
+  const independentPro = independent && record(details.mats).mode === 'pro';
   const dims = { ...record(job.dims), ...record(details.dims) };
   const artwork = record(job.artwork);
   const art = record(dims.art);
@@ -55,7 +57,7 @@ export function jobSpecificationFields(value: unknown): { label: string; value: 
     { label: "Frame", value: text(frame.name) ?? text(job.frameName) ?? text(frame.profile) ?? NOT_RECORDED },
     { label: "Frame face width", value: measurement(dims.frameFaceWidthCm ?? frame.faceWidthCm ?? job.faceWidthCm) ?? NOT_RECORDED },
     ...(mats.geometryVersion !== undefined || Array.isArray(mats.borders) || [1, 2, 3].some(i => record(mats[`mat${i}`]).borders !== undefined) ? [{ label: "Mat measurements", value: mats.geometryVersion === 3
-      ? "Incremental: Mat 1 from artwork/layout opening; Mat 2 from Mat 1 inner edge; Mat 3 from Mat 2 inner edge. Enabled sides are summed."
+      ? (independentPro ? 'Pro board borders are measured from the layout opening. Basic mat measurements are stored separately.' : 'Incremental: Mat 1 from artwork/layout opening; Mat 2 from Mat 1 inner edge; Mat 3 from Mat 2 inner edge. Enabled sides are summed.')
       : mats.geometryVersion === 2 ? "Stage B absolute aperture-to-internal-frame-edge distances; lower mat values already include reveals."
       : "Unknown mat geometry version — review required." }] : []),
     ...(mats.layoutModel !== undefined ? [{ label: "Mat cut-outs", value: mats.layoutModel === 'single-board-v1' ? (mats.mode === 'pro' ? 'Single catalogue board with individual openings; decorative mats inactive in Pro.' : 'Mat 1 outermost; Mat 2 below; Mat 3 innermost. Incremental cut edges.') : mats.layoutModel === 'shared-group-v1'
@@ -65,7 +67,8 @@ export function jobSpecificationFields(value: unknown): { label: string; value: 
     ...(mats.mode === 'pro' && Array.isArray(mats.openings) ? mats.openings.map((value, i) => { const o = record(value); return {
       label: `Opening ${i + 1}`, value: `${text(o.shape) ?? NOT_RECORDED}: ${dimensions(o.widthCm, o.heightCm)}; X ${measurement(o.xCm) ?? NOT_RECORDED}; Y ${measurement(o.yCm) ?? NOT_RECORDED}; ${text(o.imageUrl) ? 'Image retained' : 'No image'}`,
     } }) : []),
-    { label: "Mat 1", value: mat(1) },
+    ...(independent ? [{ label: "Workspace storage", value: "Independent Basic and Pro workspaces" }] : []),
+    { label: independentPro ? "Pro mat" : "Mat 1", value: mat(1) },
     { label: "Additional mats", value: additionalMats },
     { label: "Glazing", value: text(glazing.name) ?? text(job.glazingName) ?? text(frame.glazing) ?? NOT_RECORDED },
     { label: "Printing", value: materialState(printing) },

@@ -18,6 +18,8 @@ const DEFAULT_STATE: RoomPreviewState = {
   showFloorLine: true,
 }
 
+export const createRoomPreview = (): RoomPreviewState => ({ ...DEFAULT_STATE, frame: { ...DEFAULT_STATE.frame } })
+
 export function loadRoomPreview(): RoomPreviewState {
   try {
     const raw = localStorage.getItem(KEY)

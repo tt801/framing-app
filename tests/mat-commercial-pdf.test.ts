@@ -24,6 +24,27 @@ async function text(document: { output: (kind: 'arraybuffer') => ArrayBuffer }) 
   await pdf.destroy()
   return pages.join(' ').replace(/\s+/g, ' ')
 }
+it('exports only the active independent Pro board and preserves the saved financial agreement', async () => {
+  const basicMats = createMatSlots(['basic-a', 'basic-b', 'basic-c']), proMats = createMatSlots(['pro-board'])
+  const origin = { x: 5, y: 5 }, openings = [{ id: 'pro', shape: 'oval' as const, xCm: 5, yCm: 5, widthCm: 10, heightCm: 15, imageUrl: 'data:pro' }]
+  const g = visualizerScene({ mode: 'pro', layoutModel: 'single-board-v1', width: 40, height: 30, face: 2, borders: proMats.map(s => s.borders), active: [true, false, false], origin, openings })
+  const snapshot = priceVisualiser({ ...inputs, mats: [{ name: 'Pro board', pricePerSqM: 12 }], geometry: { internalWidthCm: g.internal.width, internalHeightCm: g.internal.height } })
+  expect(snapshot.items.filter(i => /^mat\d/.test(i.key))).toHaveLength(1)
+  expect(snapshot.items.find(i => i.key === 'mat1')?.materialQuantity).toBe(0.2)
+  const original = { description: 'Independent Pro agreement', jobType: 'internal', subtotal: snapshot.subtotal, tax: snapshot.tax, total: snapshot.total, pricingSnapshot: snapshot, details: {
+    visualizerDesign: { version: 2, mode: 'pro', layoutModel: 'single-board-v1', basic: { widthCm: 40, heightCm: 30, imageUrl: 'data:basic', mats: basicMats },
+      pro: { origin, openings, mat: proMats[0], layout: { widthCm: 40, heightCm: 30 } }, mats: proMats },
+    dims: { art: { widthCm: 40, heightCm: 30 }, frameFaceWidthCm: 2 }, mats: { geometryVersion: 3, mode: 'pro', layoutModel: 'single-board-v1', proOrigin: origin, openings,
+      borders: proMats.map(s => s.borders), hasMat1: true, hasMat2: false, hasMat3: false, mat1: { id: 'pro-board', name: 'Pro board', borders: proMats[0].borders }, mat2: null, mat3: null } } }
+  const draft = jobDetailsDraft(original as never); draft.spec.mat1Left = '7'
+  const saved = buildJobDetails(draft, [], original as never)
+  expect(saved.details!.visualizerDesign.basic).toEqual(original.details.visualizerDesign.basic)
+  expect([saved.subtotal, saved.tax, saved.total, saved.pricingSnapshot]).toEqual([original.subtotal, original.tax, original.total, snapshot])
+  const content = await text(await exportJobCardPDF({ job: saved, settings: { companyName: 'Business', currencyCode: 'GBP' }, download: false }))
+  expect(content).toContain('Independent Basic and Pro workspaces')
+  expect(content).toContain('Pro mat'); expect(content).toContain('52.0 × 40.0 cm')
+  expect(content).toContain(new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(original.total))
+})
 it('prices expanded shared bounds and exports their edited Pro specification without repricing the agreement', async () => {
   const slots = createMatSlots(['a', 'b', 'c'])
   const openings = [{ id: 'one', shape: 'rect' as const, xCm: -10, yCm: 5, widthCm: 15, heightCm: 10, imageUrl: 'data:opening' }]

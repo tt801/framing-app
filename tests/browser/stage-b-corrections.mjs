@@ -1,3 +1,4 @@
+// Finish CSS colour transitions before exact pixel comparisons; scene and page styles remain real.
 // Offline Chromium regression: real VisualizerApp and SVG paint, fake persistence/auth boundaries.
 // Run: BROWSER_TOOLS_PATH=/path/to/node_modules PLAYWRIGHT_BROWSERS_PATH=/path/to/browsers node tests/browser/stage-b-mats.mjs
 // Install playwright + pngjs in an external scratch directory; no app dependency changes are needed.
@@ -85,7 +86,7 @@ try {
   await page.getByText('+ Add third mat',{exact:true}).click();await page.getByLabel('Mat 3 material',{exact:true}).selectOption('m3')
  }
  async function painted(page,label){
-  const board=page.getByTestId('mat-layers');const png=PNG.sync.read(await board.locator('..').screenshot({path:path.join(output,label+'.png')}))
+  const board=page.getByTestId('mat-layers');const png=PNG.sync.read(await board.locator('..').screenshot({animations:'disabled',path:path.join(output,label+'.png')}))
   const counts={};for(let i=0;i<png.data.length;i+=4){const k=[...png.data.subarray(i,i+3)].join(',');counts[k]=(counts[k]||0)+1}
   return {png,counts,box:(await board.getAttribute('viewBox')).split(' ').map(Number)}
  }
@@ -102,15 +103,25 @@ try {
  const bevelX=5/picture.box[2]*picture.png.width,bevelY=Math.floor(picture.png.height/2)
  assert.ok([-1,0,1].some(dx=>picture.png.data[(bevelY*picture.png.width+Math.floor(bevelX)+dx)*4]>30),'actual Basic bevel must be painted')
  assert.equal(await page.getByTestId('mat-layers').locator('[data-mat-bevel]').count(),3)
- const retained=await page.evaluate(()=>structuredClone(window.currentDesign.visualizerDesign.mats))
+ const basicRaster=picture; const retained=await page.evaluate(()=>structuredClone(window.currentDesign.visualizerDesign.basic.mats))
  const mode=page.locator('select').filter({has:page.locator('option[value="pro"]')});await mode.selectOption('pro')
  assert.equal(await page.getByLabel('Mat 2 material',{exact:true}).count(),0)
  assert.equal(await page.getByLabel('Mat 3 material',{exact:true}).count(),0)
+ assert.equal(await page.locator('#artUpload').count(),0)
+ assert.equal(await page.getByLabel('Mat 1 material',{exact:true}).count(),0)
+ assert.equal(await page.getByAltText('artwork',{exact:true}).count(),0)
+ assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings),[])
+ assert.equal(await page.getByLabel('Pro mat material',{exact:true}).inputValue(),'mat0')
+ assert.deepEqual(await page.getByRole('button',{name:'+ Rectangle',exact:true}).evaluate(e=>[...e.parentElement.querySelectorAll('button')].map(b=>b.textContent).slice(0,3)),['+ Rectangle','+ Oval','+ Circle'])
+ await page.getByLabel('Pro mat material',{exact:true}).selectOption('m')
+ await page.getByRole('button',{name:'+ Rectangle',exact:true}).click()
+ const firstFile=page.waitForEvent('filechooser');await page.getByRole('button',{name:'Select image for this opening',exact:true}).click();await(await firstFile).setFiles(file('#222222'));await page.waitForFunction(()=>!!window.currentDesign.mats.openings[0].imageUrl)
+ for (const [side,value] of [['X',5],['Y',5],['width',40],['height',30]]) await page.getByLabel(`Opening 1 ${side} (cm)`,{exact:true}).fill(String(value))
  assert.equal(await page.getByTestId('mat-layers').getAttribute('viewBox'),'0 0 50 40')
  assert.equal(await page.getByAltText('artwork',{exact:true}).getAttribute('src'),original)
  assert.equal(await page.getByAltText('artwork',{exact:true}).evaluate(e=>getComputedStyle(e.parentElement).inset),'0px')
  picture=await painted(page,'initial-pro-no-white-border')
- near(pixel(picture.png,5.2/50,15/40),[34,34,34],'initial seeded artwork has no white inset')
+ near(pixel(picture.png,5.2/50,15/40),[34,34,34],'explicitly assigned Pro artwork has no white inset')
  near(pixel(picture.png,0.5/50,0.5),[0,204,102],'mat, not artwork, is the board background')
  const set=async(n,field,value)=>page.getByLabel(`Opening ${n} ${field} (cm)`,{exact:true}).fill(String(value))
  await set(1,'width',12);await set(1,'height',12);await set(1,'X',5);await set(1,'Y',5)
@@ -135,8 +146,8 @@ try {
  const chooser=page.waitForEvent('filechooser');await page.getByAltText('artwork',{exact:true}).first().dblclick();await(await chooser).setFiles(file('#333333'))
  await page.waitForFunction(original=>window.currentDesign.mats.openings[0].imageUrl!==original,original)
  assert.equal(await page.evaluate(()=>window.currentDesign.visualizerDesign.basic.imageUrl),original)
- await page.getByLabel('Mat 1 material',{exact:true}).selectOption('m2');picture=await painted(page,'pro-catalogue-change');near(pixel(picture.png,0.5/picture.box[2],0.5),[0,0,255],'catalogue material changes actual board')
- await page.getByLabel('Mat 1 material',{exact:true}).selectOption('m')
+ await page.getByLabel('Pro mat material',{exact:true}).selectOption('m2');picture=await painted(page,'pro-catalogue-change');near(pixel(picture.png,0.5/picture.box[2],0.5),[0,0,255],'catalogue material changes actual board')
+ await page.getByLabel('Pro mat material',{exact:true}).selectOption('m')
  picture=await painted(page,'pro-cut-through-shapes')
  near(pixel(picture.png,25.2/80,5.2/50),[0,204,102],'oval corner is board, not artwork')
  for(const format of ['PNG','JPG','PDF']){
@@ -162,15 +173,38 @@ try {
  for(const name of ['Add to Quotes','Add to Jobs','Add to Invoices'])await page.getByRole('button',{name,exact:true}).click()
  await page.waitForFunction(()=>window.documents?.length===3)
  const documents=await page.evaluate(()=>window.documents)
- for(const {kind,payload} of documents){if(kind!=='invoice'){const spec=payload.jobSpecification?.details||payload.details;assert.equal(spec.mats.hasMat2,false);assert.equal(spec.mats.hasMat3,false);assert.deepEqual(spec.visualizerDesign.mats,retained)}assert.equal(payload.pricingSnapshot.items.filter(i=>/^mat\d/.test(i.key)).length,1)}
+ for(const {kind,payload} of documents){if(kind!=='invoice'){const spec=payload.jobSpecification?.details||payload.details;assert.equal(spec.mats.hasMat2,false);assert.equal(spec.mats.hasMat3,false);assert.deepEqual(spec.visualizerDesign.basic.mats,retained)}assert.equal(payload.pricingSnapshot.items.filter(i=>/^mat\d/.test(i.key)).length,1)}
  await mode.selectOption('basic');assert.deepEqual(await page.evaluate(()=>window.currentDesign.visualizerDesign.mats),retained);assert.equal(await page.getByAltText('artwork',{exact:true}).getAttribute('src'),original)
- assert.deepEqual(errors,[]);results.push({workflow:'Basic and single-board Pro',colourOrder:true,bevelPixels:true,initialTransition:true,noArtworkInset:true,shapeCutouts:true,centringPixels:true,catalogueColour:true,actualExports:['PNG','JPG','PDF','Room PNG'],retainedBasicMats:true,snapshotReload:true,commercialMirrors:true})
+ const restoredBasic=await painted(page,'basic-restored-after-pro');assert.deepEqual(restoredBasic.box,basicRaster.box);assert.ok(restoredBasic.png.data.equals(basicRaster.png.data),'Basic rendered pixels must survive Pro edits unchanged')
+ const proSaved=await page.evaluate(()=>structuredClone(window.currentDesign.visualizerDesign.pro))
+ await page.getByRole('button',{name:'Clear Basic',exact:true}).click()
+ assert.equal(await page.getByAltText('artwork',{exact:true}).count(),0);assert.deepEqual(await page.evaluate(()=>window.currentDesign.visualizerDesign.pro),proSaved)
+ await page.getByRole('button',{name:'Room preview',exact:true}).click();await page.waitForFunction(()=>window.roomProps?.artworkUrl==='');await page.getByRole('button',{name:'Build',exact:true}).click()
+ await mode.selectOption('pro');assert.deepEqual(await page.evaluate(()=>window.currentDesign.visualizerDesign.pro),proSaved)
+ await page.evaluate(saved=>window.applyDesign(saved),saved)
+ const beforeClearPro=await page.evaluate(()=>structuredClone(window.currentDesign.visualizerDesign.basic))
+ await page.getByRole('button',{name:'Clear Pro',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings),[]);assert.equal(await page.getByLabel('Pro mat material',{exact:true}).inputValue(),'mat0');assert.deepEqual(await page.evaluate(()=>window.currentDesign.visualizerDesign.basic),beforeClearPro)
+ await mode.selectOption('basic');const afterClearPro=await painted(page,'basic-retained-after-clear-pro');assert.ok(afterClearPro.png.data.equals(basicRaster.png.data))
+ assert.deepEqual(errors,[]);results.push({workflow:'Basic and single-board Pro',colourOrder:true,bevelPixels:true,emptyFirstEntry:true,independentWorkspaces:true,scopedClear:true,basicPixelInvariance:true,noArtworkInset:true,shapeCutouts:true,centringPixels:true,catalogueColour:true,actualExports:['PNG','JPG','PDF','Room PNG'],retainedBasicMats:true,snapshotReload:true,commercialMirrors:true})
  // Historical shapes remain unchanged and cannot be saved as implicitly converted designs.
  await page.evaluate(art=>window.applyDesign({art:{widthCm:40,heightCm:30,imageUrl:art},mats:{mode:'pro',layoutModel:'shared-group-v1',geometryVersion:3,selectedMat1:'m',selectedMat2:'m2',selectedMat3:'m3',borders:[5,2,1].map(n=>({top:n,bottom:n,left:n,right:n})),proOrigin:{x:8,y:8},openings:[{id:'history',shape:'oval',xCm:8,yCm:8,widthCm:10,heightCm:12,imageUrl:art}]}}),original)
- assert.equal(await page.getByLabel('Mat 2 material',{exact:true}).isDisabled(),true);assert.equal(await page.getByText('Save fixture',{exact:true}).isDisabled(),true)
+ assert.equal(await page.getByLabel('Mat 2 material',{exact:true}).count(),0);assert.equal(await page.getByLabel('Pro mat material',{exact:true}).isDisabled(),true);assert.equal(await page.getByText('Save fixture',{exact:true}).isDisabled(),true)
  const historic=await page.evaluate(()=>structuredClone(window.currentDesign))
  await page.getByRole('button',{name:'Review and adopt single-board layout',exact:true}).click()
- assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings),historic.mats.openings);assert.deepEqual(await page.evaluate(()=>window.currentDesign.visualizerDesign.mats),historic.visualizerDesign.mats)
+ assert.deepEqual(await page.evaluate(()=>window.currentDesign.mats.openings),historic.mats.openings);assert.deepEqual(await page.evaluate(()=>window.currentDesign.visualizerDesign.basic.mats),historic.visualizerDesign.basic.mats)
  results.push({workflow:'Historical Pro',explicitAdoption:true,imagesAndMeasurementsRetained:true})
+ const isolated=await open();const q=isolated.page
+ await q.evaluate(()=>{window.pendingFiles=[];const original=FileReader.prototype.readAsDataURL;FileReader.prototype.readAsDataURL=function(file){window.pendingFiles.push(()=>new Promise(resolve=>{this.addEventListener('loadend',resolve,{once:true});original.call(this,file)}))}})
+ await q.locator('#artUpload').setInputFiles(file('#222222'))
+ const qmode=q.locator('select').filter({has:q.locator('option[value="pro"]')});await qmode.selectOption('pro');await q.evaluate(()=>window.pendingFiles[0]())
+ assert.equal(await q.getByAltText('artwork',{exact:true}).count(),0);assert.deepEqual(await q.evaluate(()=>window.currentDesign.mats.openings),[])
+ await qmode.selectOption('basic');await q.locator('#artUpload').setInputFiles(file('#444444'));await q.getByRole('button',{name:'Clear Basic',exact:true}).click();await q.evaluate(()=>window.pendingFiles[1]());assert.equal(await q.evaluate(()=>window.currentDesign.visualizerDesign.basic.imageUrl),'')
+ await q.getByRole('button',{name:'Room preview',exact:true}).click()
+ const backgroundInput=q.getByLabel('Upload room photo',{exact:true});await backgroundInput.setInputFiles(file('#aa00aa'));await q.evaluate(()=>window.pendingFiles[2]());await q.waitForFunction(()=>window.currentDesign.visualizerDesign.basic.room.bgDataUrl)
+ const basicWall=await q.evaluate(()=>window.currentDesign.visualizerDesign.basic.room.bgDataUrl)
+ await qmode.selectOption('pro');assert.equal(await q.evaluate(()=>window.currentDesign.visualizerDesign.pro.room.bgDataUrl),undefined)
+ await qmode.selectOption('basic');assert.equal(await q.evaluate(()=>window.currentDesign.visualizerDesign.basic.room.bgDataUrl),basicWall)
+ await backgroundInput.setInputFiles(file('#bbbbbb'));await q.getByRole('button',{name:'Clear Basic',exact:true}).click();await q.evaluate(()=>window.pendingFiles[3]());assert.equal(await q.evaluate(()=>window.currentDesign.visualizerDesign.basic.room.bgDataUrl),undefined)
+ assert.deepEqual(isolated.errors,[]);await q.close();results.push({workflow:'Delayed uploads and Room isolation',basicUploadDoesNotSeedPro:true,clearInvalidatesPendingUpload:true,independentRoomBackgrounds:true,clearInvalidatesPendingBackground:true})
  console.log(JSON.stringify({passed:results.length,results},null,2));writeFileSync(path.join(output,'results.json'),JSON.stringify(results,null,2));await page.close()
 }finally{await browser?.close();await server.close()}

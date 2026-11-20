@@ -1,13 +1,14 @@
 import { matGeometry, isMatBorders, type MatBorders } from './matGeometry'
-import type { MatSlot } from './visualizerMats'
+import type { RoomPreviewState } from './roomPreview'
+import { createMatSlots, type MatSlot } from './visualizerMats'
 export type OpeningShape = 'rect' | 'oval' | 'circle'
 export type DesignOpening = { id: string; shape: OpeningShape; xCm: number; yCm: number; widthCm: number; heightCm: number; imageUrl?: string }
 export type LayoutModel = 'single-board-v1' | 'shared-group-v1' | 'legacy-individual-v1'
 export const effectiveMatActivity = (mode: 'basic' | 'pro', model: LayoutModel, active: boolean[]) => active.map((enabled, i) => enabled && !(mode === 'pro' && model === 'single-board-v1' && i > 0))
 export type VisualizerDesign = {
-  version: 1; layoutModel: LayoutModel; mode: 'basic' | 'pro'
-  basic: { widthCm: number; heightCm: number; imageUrl: string }
-  pro: { origin: { x: number; y: number } | null; openings: DesignOpening[]; layout?: { widthCm: number; heightCm: number } }
+  version: 1 | 2; layoutModel: LayoutModel; mode: 'basic' | 'pro'
+  basic: { widthCm: number; heightCm: number; imageUrl: string; mats?: MatSlot[]; room?: RoomPreviewState; backdrop?: 'studio' | 'living' | 'gallery' | 'office' }
+  pro: { room?: RoomPreviewState; backdrop?: 'studio' | 'living' | 'gallery' | 'office'; origin: { x: number; y: number } | null; openings: DesignOpening[]; layout?: { widthCm: number; heightCm: number }; mat?: MatSlot; legacy?: { layoutModel: LayoutModel; mats: MatSlot[] } }
   mats: MatSlot[]
 }
 type Data = Record<string, unknown>
@@ -37,20 +38,41 @@ export function decodeVisualizerPreset(value: unknown): { state: Data; issue: st
     return model !== undefined && model !== 'single-board-v1' && model !== 'shared-group-v1' && model !== 'legacy-individual-v1' ? fail() : { state, issue: null }
   }
   const d = record(state.visualizerDesign), basic = record(d.basic), pro = record(d.pro)
-  if (d.version !== 1 || !['basic', 'pro'].includes(String(d.mode)) || !['single-board-v1', 'shared-group-v1', 'legacy-individual-v1'].includes(String(d.layoutModel)) ||
+  if ((typeof d.version !== 'number' || ![1, 2].includes(d.version)) || !['basic', 'pro'].includes(String(d.mode)) || !['single-board-v1', 'shared-group-v1', 'legacy-individual-v1'].includes(String(d.layoutModel)) ||
     ![basic.widthCm, basic.heightCm].every(n => typeof n === 'number' && Number.isFinite(n) && n > 0) || typeof basic.imageUrl !== 'string' ||
     !validPoint(pro.origin) || !Array.isArray(pro.openings) || !Array.isArray(d.mats) || d.mats.length !== 3) return fail()
   if (!d.mats.every(s => typeof record(s).materialId === 'string' && typeof record(s).locked === 'boolean' && isMatBorders(record(s).borders))) return fail()
   if (!validOpenings(pro.openings)) return fail()
   if (pro.layout !== undefined && ![record(pro.layout).widthCm, record(pro.layout).heightCm].every(n => typeof n === "number" && Number.isFinite(n) && n > 0)) return fail()
-  const art = d.mode === "pro" && pro.layout !== undefined ? { ...basic, ...record(pro.layout) } : basic
+  if (d.version === 1 && (basic.mats !== undefined || pro.mat !== undefined || pro.legacy !== undefined)) return fail()
+  if (d.version === 2) {
+    const validSlot = (value: unknown) => typeof record(value).materialId === 'string' && !!record(value).materialId && typeof record(value).locked === 'boolean' && isMatBorders(record(value).borders);
+    const validSlots = (value: unknown): value is MatSlot[] => Array.isArray(value) && value.length === 3 && value.every(validSlot);
+    const validRoom = (room: unknown) => {
+      const r = record(room), f = record(r.frame);
+      return typeof r.prompt === 'string' && typeof r.wallColor === 'string' && typeof r.showFloorLine === 'boolean' &&
+        (r.bgDataUrl === undefined || typeof r.bgDataUrl === 'string') &&
+        [r.brightness, f.x, f.y, f.scale, f.rotation].every(n => typeof n === 'number' && Number.isFinite(n)) && Number(f.scale) > 0;
+    };
+    if ([basic, pro].some(w => (w.room !== undefined && !validRoom(w.room)) || (w.backdrop !== undefined && !['studio', 'living', 'gallery', 'office'].includes(String(w.backdrop))))) return fail();
+    const backdrop = d.mode === 'basic' ? basic.backdrop : pro.backdrop;
+    if (state.backdrop !== undefined && backdrop !== undefined && !same(state.backdrop, backdrop)) return fail();
+    if (!validSlots(basic.mats) || !validSlot(pro.mat) || pro.layout === undefined) return fail();
+    const legacy = record(pro.legacy);
+    if (pro.legacy !== undefined && (!validSlots(legacy.mats) || !['single-board-v1', 'shared-group-v1', 'legacy-individual-v1'].includes(String(legacy.layoutModel)))) return fail();
+    const expected = d.mode === 'basic' ? basic.mats : pro.legacy !== undefined ? legacy.mats : [(pro.mat as MatSlot), ...createMatSlots().slice(1)];
+    if (!same(d.mats, expected) || d.layoutModel !== (d.mode === 'pro' && pro.legacy !== undefined ? legacy.layoutModel : 'single-board-v1')) return fail();
+  }
+  const art = d.version === 2
+    ? { widthCm: d.mode === 'pro' ? record(pro.layout).widthCm : basic.widthCm, heightCm: d.mode === 'pro' ? record(pro.layout).heightCm : basic.heightCm, imageUrl: d.mode === 'pro' ? '' : basic.imageUrl }
+    : d.mode === "pro" && pro.layout !== undefined ? { ...basic, ...record(pro.layout) } : basic
   const slots = d.mats as MatSlot[]
   const mats: Data = { geometryVersion: 3, layoutModel: d.layoutModel, mode: d.mode, proOrigin: pro.origin, openings: pro.openings,
     borders: slots.map(s => s.borders), locks: slots.map(s => s.locked), ...Object.fromEntries(slots.map((s, i) => [`selectedMat${i + 1}`, s.materialId])) }
   const oldArt = record(state.art), oldMats = record(state.mats)
   const oldDimensions = record(record(state.dims).art)
   if (['widthCm', 'heightCm'].some(key => oldDimensions[key] !== undefined && !same(oldDimensions[key], art[key])) ||
-    (state.artworkUrl !== undefined && !same(state.artworkUrl, basic.imageUrl))) return fail()
+    (state.artworkUrl !== undefined && !same(state.artworkUrl, art.imageUrl))) return fail()
   if (slots.some((slot, i) => {
     const enabled = effectiveMatActivity(d.mode as 'basic' | 'pro', d.layoutModel as LayoutModel, slots.map(s => s.materialId !== 'mat0'))[i], nested = record(oldMats[`mat${i + 1}`])
     return (oldMats[`hasMat${i + 1}`] !== undefined && oldMats[`hasMat${i + 1}`] !== enabled) ||

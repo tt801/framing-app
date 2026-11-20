@@ -1,7 +1,8 @@
 ﻿// src/VisualizerApp.tsx
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { matGeometry, restoreMatBorders, MAT_GEOMETRY_VERSION, MAT_COINCIDENT_REVIEW_ISSUE, matSides, type MatBorders } from '@/lib/matGeometry';
-import { matColour, createMatSlots, selectMatMaterial, editMatSide, restoreMatLocks, matDisplayValue, matPhysicalValue, matUnit } from '@/lib/visualizerMats';
+import { createRoomPreview, loadRoomPreview, type RoomPreviewState } from '@/lib/roomPreview';
+import { matColour, createMatSlots, selectMatMaterial, editMatSide, restoreMatLocks, matDisplayValue, matPhysicalValue, matUnit, type MatSlot } from '@/lib/visualizerMats';
 import { effectiveMatActivity, visualizerScene, layoutDimensionForExternal, decodeVisualizerPreset, type VisualizerDesign, type LayoutModel } from '@/lib/visualizerScene';
 
 const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({
@@ -334,12 +335,14 @@ export default function VisualizerApp() {
 
   const [basicWcm, setBasicWcm] = useState(40);
   const [basicHcm, setBasicHcm] = useState(30);
-  const [proLayoutSize, setProLayoutSize] = useState<{ widthCm: number; heightCm: number } | null>(null);
-  const artWcm = mode === 'pro' ? proLayoutSize?.widthCm ?? basicWcm : basicWcm;
-  const artHcm = mode === 'pro' ? proLayoutSize?.heightCm ?? basicHcm : basicHcm;
-  const setArtWcm = (widthCm: number) => mode === 'pro' ? setProLayoutSize(s => ({ widthCm, heightCm: s?.heightCm ?? basicHcm })) : setBasicWcm(widthCm);
-  const setArtHcm = (heightCm: number) => mode === 'pro' ? setProLayoutSize(s => ({ heightCm, widthCm: s?.widthCm ?? basicWcm })) : setBasicHcm(heightCm);
+  const [proLayoutSize, setProLayoutSize] = useState<{ widthCm: number; heightCm: number }>({ widthCm: 40, heightCm: 30 });
+  const artWcm = mode === 'pro' ? proLayoutSize.widthCm : basicWcm;
+  const artHcm = mode === 'pro' ? proLayoutSize.heightCm : basicHcm;
+  const setArtWcm = (widthCm: number) => mode === 'pro' ? setProLayoutSize(s => ({ widthCm, heightCm: s.heightCm })) : setBasicWcm(widthCm);
+  const setArtHcm = (heightCm: number) => mode === 'pro' ? setProLayoutSize(s => ({ heightCm, widthCm: s.widthCm })) : setBasicHcm(heightCm);
   const [artworkUrl, setArtworkUrl] = useState<string>("");
+  const workspaceEpoch = useRef({ basic: 0, pro: 0 });
+  const roomEpoch = useRef(0);
   // Composite framed preview for RoomMockup
   const [roomArtworkUrl, setRoomArtworkUrl] = useState<string>("");
 
@@ -348,12 +351,28 @@ export default function VisualizerApp() {
   const [faceAuto, setFaceAuto] = useState<boolean>(true);
   const [faceWidthCm, setFaceWidthCm] = useState(2.0);
 
-  const [matSlots, setMatSlots] = useState(createMatSlots);
+  const [basicMatSlots, setBasicMatSlots] = useState(createMatSlots);
+  type Backdrop = "studio" | "living" | "gallery" | "office";
+  const [basicBackdrop, setBasicBackdrop] = useState<Backdrop>('studio');
+  const [proBackdrop, setProBackdrop] = useState<Backdrop>('studio');
+  const backdrop = mode === 'basic' ? basicBackdrop : proBackdrop;
+  const setBackdrop = mode === 'basic' ? setBasicBackdrop : setProBackdrop;
+  const [basicRoom, setBasicRoom] = useState<RoomPreviewState>(() => loadRoomPreview());
+  const [proRoom, setProRoom] = useState<RoomPreviewState>(() => createRoomPreview());
+  const [proMatSlots, setProMatSlots] = useState(createMatSlots);
+  const [proLegacy, setProLegacy] = useState<VisualizerDesign['pro']['legacy']>();
+  const matSlots = mode === 'basic' ? basicMatSlots : proLegacy?.mats ?? proMatSlots;
+  const setMatSlots = (update: React.SetStateAction<MatSlot[]>) => {
+    const setter = mode === 'basic' ? setBasicMatSlots : setProMatSlots;
+    setter(update);
+  };
   const [selectedMat1, selectedMat2, selectedMat3] = matSlots.map(slot => slot.materialId);
   const borders = useMemo(() => matSlots.map(slot => slot.borders), [matSlots]);
-  const [layoutModel, setLayoutModel] = useState<LayoutModel>("single-board-v1");
+  const layoutModel: LayoutModel = mode === 'pro' && proLegacy ? proLegacy.layoutModel : 'single-board-v1';
   const [reviewableMats, setReviewableMats] = useState(false);
-  const [matRestoreIssue, setMatRestoreIssue] = useState<string | null>(null);
+  const [basicMatIssue, setBasicMatIssue] = useState<string | null>(null);
+  const [proMatIssue, setProMatIssue] = useState<string | null>(null);
+  const matRestoreIssue = mode === 'basic' ? basicMatIssue : proMatIssue;
   const [designLoadIssue, setDesignLoadIssue] = useState<string | null>(null);
 
   const [showMat2, setShowMat2] = useState(false);
@@ -368,12 +387,11 @@ export default function VisualizerApp() {
   const origin = geometry.layoutOrigin;
   const { layoutWidth, layoutHeight } = geometry;
   const legacyLayoutIssue = geometry.legacyBoundsIssue;
-  const historicalPro = mode === 'pro' && layoutModel !== 'single-board-v1';
+  const historicalPro = mode === 'pro' && !!proLegacy;
   const historicalProIssue = historicalPro ? 'Historical Pro design preserved. Review and adopt the single-board layout before editing, pricing, saving or exporting a new copy.' : null;
-  const totalBorder = geometry.total.left;
   const proOffset = geometry.offset;
-  const visualizerDesign: VisualizerDesign = { version: 1, layoutModel, mode, basic: { widthCm: basicWcm, heightCm: basicHcm, imageUrl: artworkUrl },
-    pro: { origin: proOrigin, openings, ...(proLayoutSize ? { layout: proLayoutSize } : {}) }, mats: matSlots };
+  const visualizerDesign: VisualizerDesign = { version: 2, layoutModel, mode, basic: { widthCm: basicWcm, heightCm: basicHcm, imageUrl: artworkUrl, mats: basicMatSlots, room: basicRoom, backdrop: basicBackdrop },
+    pro: { room: proRoom, backdrop: proBackdrop, origin: proOrigin, openings, mat: proMatSlots[0], layout: proLayoutSize, ...(proLegacy ? { legacy: proLegacy } : {}) }, mats: matSlots };
 
   // Pro mode openings are stored unchanged in their saved coordinate space.
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(
@@ -568,8 +586,9 @@ export default function VisualizerApp() {
 
   // Keep a dataURL of the framed preview for the room mockup
   useEffect(() => {
-    // If there's no artwork at all, clear the room preview too
-    if (!artworkUrl && !openings.some(o => o.imageUrl)) {
+    const epoch = ++roomEpoch.current;
+    // Only the active workspace can contribute content or refresh a Room capture.
+    if (!(mode === 'basic' ? artworkUrl : openings.length) && !hasMat1 && !hasMat2 && !hasMat3) {
       setRoomArtworkUrl("");
       return;
     }
@@ -583,7 +602,7 @@ export default function VisualizerApp() {
           cacheBust: true,
           filter: node => !(node instanceof Element && node.hasAttribute('data-html2canvas-ignore')),
         });
-        if (!cancelled) {
+        if (!cancelled && roomEpoch.current === epoch) {
           setRoomArtworkUrl(dataUrl);
         }
       } catch (err) {
@@ -591,7 +610,7 @@ export default function VisualizerApp() {
           "[Visualizer] Failed to capture preview for room mockup",
           err
         );
-        if (!cancelled) {
+        if (!cancelled && roomEpoch.current === epoch) {
           setRoomArtworkUrl("");
         }
       }
@@ -1002,11 +1021,6 @@ export default function VisualizerApp() {
     notes: "",
   });
 
-  // ---------- Backdrop ----------
-  type Backdrop = "studio" | "living" | "gallery" | "office";
-
-  const [backdrop, setBackdrop] = useState<Backdrop>("studio");
-
   const sortedCustomers = useMemo(() => {
     const arr = [...(customers || [])] as any[];
     return arr.sort((a, b) =>
@@ -1069,48 +1083,39 @@ export default function VisualizerApp() {
     return result.customer.id;
   }
 
-  // FileReader may finish after a mode/layout change; initialize from the current design.
-  const proLayoutRef = useRef({ mode, layoutModel, openings, artWcm, artHcm, totalBorder, topBorder: geometry.total.top });
-  proLayoutRef.current = { mode, layoutModel, openings, artWcm, artHcm, totalBorder, topBorder: geometry.total.top };
-
-  // Seed only an unassigned first opening (or an empty layout), including a late FileReader.
-  // Historical Pro layouts require explicit adoption; never overwrite an assigned image.
-  function initializeProOpening(imageUrl: string, adopting = false) {
-    const layout = proLayoutRef.current;
-    if (!imageUrl || (layout.layoutModel !== 'single-board-v1' && !adopting)) return;
-    if (layout.openings.length) {
-      if (!layout.openings[0].imageUrl) setOpenings(current => current.map((opening, i) => i === 0 && !opening.imageUrl ? { ...opening, imageUrl } : opening));
-      return;
-    }
-    setProOrigin({ x: layout.totalBorder, y: layout.topBorder });
-    const opening: MatOpening = { id: rid(), shape: 'rect', xCm: layout.totalBorder, yCm: layout.topBorder,
-      widthCm: layout.artWcm, heightCm: layout.artHcm, imageUrl };
-    setOpenings(current => current.length ? current : [opening]);
-  }
-
   function chooseMatMaterial(index: number, materialId: string) {
     setMatSlots(current => mode === 'pro' && layoutModel === 'single-board-v1'
       ? current.map((slot, i) => i === index && i === 0 ? { ...slot, materialId } : slot)
       : selectMatMaterial(current, index, materialId));
   }
 
-  function changeMatMode(next: 'basic' | 'pro') {
-    if (next === 'pro') {
-      if (!proLayoutSize) setProLayoutSize({ widthCm: basicWcm, heightCm: basicHcm });
-      if (!proOrigin) setProOrigin({ x: geometry.total.left, y: geometry.total.top });
-      initializeProOpening(artworkUrl);
-    }
-    setMode(next);
+  function resetInteraction() {
+    roomEpoch.current++;
+    setDrag(null); setSelectedOpeningId(null); setHoveredOpeningId(null); setHandleOpeningId(null); setHandlePhase('hidden'); setOpeningImageTargetId(null);
+    setRoomArtworkUrl('');
+  }
+  function changeMatMode(next: 'basic' | 'pro') { resetInteraction(); setMode(next); }
+  function clearWorkspace() {
+    workspaceEpoch.current[mode]++;
+    resetInteraction();
+    if (mode === 'basic') { setArtworkUrl(''); setBasicMatSlots(slots => slots.map(s => ({ ...s, materialId: 'mat0' }))); setBasicMatIssue(null); setBasicRoom(createRoomPreview()); setBasicBackdrop('studio'); setShowMat2(false); setShowMat3(false); }
+    else { setOpenings([]); setProMatSlots(createMatSlots()); setProOrigin(null); setProLegacy(undefined); setProMatIssue(null); setProRoom(createRoomPreview()); setProBackdrop('studio'); }
+  }
+  function adoptProWorkspace() {
+    if (!proLegacy) return;
+    setProMatSlots([structuredClone(proLegacy.mats[0]), ...createMatSlots().slice(1)]);
+    setProLegacy(undefined); setProMatIssue(null); setReviewableMats(false); resetInteraction();
   }
 
   // ---------- Image upload ----------
   function onPickImage(file?: File | null) {
     if (!file) return;
+    const epoch = workspaceEpoch.current.basic;
     const reader = new FileReader();
     reader.onload = () => {
+      if (workspaceEpoch.current.basic !== epoch) return;
       const imageUrl = String(reader.result || "");
       setArtworkUrl(imageUrl);
-      if (proLayoutRef.current.mode === 'pro') initializeProOpening(imageUrl);
     };
     reader.readAsDataURL(file);
   }
@@ -1123,10 +1128,11 @@ export default function VisualizerApp() {
   }
 
   function handleOpeningImageSelected(file?: File | null) {
-    if (!file || !openingImageTargetId) return;
-
+    if (!file || !openingImageTargetId || historicalPro) return;
+    const epoch = workspaceEpoch.current.pro;
     const reader = new FileReader();
     reader.onload = () => {
+      if (workspaceEpoch.current.pro !== epoch) return;
       const url = String(reader.result || "");
       setOpenings((arr) =>
         arr.map((o) =>
@@ -1377,7 +1383,7 @@ export default function VisualizerApp() {
       visualizerDesign,
       customer: customerSnapshot || {},
       artwork: {
-        imageUrl: artworkUrl,
+        imageUrl: mode === 'basic' ? artworkUrl : '',
         widthCm: Number(artWcm),
         heightCm: Number(artHcm),
         visibleWidthCm: Number(visibleWcm),
@@ -1560,7 +1566,7 @@ export default function VisualizerApp() {
       visualizerDesign,
       unit,
       sizeMode,
-      art: { widthCm: artWcm, heightCm: artHcm, imageUrl: artworkUrl },
+      art: { widthCm: artWcm, heightCm: artHcm, imageUrl: mode === 'basic' ? artworkUrl : '' },
       frame: {
         id: selectedFrame,
         faceAuto,
@@ -1593,13 +1599,14 @@ export default function VisualizerApp() {
       const decoded = decodeVisualizerPreset(p.state);
       if (decoded.issue) { setDesignLoadIssue(decoded.issue); toast(decoded.issue, "error", 0); return; }
       setDesignLoadIssue(null);
+      workspaceEpoch.current.basic++; workspaceEpoch.current.pro++; resetInteraction();
       const s = decoded.state as any;
       setUnit(s.unit === "imperial" ? "imperial" : "metric");
       setSizeMode(s.sizeMode === "frame" ? "frame" : "image");
       setBasicWcm(Number(s?.visualizerDesign?.basic?.widthCm ?? s?.art?.widthCm) || 40);
       setBasicHcm(Number(s?.visualizerDesign?.basic?.heightCm ?? s?.art?.heightCm) || 30);
-      setProLayoutSize(s?.visualizerDesign?.pro?.layout ?? (s?.mats?.mode === 'pro' || s?.mats?.openings?.length ? { widthCm: Number(s?.art?.widthCm) || 40, heightCm: Number(s?.art?.heightCm) || 30 } : null));
-      setArtworkUrl(String(s?.art?.imageUrl || ""));
+      setProLayoutSize(s?.visualizerDesign?.pro?.layout ?? (s?.mats?.mode === 'pro' || s?.mats?.openings?.length ? { widthCm: Number(s?.art?.widthCm) || 40, heightCm: Number(s?.art?.heightCm) || 30 } : { widthCm: 40, heightCm: 30 }));
+      setArtworkUrl(String(s?.visualizerDesign?.basic?.imageUrl ?? s?.art?.imageUrl ?? ""));
       setSelectedFrame(String(s?.frame?.id || defaultFrameId));
       setFaceAuto(Boolean(s?.frame?.faceAuto));
       if (
@@ -1613,13 +1620,22 @@ export default function VisualizerApp() {
         setTextureScalePct(Number(s.frame.textureScalePct));
       }
 
-      setLayoutModel(s?.mats?.layoutModel === 'single-board-v1' ? 'single-board-v1' : s?.mats?.layoutModel === 'shared-group-v1' ? 'shared-group-v1' : 'legacy-individual-v1');
       const active = [s?.mats?.selectedMat1, s?.mats?.selectedMat2, s?.mats?.selectedMat3].map(id => !!id && id !== 'mat0');
       const restored = restoreMatBorders(s?.mats, active);
       const locks = restoreMatLocks(restored.borders, s?.mats?.locks);
-      setMatSlots(restored.borders.map((borders, i) => ({ borders, locked: locks[i], materialId: String(s?.mats?.[`selectedMat${i + 1}`] || "mat0") })));
-      setReviewableMats(restored.issue === MAT_COINCIDENT_REVIEW_ISSUE);
-      setMatRestoreIssue(restored.issue);
+      const restoredSlots = restored.borders.map((borders, i) => ({ borders, locked: locks[i], materialId: String(s?.mats?.[`selectedMat${i + 1}`] || "mat0") }));
+      const independent = s?.visualizerDesign?.version === 2;
+      const basicSlots: MatSlot[] = independent ? s.visualizerDesign.basic.mats : restoredSlots;
+      const hasSavedPro = s?.mats?.mode === 'pro' || s?.mats?.openings?.length > 0 || !!s?.visualizerDesign?.pro?.layout;
+      const legacy = independent ? s.visualizerDesign.pro.legacy : hasSavedPro
+        ? { layoutModel: s?.mats?.layoutModel ?? 'legacy-individual-v1', mats: structuredClone(restoredSlots) } : undefined;
+      setBasicMatSlots(basicSlots);
+      setProMatSlots(independent ? [s.visualizerDesign.pro.mat, ...createMatSlots().slice(1)] : createMatSlots());
+      setProLegacy(legacy);
+      const issueFor = (slots: MatSlot[]) => restoreMatBorders({ geometryVersion: MAT_GEOMETRY_VERSION, borders: slots.map(slot => slot.borders) }, slots.map(slot => slot.materialId !== 'mat0')).issue;
+      setBasicMatIssue(independent ? issueFor(basicSlots) : restored.issue);
+      const proIssue = legacy ? (independent ? issueFor(legacy.mats) : restored.issue) : null;
+      setProMatIssue(proIssue); setReviewableMats(proIssue === MAT_COINCIDENT_REVIEW_ISSUE);
       const restoredGeometry = matGeometry(Number(s?.art?.widthCm) || 40, Number(s?.art?.heightCm) || 30, 0, restored.borders, active);
       setProOrigin(s?.mats?.proOrigin === null ? null : s?.mats?.proOrigin && Number.isFinite(s.mats.proOrigin.x) && Number.isFinite(s.mats.proOrigin.y)
         ? s.mats.proOrigin : { x: restoredGeometry.total.left, y: restoredGeometry.total.top });
@@ -1648,13 +1664,10 @@ export default function VisualizerApp() {
       ); // note: we store id here
       setIncludeBacker(Boolean(s?.backer?.includeBacker));
       setBackerMaterialId(typeof s?.backer?.materialId === 'string' ? s.backer.materialId : '__legacy_foam__');
-      setBackdrop(
-        (
-          ["studio", "living", "gallery", "office"] as const
-        ).includes(s?.backdrop)
-          ? s.backdrop
-          : "studio"
-      );
+      const savedBackdrop = ['studio', 'living', 'gallery', 'office'].includes(s?.backdrop) ? s.backdrop : 'studio';
+      setBasicBackdrop(s?.visualizerDesign?.basic?.backdrop ?? (s?.mats?.mode === 'basic' ? savedBackdrop : 'studio'));
+      setProBackdrop(s?.visualizerDesign?.pro?.backdrop ?? (s?.mats?.mode === 'pro' ? savedBackdrop : 'studio'));
+      setBasicRoom(s?.visualizerDesign?.basic?.room ?? createRoomPreview()); setProRoom(s?.visualizerDesign?.pro?.room ?? createRoomPreview());
     } catch (e) {
       console.error("Failed to apply preset", e);
       toast("Could not apply this preset. It may be from an older version.", "error");
@@ -1844,7 +1857,7 @@ export default function VisualizerApp() {
               })}
             </div>
 
-            <div className="mt-3 flex items-center gap-2">
+            {mode === 'basic' && <div className="mt-3 flex items-center gap-2">
               <label
                 htmlFor="artUpload"
                 className="cursor-pointer rounded-lg border border-emerald-300 px-3 py-2 text-sm hover:bg-emerald-600 hover:text-white transition"
@@ -1860,15 +1873,9 @@ export default function VisualizerApp() {
                   onPickImage(e.target.files?.[0] || null)
                 }
               />
+              <button type="button" onClick={clearWorkspace} className="rounded-lg border px-3 py-2 text-sm">Clear Basic</button>
               {artworkUrl && (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => setArtworkUrl("")}
-                    className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-900 hover:text-white"
-                  >
-                    Clear
-                  </button>
                   <img
                     src={artworkUrl}
                     alt="art-thumb"
@@ -1876,7 +1883,7 @@ export default function VisualizerApp() {
                   />
                 </>
               )}
-            </div>
+            </div>}
           </Panel>
 
           {supplierSelectionIssue && (
@@ -1999,16 +2006,15 @@ export default function VisualizerApp() {
             </div>
 
             {(matRestoreIssue || geometry.issue) && <p role="status" className="text-sm text-amber-800">{matRestoreIssue || geometry.issue}</p>}
-            <p className="text-xs text-slate-500">Each side is incremental: Mat 1 is relative to the artwork/layout opening; Mat 2 is relative to Mat 1’s inner edge; Mat 3 is relative to Mat 2’s inner edge. Enabled contributions are added on each side.</p>
+            {mode === 'basic' && <p className="text-xs text-slate-500">Each side is incremental: Mat 1 is relative to the artwork/layout opening; Mat 2 is relative to Mat 1’s inner edge; Mat 3 is relative to Mat 2’s inner edge. Enabled contributions are added on each side.</p>}
             {mode === 'basic' && !artworkUrl && openings.some(o => !!o.imageUrl) && <p className="text-xs text-slate-500 mb-2">Basic has no original artwork. Your Pro openings and images are retained; switch to Pro to view them.</p>}
-            {layoutModel !== 'single-board-v1' && <div role="status" className="rounded border p-2 text-xs text-amber-900">
-              <p>Historical Pro configuration preserved. Adopt the single-board pilot explicitly to deactivate decorative mats in Pro. Opening coordinates, images and Basic mat settings are retained. Review the changed dimensions and save a new copy.</p>
+            {historicalPro && <div role="status" className="rounded border p-2 text-xs text-amber-900">
+              <p>Historical Pro configuration preserved. Adopt an independent single-board copy explicitly. Opening coordinates, images and Basic mat settings are retained. Review the changed dimensions and save a new copy.</p>
               <button type="button" className="rounded border p-2 mt-2" disabled={!!matRestoreIssue && !reviewableMats}
-                onClick={() => { setLayoutModel('single-board-v1'); setMatRestoreIssue(null); setReviewableMats(false); if (mode === 'pro') initializeProOpening(artworkUrl, true); }}>Review and adopt single-board layout</button>
+                onClick={adoptProWorkspace}>Review and adopt single-board layout</button>
             </div>}
             <fieldset disabled={historicalPro}>
-            {matSlots.map((slot, index) => {
-              if (mode === 'pro' && layoutModel === 'single-board-v1' && index > 0) return null;
+            {mode === 'basic' && matSlots.map((slot, index) => {
               const shown = index === 0 || (index === 1 ? showMat2 : showMat3) || slot.materialId !== 'mat0';
               if (!shown) return <button key={index} type="button" className="mt-3 rounded-lg border border-dashed px-3 py-2 text-sm"
                 onClick={() => index === 1 ? setShowMat2(true) : setShowMat3(true)}>+ Add {index === 1 ? 'second' : 'third'} mat</button>;
@@ -2104,6 +2110,24 @@ export default function VisualizerApp() {
                   </button>
                 </div>
 
+                <div className="space-y-2 mb-3">
+                  <label className="block text-sm font-medium">Pro mat</label>
+                  <select aria-label="Pro mat material" className="w-full rounded-lg border p-2 bg-white text-sm" value={selectedMat1}
+                    onChange={e => chooseMatMaterial(0, e.target.value)}>
+                    {selectedMat1 !== 'mat0' && !mat1 && <option value={selectedMat1} disabled>Unavailable mat — select a material</option>}
+                    <option value="mat0">None</option>
+                    {(catalog?.mats || []).filter(m => m.id !== 'mat0' && !m.id.startsWith('supplier:')).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                  {selectedMat1 !== 'mat0' && <>
+                    <div className="flex gap-2">
+                      <button type="button" aria-label={`${matSlots[0].locked ? 'Unlock' : 'Lock'} Pro mat borders`} className="rounded border px-2 py-1 text-xs"
+                        onClick={() => setMatSlots(slots => slots.map((s, i) => i === 0 ? { ...s, locked: !s.locked } : s))}>{matSlots[0].locked ? 'Locked' : 'Unlocked'}</button>
+                      <button type="button" aria-label="Remove Pro mat" className="rounded border px-2 py-1 text-xs" onClick={() => chooseMatMaterial(0, 'mat0')}>Remove</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">{matSides.map(side => <BorderInput key={`${side}-${unit}`} label={`Pro mat ${side[0].toUpperCase() + side.slice(1)} (${matUnit(0, unit)})`}
+                      value={Number(matDisplayValue(borders[0][side], 0, unit).toFixed(6))} onChange={value => handleMatBorderChange(0, side, matPhysicalValue(value, 0, unit))} />)}</div>
+                  </>}
+                </div>
                 <div className="space-y-1 max-h-40 overflow-auto pr-1">
                   {openings.map((o, index) => (
                     <div
@@ -2185,6 +2209,7 @@ export default function VisualizerApp() {
             )}
 
             </fieldset>
+            {mode === 'pro' && <button type="button" onClick={clearWorkspace} className="rounded-lg border px-3 py-2 text-sm mt-2">Clear Pro</button>}
             {/* Backer inside Mat panel */}
             <div className="mt-3 border-t border-slate-200 pt-3">
               <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -2656,14 +2681,16 @@ export default function VisualizerApp() {
                     </select>
                   </div>
 
-                  <RoomMockup
+                  <RoomMockup key={`${mode}:${workspaceEpoch.current[mode]}`}
+                    workspaceState={mode === 'basic' ? basicRoom : proRoom}
+                    onWorkspaceStateChange={mode === 'basic' ? setBasicRoom : setProRoom}
                     compositeIncludesOpenings
-                    artworkUrl={roomArtworkUrl || artworkUrl}
+                    artworkUrl={roomArtworkUrl || (mode === 'basic' ? artworkUrl : '')}
                     openings={mode === 'pro' ? openings.map(o => ({ ...o,
                       xCm: o.xCm + proOffset.x + faceWidthCm, yCm: o.yCm + proOffset.y + faceWidthCm })) : undefined}
                     artSizeCm={{ widthCm: outerWcm, heightCm: outerHcm }}
-                    onOpeningsChange={next => setOpenings(next.map(o => ({ ...o,
-                      xCm: o.xCm - proOffset.x - faceWidthCm, yCm: o.yCm - proOffset.y - faceWidthCm })))}
+                    onOpeningsChange={next => { if (historicalPro) return; setOpenings(next.map(o => ({ ...o,
+                      xCm: o.xCm - proOffset.x - faceWidthCm, yCm: o.yCm - proOffset.y - faceWidthCm }))); }}
                     backdrop={backdrop}
                   />
                 </div>

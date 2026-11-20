@@ -10,6 +10,29 @@ const job = () => ({ description: 'Shared layout', jobType: 'internal', total: 1
   dims: { art: { widthCm: 40, heightCm: 30 }, frameFaceWidthCm: 2 },
   mats: { geometryVersion: 3, layoutModel: 'shared-group-v1', mode: 'pro', proOrigin: { x: 8, y: 8 }, openings, borders: mats.map(s => s.borders), hasMat1: true, hasMat2: true, hasMat3: true,
     mat1: { id: 'a', borders: mats[0].borders }, mat2: { id: 'b', borders: mats[1].borders }, mat3: { id: 'c', borders: mats[2].borders } } } })
+it.each(['basic', 'pro'] as const)('synchronises only the active %s workspace during workshop edits without repricing', mode => {
+  const old = job(), activeMats = mode === 'basic' ? mats : createMatSlots(['a'])
+  const original = { ...old, details: { ...old.details,
+    visualizerDesign: { ...old.details.visualizerDesign, version: 2, mode, layoutModel: 'single-board-v1', mats: activeMats,
+      basic: { ...old.details.visualizerDesign.basic, mats }, pro: { ...old.details.visualizerDesign.pro, mat: createMatSlots(['a'])[0], layout: { widthCm: 40, heightCm: 30 } } },
+    mats: { ...old.details.mats, mode, layoutModel: 'single-board-v1', borders: activeMats.map(s => s.borders), hasMat2: mode === 'basic', hasMat3: mode === 'basic', mat2: mode === 'basic' ? old.details.mats.mat2 : null, mat3: mode === 'basic' ? old.details.mats.mat3 : null } } }
+  const draft = jobDetailsDraft(original as never); draft.spec.mat1Left = '7'
+  const saved = buildJobDetails(draft, [], original as never), design = saved.details!.visualizerDesign
+  expect(decodeVisualizerPreset(saved.details).issue).toBeNull()
+  if (mode === 'basic') { expect(design.basic.mats[0].borders.left).toBe(7); expect(design.pro).toEqual(original.details.visualizerDesign.pro) }
+  else { expect(design.pro.mat.borders.left).toBe(7); expect(design.basic).toEqual(original.details.visualizerDesign.basic) }
+  expect([saved.subtotal, saved.tax, saved.total, saved.pricingSnapshot]).toEqual([original.subtotal, original.tax, original.total, original.pricingSnapshot])
+})
+it('blocks retained legacy workspace geometry edits but allows notes-only saves', () => {
+  const old = job()
+  const original = { ...old, details: { ...old.details, visualizerDesign: { ...old.details.visualizerDesign, version: 2,
+    basic: { ...old.details.visualizerDesign.basic, mats }, pro: { ...old.details.visualizerDesign.pro, mat: createMatSlots()[0], layout: { widthCm: 40, heightCm: 30 }, legacy: { layoutModel: 'shared-group-v1', mats } } } } }
+  expect(decodeVisualizerPreset(original.details).issue).toBeNull()
+  const draft = jobDetailsDraft(original as never); draft.spec.mat1Left = '7'
+  expect(() => buildJobDetails(draft, [], original as never)).toThrow(/review/i)
+  const notes = jobDetailsDraft(original as never); notes.notes = 'Retain agreement'
+  expect(buildJobDetails(notes, [], original as never).details).toEqual(original.details)
+})
 it('edits a single-board workshop snapshot without enabling or losing retained Basic mats or repricing', () => {
   const old = job()
   const original = { ...old, details: { ...old.details, visualizerDesign: { ...old.details.visualizerDesign, layoutModel: 'single-board-v1' },

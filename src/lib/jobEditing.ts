@@ -137,6 +137,9 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
     }
     const geometryChanged = changedFields.some(field => /^mat[123](State|Border|Top|Bottom|Left|Right)$/.test(field.key) || ['artWidth', 'artHeight', 'faceWidth'].includes(field.key))
     const oldGeometry = jobMatState(current ?? {})
+    const workspaceSnapshot = savedJobDetails(current ?? {}).visualizerDesign
+    if (geometryChanged && isRecord(workspaceSnapshot) && workspaceSnapshot.version === 2 && workspaceSnapshot.mode === 'pro' && isRecord(workspaceSnapshot.pro) && workspaceSnapshot.pro.legacy !== undefined)
+      throw new Error('Historical Pro workspace needs explicit review and adoption before geometry edits.')
     if (oldGeometry.mats.mode === 'pro' && oldGeometry.mats.layoutModel === 'single-board-v1' && changedFields.some(field => /^mat[23]/.test(field.key)))
       throw new Error('Decorative mats are inactive in Pro; retain their Basic settings unchanged.')
     if (geometryChanged && savedJobDetails(current ?? {}).visualizerDesign !== undefined) {
@@ -190,6 +193,10 @@ export function buildJobDetails(draft: JobDetailsDraft, customers: Customer[], c
           if (mats[`selectedMat${i + 1}`] !== undefined) mats[`selectedMat${i + 1}`] = materialId
           return { ...slot, borders: { ...increments[i] }, materialId }
         })
+        if (design.version === 2) {
+          if (design.mode === 'basic') design.basic.mats = copy(design.mats)
+          else design.pro.mat = copy(design.mats[0])
+        }
         result.details.visualizerDesign = design
         result.visualizerDesign = copy(design)
       }

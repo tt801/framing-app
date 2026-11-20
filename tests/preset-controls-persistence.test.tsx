@@ -4,6 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PresetControls from '@/components/PresetControls'
 import { BillingAccessProvider, type BillingAccess } from '@/lib/billingAccess'
 import { useToast } from '@/lib/toast'
+import { createRoomPreview } from '@/lib/roomPreview'
+import type { VisualizerDesign } from '@/lib/visualizerScene'
+import { independentFixture } from './helpers/visualizerWorkspaceFixture'
 import { decodeVisualizerPreset } from '@/lib/visualizerScene'
 
 const db = vi.hoisted(() => ({ rpc: vi.fn(), rows: new Map<string, any[]>() }))
@@ -27,7 +30,7 @@ const legacyDesign = { art: { widthCm: 40, heightCm: 30, imageUrl: 'data:saved-a
 const design = { ...legacyDesign, mats: { ...legacyDesign.mats, layoutModel: 'shared-group-v1', locks: [false, false, true] }, visualizerDesign: { version: 1, layoutModel: 'shared-group-v1', mode: 'pro', basic: legacyDesign.art, pro: { origin: legacyDesign.mats.proOrigin, openings: legacyDesign.mats.openings }, mats: legacyDesign.mats.borders.map((borders, i) => ({ materialId: ['m1', 'm2', 'mat0'][i], borders, locked: i === 2 })) } }
 const access = (companyAccountId: string): BillingAccess => ({ readOnly: false, hasFullAccess: true, canUsePremiumFeatures: true, isFounder: false, isPastDue: false, statusMessage: '', companyAccountId, companyName: 'Same name', userId: 'user' })
 const row = (name: string) => ({ id: name, name, state: design, created_at: '2026-11-01T00:00:00Z', revision: 1 })
-const view = (company = 'company-a', customer = 'customer-a') => <BillingAccessProvider value={access(company)}><PresetControls companyName="Same name" customerKey={customer} hasSavedCustomer ensureCustomerId={async () => customer} currentState={design} onApply={vi.fn()} /></BillingAccessProvider>
+const view = (company = 'company-a', customer = 'customer-a', currentState: Record<string, unknown> = design) => <BillingAccessProvider value={access(company)}><PresetControls companyName="Same name" customerKey={customer} hasSavedCustomer ensureCustomerId={async () => customer} currentState={currentState} onApply={vi.fn()} /></BillingAccessProvider>
 async function start() {
   fireEvent.click(screen.getByRole('button', { name: 'Save preset' }))
   const input = await screen.findByRole('textbox', { name: 'Preset name' })
@@ -78,13 +81,18 @@ it('retains the existing hook list update and RPC payload on confirmed success',
   expect(useToast.getState().toasts[0]?.message).toBe('Preset saved.')
 })
 
-it('reloads the persisted versioned mat design through the real hook without losing inactive sides or opening images', async () => {
+it.each(['legacy', 'independent'])('reloads the persisted %s design through the real hook without losing either workspace', async kind => {
+  const native = independentFixture({ ...legacyDesign, mats: { ...legacyDesign.mats, layoutModel: 'single-board-v1' } })
+  const workspaces = native.visualizerDesign as VisualizerDesign
+  const savedDesign = kind === 'legacy' ? design : { ...native, backdrop: 'gallery', visualizerDesign: { ...workspaces,
+    basic: { ...workspaces.basic, room: { ...createRoomPreview(), bgDataUrl: 'data:basic-room' }, backdrop: 'office' },
+    pro: { ...workspaces.pro, room: { ...createRoomPreview(), bgDataUrl: 'data:pro-room' }, backdrop: 'gallery' } } }
   db.rpc.mockImplementation(async (_name: string, args: { p_state: typeof design; p_name: string }) => {
     const saved = { ...row(args.p_name), state: structuredClone(args.p_state) }
     db.rows.set('company-a:customer-a', [saved])
     return { data: saved, error: null }
   })
-  const first = render(view()); await start()
+  const first = render(view('company-a', 'customer-a', savedDesign)); await start()
   await screen.findByText('Persisted design')
   first.unmount()
   const apply = vi.fn()
@@ -92,11 +100,11 @@ it('reloads the persisted versioned mat design through the real hook without los
     ensureCustomerId={async () => 'customer-a'} currentState={{}} onApply={apply} /></BillingAccessProvider>)
   await screen.findByText('Persisted design')
   fireEvent.click(screen.getByRole('button', { name: 'Load' }))
-  expect(apply).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: design }))
+  expect(apply).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: savedDesign }))
   expect(db.rpc).toHaveBeenCalledTimes(1)
   const loaded = decodeVisualizerPreset(apply.mock.calls[0][0].state)
   expect(loaded.issue).toBeNull()
-  expect(loaded.state.visualizerDesign).toEqual(design.visualizerDesign)
+  expect(loaded.state.visualizerDesign).toEqual(savedDesign.visualizerDesign)
 })
 
 it('deletes only the confirmed ID and revision, updates the list, and focuses the stable panel action', async () => {
